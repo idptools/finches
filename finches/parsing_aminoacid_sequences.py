@@ -13,14 +13,45 @@ by: Garrett M. Ginell
 
 updated: 2022-07-22
 """
-from .sequence_tools import MASK_n_closest_nearest_neighbors, mask_sequence
+from sparrow import Protein
+from .sequence_tools import MASK_n_closest_nearest_neighbors, mask_sequence, _get_neighboors_3
 
 
 # new charecters for PIMMS aliphatic groups 
 aliphatic_group1 = {'A':'a', 'L':'l', 'M':'m','I':'i','V':'v'}
 aliphatic_group2 = {'A':'b', 'L':'o', 'M':'x', 'I':'y','V':'z'}
 
+## ---------------------------------------------------------------------------
+##
+def get_charge_weighed_mask(sequence1, sequence2):
+    """
+    depends on: sequence_tools._get_neighboors_3
+                sparrow.Protein 
+    """
+    charges = ['R','K','E','D']
 
+    matrix = []
+    n2 = len(sequence2)
+    for i,r1 in enumerate(sequence1):
+        tmp = []
+        if r1 in charges:
+            for j,r2 in enumerate(sequence2):  
+                if r2 in charges: 
+                    l_resis = _get_neighboors_3(i,sequence1) + _get_neighboors_3(j,sequence2)
+                    chrg_weight = np.abs(Protein(l_resis).NCPR / Protein(l_resis).FCR)
+                    tmp.append(chrg_weight)
+                else:
+                    tmp.append(0)
+        else:
+            tmp = [0]*n2
+            
+        matrix.append(tmp)
+
+    return np.array(matrix)
+
+
+## ---------------------------------------------------------------------------
+##
 def get_aliphatic_groups(chain):
     """
     pass sequence and get mask of aliphatics 
@@ -39,7 +70,8 @@ def get_aliphatic_groups(chain):
     
     return aliphaticgrouping
 
-
+## ---------------------------------------------------------------------------
+##
 def get_aliphaticgroup_sequence(chain):
     """
     pass sequence and get PIMMS ready sequence of aliphatics 

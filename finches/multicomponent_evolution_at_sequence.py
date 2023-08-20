@@ -527,16 +527,20 @@ def replace_unfit_fraction_sequence_memory(
                             new sequences to the next generation (defult = 1.0)
     """
     pop_size = len(population)
+    print('pop_size', pop_size)
 
     # determine the number of individuals that need to be replaced
     kill_count = round(KILL_FRACTION * pop_size)
+    print('kill_count', kill_count)
     
     # sort previous generation by highest performance and to lowest, the back X propigate_fraction 
     # to current generation for evaluation of which systems to replicate in generation
     prev_performances_sortedfiltered = np.sort(prev_performances)[::-1][:int(pop_size*propigate_fraction)]
+    print('prev_performances_sortedfiltered', prev_performances_sortedfiltered)
 
     # determine new population based sorted population with fraction of systems 
     new_idxs = np.argsort(np.append(performances,prev_performances_sortedfiltered, axis=0))[::-1][:pop_size]
+    print('len_new_idxs', new_idxs)
 
     print(np.sort(np.append(performances, prev_performances_sortedfiltered, axis=0))[::-1][:pop_size], 
         '# new systems %i' % len([i for i in new_idxs if i < pop_size]))
@@ -548,6 +552,9 @@ def replace_unfit_fraction_sequence_memory(
     for i, keep_i  in enumerate(new_idxs):
         population[i] = copy.deepcopy(l_population[keep_i])
         population_sequences[i] = copy.deepcopy(l_population_sequences[keep_i])
+
+    print('population', population)
+    print('population_sequences', population_sequences)
 
     # population = population
     # population_sequences = population_sequences

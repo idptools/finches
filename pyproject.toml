@@ -1,5 +1,14 @@
 [build-system]
-requires = ["setuptools>=61.0", "versioningit~=2.0"]
+requires = ["setuptools>=61.0", "versioningit~=2.0",
+            "soursop>=0.2.4",
+            "afrc>=1.0",
+            "metapredict>=2.0",
+            "sparrow>=0.2",
+            "itertools",
+            "pickle",
+            "math"
+            ]
+
 build-backend = "setuptools.build_meta"
 
 # Self-descriptive entries which should always be present

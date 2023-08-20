@@ -9,8 +9,8 @@ By : Garrett M. Ginell & Alex S. Holehouse
 2023-3-13
 """
 
-# ------------------------------------------------------------------ 
-#
+## ------------------------------------------------------------------ 
+##
 def mask_sequence(sequence, target_residues):
     """
     FUNCTION FROM - housetools.sequence_tools.sequence_masking
@@ -51,6 +51,18 @@ def mask_sequence(sequence, target_residues):
     
     return value_track
 
+## ---------------------------------------------------------------------------
+##
+def _get_neighboors_3(i, sequence):
+    """
+    """
+    if i == 0:
+        s2= sequence[:i+2]
+    elif i == len(sequence):
+        s2=sequence[i-1:]
+    else:
+        s2= sequence[i-1:i+2]
+    return s2
 
 ##------------------------------------------------------------------ 
 #
