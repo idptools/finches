@@ -13,8 +13,9 @@ by: Garrett M. Ginell
 
 updated: 2022-07-22
 """
-from sparrow import Protein
-from .sequence_tools import MASK_n_closest_nearest_neighbors, mask_sequence, _get_neighboors_3
+
+# NB from Alex; underscored functions should not be exported from a model so should rename _get_neighboors_3
+from .sequence_tools import MASK_n_closest_nearest_neighbors, mask_sequence, _get_neighboors_3, calculate_FCR_and_NCPR
 
 
 # new charecters for PIMMS aliphatic groups 
@@ -36,9 +37,18 @@ def get_charge_weighed_mask(sequence1, sequence2):
         tmp = []
         if r1 in charges:
             for j,r2 in enumerate(sequence2):  
-                if r2 in charges: 
+                if r2 in charges:
+                    
                     l_resis = _get_neighboors_3(i,sequence1) + _get_neighboors_3(j,sequence2)
-                    chrg_weight = np.abs(Protein(l_resis).NCPR / Protein(l_resis).FCR)
+                    
+                    # old way using Sparrow
+                    #chrg_weight = np.abs(Protein(l_resis).NCPR / Protein(l_resis).FCR)
+
+                    # new way that avoids Sparrow; note this has not been tested because finches
+                    # doesn't currently work...
+                    [local_fcr, local_ncpr] = calculate_FCR_and_NCPR(l_resis)
+                    chrg_weight = np.abs(local_ncpr / local_fcr)
+                    
                     tmp.append(chrg_weight)
                 else:
                     tmp.append(0)
