@@ -2,8 +2,10 @@
 requires = ["setuptools>=61.0", "versioningit~=2.0",
             "soursop>=0.2.4",
             "afrc>=0.3.4",
-            "metapredict>=2.0",
-            ]
+	    "numpy",
+	    "scipy"]
+	    
+		
 
 build-backend = "setuptools.build_meta"
 
