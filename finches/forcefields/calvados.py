@@ -54,6 +54,7 @@ import itertools
 import numpy as np
 import finches
 from os.path import exists
+import pandas as pd
 
 
 calvados_version = 'CALVADOS2' # select CALVADOS1 or CALVADOS2 stickiness parameters
