@@ -54,9 +54,8 @@ import itertools
 import numpy as np
 import finches
 from os.path import exists
+import pandas as pd
 
-
-calvados_version = 'CALVADOS2' # select CALVADOS1 or CALVADOS2 stickiness parameters
 types = ['M', 'G', 'K', 'T', 'Y', 'A', 'D', 'E', 'V', 'L', 'Q', 'W', 'R', 'F', 'S', 'H', 'N', 'P', 'C', 'I']
 pairs = np.array(list(itertools.combinations_with_replacement(types,2)))
 
@@ -73,16 +72,43 @@ class calvados_model:
         input_directory : str
             Defines the directory where the input parameter files are found. 
 
+            If defult, the data is pulled from the finches.data.calvados
+
             Each of these dictionaries contains a 20x20 dictionary keyed by the 20 
-            amino acids that defines the pairwise parameter for each of the five 
+            amino acids, (or NxN dictionary keyed by the 20 residues in the model)
+            that defines the pairwise parameter for each of the five 
             parameters named here. In this way, you could in principle define
             and save arbitrary parameters and then feed these into the mPiPi_object
             via the input_directory keyword. Alternatively a series of update  
             commands exist so you can update parameters on the fly.
         
+        version : str
+            Defines the version of the CALVADOS parameters to use for the model
+            the options here are based off of those defined in the CALVADOS data files. 
+
+            select CALVADOS1 or CALVADOS2 to choose which stickiness parameters to use
+
+            Current options are: [CALVADOS1, CALVADOS2]
+
+        salt : float
+            Defines the general salt concentration build the refference model.
+            this salt values tune the electrostatic interactions 
+
+        pH : float 
+            Defines the general pH to build the refference model.
+
+        temp : int
+            Defines the tempurature at which the the focefield model is computed 
+            functionally this really just modulates the streghts of the interactions. 
+
         Returns
         -------------
-        finches.forcefields.calvados object
+        
+        model_object : obj 
+            Returned is a finches.forcefields.calvados object that can then be passed to 
+            the Interaction_Matrix_Constructor class. 
+
+
         """
 
         # if 'default' is passed, use the default parameters. Note that if in the future
@@ -91,7 +117,7 @@ class calvados_model:
         if input_directory == 'default':
             # initialize the prarameters from a pickle file
             data_prefix = finches.get_data('calvados')
-            # NOTE need to add calvados to finches.data.calvados
+            
         else:
             data_prefix = input_directory
 
@@ -102,8 +128,17 @@ class calvados_model:
 
         # pull residue information
         self.version = version
+
         r = pd.read_pickle(f'{data_prefix}/calvados_residues.pickle').set_index('three')
-        r.lambdas = r[f'{self.version}'] 
+        
+        # Added Check to ensure passed version is acceptable 
+        try:
+            r.lambdas = r[f'{self.version}'] 
+        except Exception as e:
+            print(e)
+            raise Exception(f'''Passed vesion of model unknown. \n Check {data_prefix}/calvados_residues.pickle 
+                                for available versions. Current stable versions are [CALVADOS1, CALVADOS2]''')
+
         self.residue_df = r.set_index('one',drop=False)
         
         # initiate parameters 
@@ -152,8 +187,7 @@ class calvados_model:
     #
     def _genParams(self, r):
         """
-        function directly pulled from line 18 of
-        calvados/single_chain/simulate.py
+        Function directly pulled from line 18 of calvados/single_chain/simulate.py
         """
         RT = 8.3145*self.temp*1e-3
         

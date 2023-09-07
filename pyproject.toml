@@ -1,13 +1,8 @@
 [build-system]
-requires = ["setuptools>=61.0", "versioningit~=2.0",
-            "soursop>=0.2.4",
-            "afrc>=1.0",
-            "metapredict>=2.0",
-            "sparrow>=0.2",
-            "itertools",
-            "pickle",
-            "math"
-            ]
+requires = ["setuptools>=61.0",
+       "wheel",
+       "versioningit~=2.0"]     
+    
 
 build-backend = "setuptools.build_meta"
 
@@ -29,9 +24,9 @@ classifiers = [
 ]
 requires-python = ">=3.7"
 # Declare any run-time dependencies that should be installed with the package.
-#dependencies = [
-#    "importlib-resources;python_version<'3.10'",
-#]
+dependencies = [
+    "numpy", "afrc>=0.3.4", "numpy", "scipy", "soursop>=0.2.4", "pandas", "metapredict"
+]
 
 # Update the urls once the hosting is set up.
 #[project.urls]

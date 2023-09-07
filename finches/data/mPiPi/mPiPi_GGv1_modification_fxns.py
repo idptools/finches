@@ -11,7 +11,7 @@ by: Garrett M. Ginell
 
 updated: 2022-09-26
 """
-
+from . import defined_RNA_params
 ### defined functions to modify parameters ###
 
 # -------------------------------------------------
@@ -167,7 +167,6 @@ def ADD_RNA_U_ALL(CHARGE_ALL, MU_ALL, NU_ALL, EPSILON_ALL, SIGMA_ALL):
     CHARGE:
     U = -0.75
     """
-    import defined_RNA_params
 
     AAs = ['P','E','D','R','K','I','V','L','T','H','M','G','A','C','S','N','Q','F','Y','W']
 

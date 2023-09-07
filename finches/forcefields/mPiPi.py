@@ -13,7 +13,7 @@ from os.path import exists
 #
 # For a demo of these functions
 
-VALID_AA= ['A','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y']
+VALID_AA= ['A','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y','C']
 VALID_RNA=['U']
 
 class mPiPi_model:
@@ -72,7 +72,14 @@ class mPiPi_model:
             and save arbitrary parameters and then feed these into the mPiPi_object
             via the input_directory keyword. Alternatively a series of update  
             commands exist so you can update parameters on the fly.
+        
+        dielectric : float 
+            Defines the dielectric constant of the solvent when computing the interactions 
+            in the refference model.
 
+        salt : float
+            Defines the general salt concentration build the refference model.
+            this salt values tune the electrostatic interactions 
 
         Returns
         -------------
@@ -115,11 +122,13 @@ class mPiPi_model:
 
         # PARSER for version of parameters to save
         if version == 'default':
-            # use parameters read in from pickle files 
-            pass 
+            # use parameters read in from pickle files
+
+            self.ALL_RESIDUES_TYPES = [VALID_AA] 
 
         elif version == 'mPiPi_GGv1':
 
+            self.ALL_RESIDUES_TYPES = [VALID_AA, VALID_RNA]
             from ..data.mPiPi.mPiPi_GGv1_modification_fxns import update_to_mPiPi_GGv1
 
             update_function_dict = {'update_ALL':self.update_ALL, 
@@ -143,11 +152,13 @@ class mPiPi_model:
         # NOTE THIS IS A NESTED LIST FOR WHICH:
         #   every residue in each sublist can occur in the same sequeuce, for sequences with residues 
         #   found in multible sublist and error will be thrown
-        self.ALL_RESIDUES_TYPES = [VALID_AA, VALID_RNA]
+        self.version =  version
+
 
         # initiate updatable parameters 
         self.dielectric = dielectric 
         self.salt = salt 
+
 
     # .....................................................................................
     #
