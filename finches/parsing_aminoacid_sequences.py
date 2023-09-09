@@ -114,7 +114,7 @@ def get_charge_weighed_FD_mask(sequence1, sequence2):
         if r1 in charges:
             for j,r2 in enumerate(sequence2):  
                 if r2 in charges: 
-                    l_resis = [r1] + get_neighboors_window_of3(j,sequence2) #this line is the difference HERE 
+                    l_resis = r1 + get_neighboors_window_of3(j,sequence2) #this line is the difference HERE 
                     
                     [local_fcr, local_ncpr] = calculate_FCR_and_NCPR(l_resis)
                     chrg_weight = np.abs(local_ncpr / local_fcr)

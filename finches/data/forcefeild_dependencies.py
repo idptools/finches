@@ -6,7 +6,8 @@ By : Garrett M. Ginell & Alex S. Holehouse
 """
 
 from scipy.stats import linregress
-# from ..epsilon_calculation import get_sequence_epsilon_value, Interaction_Matrix_Constructor
+import finches
+import numpy as np
 
 ## ------------------------------------------------------------------------------
 ##
@@ -44,10 +45,9 @@ def _GS_length_generator(N, start_AA="G"):
         
     return ''.join(seq)
 
-
 ## ------------------------------------------------------------------------------
 ##
-def get_null_interaction_baseline(model, min_len=10, max_len=500):
+def get_null_interaction_baseline(X_model, min_len=10, max_len=500):
     """
     Function to arrive at null interaction baseline for specific passed model
     This works by testing a bunch of different null_interaction_baselines and 
@@ -58,8 +58,8 @@ def get_null_interaction_baseline(model, min_len=10, max_len=500):
     
     Parameters
     ---------------
-    model : obj
-        An instantiation of the one of the forcefield class objects 
+    X_model : obj
+        An instantiation of the Interaction_Matrix_Constructor class 
 
     min_len : int 
         The minimum length of a polyGS sequence used 
@@ -76,22 +76,20 @@ def get_null_interaction_baseline(model, min_len=10, max_len=500):
 
     """
 
-    # build constructor with random baseline
-    X_model = Interaction_Matrix_Constructor(model, null_interaction_baseline=0)
-
     null_baseline_values_dict = {}
-    base_lines = np.arange(-0.2,0,.001) # range may need to be updated
+    base_lines = np.arange(-0.2,0,.01) # range may need to be updated
 
     GS_refseq = {i: _GS_length_generator(i, start_AA="G") for i in range(min_len,max_len)}
     SG_refseq = {i: _GS_length_generator(i, start_AA="S") for i in range(min_len,max_len)}
 
     # iterate possible baselines
     for ibl in base_lines:
-
-        ref_null_interaction_baseline = ibl
        
-        GS_ref_dict = {i:get_sequence_epsilon_value(a, a, null_interaction_baseline = ref_null_interaction_baseline, X=model) for i,a in GS_refseq.items()}
-        SG_ref_dict = {i:get_sequence_epsilon_value(a, a, null_interaction_baseline = ref_null_interaction_baseline, X=model) for i,a in SG_refseq.items()}
+        # not charge prefactor can be set to 0 here because the null_interaction_baseline
+        # generation does not depend on any sequences containing charge residues 
+
+        GS_ref_dict = {i:finches.epsilon_calculation.get_sequence_epsilon_value(a, a, null_interaction_baseline=ibl, prefactor=0, X=X_model, CHARGE=False, ALIPHATICS=False) for i,a in GS_refseq.items()}
+        SG_ref_dict = {i:finches.epsilon_calculation.get_sequence_epsilon_value(a, a, null_interaction_baseline=ibl, prefactor=0, X=X_model, CHARGE=False, ALIPHATICS=False) for i,a in SG_refseq.items()}
 
         GS_avg_reference_dic = {i: (GS_ref_dict[i] + SG_ref_dict[i])/2 for i in SG_refseq}
 

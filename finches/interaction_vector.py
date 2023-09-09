@@ -6,6 +6,7 @@ between IDRs and other sequences and attached folded domains.
 By : Garrett M. Ginell & Alex S. Holehouse 
 2023-08-06
 """
+import numpy as np
 import matplotlib.pyplot as plt
 
 from .epsilon_calculation import get_sequence_epsilon_vectors, get_interdomain_epsilon_vectors
@@ -58,15 +59,15 @@ def show_folded_domain_interaction_on_sequence(pdb, FD_start, FD_end,
 
     if not title:
         if sequence_of_reff == 'sequence2':
-            title = f'''Interaction Vector of a {IDR_positon} {sequence_names[1]} relitve to residues\n
-                         on the surface of the folded domain ({FD_start}-{FD_end}) in {sequence_names[0]}\n 
-                        computed with the {pdb} pdb file and using the {X.parameters.version} model.'''
+            title = f'''Interaction Vector of a {IDR_positon} {sequence_names[1]} relitve to residues
+            on the surface of the folded domain ({FD_start}-{FD_end}) in {sequence_names[0]} 
+            computed with the pdb file:\n {pdb} \n and using the {X.parameters.version} model.'''
         else: 
-            title = f'''Interaction Vector of the surface residue on the folded domain ({FD_start}-{FD_end})\n
-                        in {sequence_names[0]} relitve to the {IDR_positon} {sequence_names[1]} \n
-                        computed with the {pdb} pdb file and using the {X.parameters.version} model.'''
+            title = f'''Interaction Vector of the surface residue on the folded domain ({FD_start}-{FD_end})
+            in {sequence_names[0]} relitve to the {IDR_positon} {sequence_names[1]}
+            computed with the pdb file:\n {pdb} \n and using the {X.parameters.version} model.'''
 
-    f = make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1, sequence_names=sequence_names, 
+    f = make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence2, sequence_names=sequence_names, 
                                      title=title)
     return f
 
@@ -169,7 +170,7 @@ def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1,
 
     ax.set_title(title)
     plt.xticks(np.arange(0,len(repulsive_vector)), sequence1, fontsize=6, ha="center")
-    ptl.yticks(fontsize=7)
+    plt.yticks(fontsize=7)
 
     return f
 

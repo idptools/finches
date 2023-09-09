@@ -18,7 +18,7 @@ BUILDING THE MAIN ENERGY POTENTIAL
 #  single_chain uses hoomd
 # 
 #  Lennard-Jones potential is a Ashbaugh-Hatch potential
-#  Debye-Hückel potential is a Yukawa potential
+#  Debye-Hückel potential is a Yukawa potentials
 #
 #
 # FOR:

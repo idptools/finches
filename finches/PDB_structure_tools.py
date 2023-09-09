@@ -12,6 +12,7 @@ updated: 2022-07-22
 from soursop.sstrajectory import SSTrajectory
 import metapredict
 import math
+import numpy as np
 
 from .data.reference_sequence_info import GS_seqs_dic
 
@@ -190,14 +191,16 @@ def build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=['Cterm','Nte
         polymer limits of equiviant length polymer relitive to the position of the residue 
         in the IDR and where the IDR is attached to the folded domain.
 
+    NOTE THIS IS BROKEN
+
     """
 
     # get the xyz position of where the IDR attaches to the FD
     if IDR_positon == 'Cterm':
-        IDR0_xyz == SAFD_cords[-1]
+        IDR0_xyz = SAFD_cords[-1]
 
     elif IDR_positon == 'Nterm':
-        IDR0_xyz == SAFD_cords[0]
+        IDR0_xyz = SAFD_cords[0]
 
     out_matrix = []
     # for each SAFD residue row
@@ -210,13 +213,14 @@ def build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=['Cterm','Nte
         # for each IDR residue col
         for i, v in enumerate(col):
             if SAFD_distance < GS_seqs_dic[i]:
-                l_out_row.append(0)
-            else:
                 l_out_row.append(1)
+            else:
+                l_out_row.append(0)
+
         out_matrix.append(l_out_row)
 
     out_mask = np.array(out_matrix)
-    if out_matrix.shape() != matrix.shape():
+    if out_mask.shape != np.array(matrix).shape:
         raise Exception('New built mask does not match shape of passed matrix')
 
     return out_mask 
@@ -528,15 +532,16 @@ def map_SAFD_vector_to_full_folded_domain(partial_vector, SAFD_idxs, FD_start, F
     _check_bounds(SAFD_idxs, FD_start, FD_end)
 
     
-    FULL_FD_idxs = range(FD_start, FD_end+1)
+    FULL_FD_idxs = [i for i in range(FD_start, FD_end+1)]
     FULL_length = FD_end - FD_start + 1
     FULL_FD_vector = [null_value] * FULL_length
     
     # make full vector 
     for ei, i in enumerate(SAFD_idxs):
         if i in SAFD_idxs: 
-            FULL_FD_vector[i] = partial_vector[ei]
-    
+            l_i = i - FD_start
+            FULL_FD_vector[l_i] = partial_vector[ei]
+
     # check lengths 
     if len(FULL_FD_vector) != FULL_length and len(FULL_FD_vector) != FULL_FD_idxs:
         raise Exception(f'ERROR building new vectors lengths are not expected.') 
@@ -586,8 +591,8 @@ def extract_flanking_domain_combinations(pdb, return_domain_lists=False):
     l_seq = PO.get_amino_acid_sequence(oneletter=True)
 
     # get list of domains in found in PDB
-    disorder = metapredict.predict_disorder_domains(seq)
-    IDRS = disorder.disordered_domain_boundaries
+    disorder = metapredict.predict_disorder_domains(l_seq)
+    IDRs = disorder.disordered_domain_boundaries
     FDs = disorder.folded_domain_boundaries
     
     # find_flanking_combinations of IDRs and FDs 
@@ -598,7 +603,7 @@ def extract_flanking_domain_combinations(pdb, return_domain_lists=False):
                 flanking_combinations.append((idr, fd))
 
     if return_domain_lists:
-        return flanking_combinations, IDRS, FDs
+        return flanking_combinations, IDRs, FDs
     else:
         return flanking_combinations
 

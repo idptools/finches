@@ -8,7 +8,7 @@ By : Garrett M. Ginell & Alex S. Holehouse
 import numpy as np
 import math
 
-from .data.forcefeild_dependencies import precomputed_forcefield_dependent_values
+from .data.forcefeild_dependencies import precomputed_forcefield_dependent_values, get_null_interaction_baseline
 
 from .parsing_aminoacid_sequences import get_charge_weighed_mask, get_charge_weighed_FD_mask
 from .parsing_aminoacid_sequences import get_aliphatic_weighted_mask
@@ -109,7 +109,8 @@ class Interaction_Matrix_Constructor:
                 if compute_forcefield_dependencies:
 
                     # NOTE NOT computing not working yet 
-                    raise Exception(f'compute_forcefield_dependencies not working yet')
+                    # raise Exception(f'compute_forcefield_dependencies not working yet')
+                    pass
                     # self.charge_prefactor = 
                 else:
                     print(f'''NOTE - charge_prefactor NOT found or defined for the parameter version "{parameters.version}". 
@@ -122,10 +123,8 @@ class Interaction_Matrix_Constructor:
             try:
                 self.null_interaction_baseline = precomputed_forcefield_dependent_values['null_interaction_baseline'][parameters.version]
             except Exception as e: 
-                if compute_forcefield_dependencies:
-                    # NOTE NOT computing not working yet 
-                    raise Exception(f'compute_forcefield_dependencies not working yet')
-                    # self.null_interaction_baseline = get_null_interaction_baseline(self.parameters)
+                if compute_forcefield_dependencies: 
+                    self._update_null_interaction_baseline(min_len=10, max_len=500, verbose=True)
                 else:
                     print(f'''NOTE - null_interaction_baseline NOT found or defined for the parameter version "{parameters.version}". 
                     Update or set compute_forcefield_dependencies = True. Without epsilon calcualtion of matrix will not work. 
@@ -150,6 +149,41 @@ class Interaction_Matrix_Constructor:
     def _update_parameters(self, new_parameters):
         self.parameters = new_parameters
         self._update_lookup_dict()
+
+    def _update_null_interaction_baseline(self, min_len=10, max_len=500, verbose=True):
+        """
+        Function to compute and update the null interaction baseline 
+        for specific passed self.parameters model. This works by calling: 
+            data.forcefeild_dependencies.get_null_interaction_baseline
+
+        The self.null_interaction_baseline parameter is then updated.
+
+        *thanks Alex K. for the recomendation on how to organize this feature 
+        
+        Parameters
+        ---------------
+        model : obj
+            An instantiation of the one of the forcefield class object 
+            IE self.parameters 
+
+        min_len : int 
+            The minimum length of a polyGS sequence used 
+
+        max_len : int 
+            The minimum length of a polyGS sequence used
+        """
+        if verbose:
+            # remind user that the null_interaction_baseline is being updated
+            print(f'Recomputing the null_interaction_baseline for {self.parameters.version}...')
+
+        # return the theretical baseline (ibl) where the slope of epsilon vs polyGS(n) == 0 
+        null_interaction_baseline = get_null_interaction_baseline(self, min_len=min_len, max_len=max_len)
+
+        if verbose:
+            # remind user that the null_interaction_baseline is being updated
+            print(f' the new baseline = {null_interaction_baseline}')
+
+        self.null_interaction_baseline = null_interaction_baseline
 
     def _check_sequence(self, sequence):
         """
@@ -349,6 +383,8 @@ class Interaction_Matrix_Constructor:
         return w_matrix
 
 
+    
+
 ######################################################################
 ##                                                                  ##
 ##                                                                  ##
@@ -418,7 +454,7 @@ def mask_matrix(matrix, column_mask):
 
     """
     # check to ensure matrix and mask are same shape 
-    if matrix.shape() == column_mask.shape():
+    if matrix.shape == column_mask.shape:
         return matrix*column_mask
     else:
         raise Exception('column_mask and matrix are not the same shape')
@@ -664,6 +700,14 @@ def get_interdomain_epsilon_vectors(sequence1, sequence2, X, SAFD_cords, prefact
         sequence epsilon value as computed between sequence1 and sequence2 
     
     """
+    # check for prefactor  
+    if not prefactor:
+        prefactor = X.charge_prefactor
+
+    # check for baseline 
+    if not null_interaction_baseline:
+        null_interaction_baseline = X.null_interaction_baseline
+
     # parse sequence_of_reff flag 
     orientation = {'sequence1':1,'sequence2':0}[sequence_of_reff] 
 
@@ -696,7 +740,7 @@ def get_interdomain_epsilon_vectors(sequence1, sequence2, X, SAFD_cords, prefact
     # multiply matrix by 1&0s to screen out IDRs residues that cant reach
     wXYZ_attractive_matrix = mask_matrix(attractive_matrix - null_interaction_baseline, w_xyz_mask) 
     wXYZ_repulsive_matrix = mask_matrix(repulsive_matrix - null_interaction_baseline, w_xyz_mask) 
-    
+
     attractive_vector = flatten_matrix_to_vector(wXYZ_attractive_matrix, orientation=orientation)
     repulsive_vector = flatten_matrix_to_vector(wXYZ_repulsive_matrix, orientation=orientation)
 
