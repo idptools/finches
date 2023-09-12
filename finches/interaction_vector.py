@@ -7,18 +7,19 @@ By : Garrett M. Ginell & Alex S. Holehouse
 2023-08-06
 """
 import numpy as np
+import re
 import matplotlib.pyplot as plt
 
 from .epsilon_calculation import get_sequence_epsilon_vectors, get_interdomain_epsilon_vectors
 from .PDB_structure_tools import pdb_to_SDFDresidues_and_xyzs, map_SAFD_vector_to_full_folded_domain
-
+from .sequence_tools import show_sequence_HTML
 
 ## ---------------------------------------------------------------------------
 ##
 def show_folded_domain_interaction_on_sequence(pdb, FD_start, FD_end,  
                                                 sequence2, X, IDR_positon=['Cterm','Nterm'], issolate_domain=False,
                                                 prefactor=None, null_interaction_baseline=None, CHARGE=True, 
-                                                sequence_of_reff='sequence2',
+                                                sequence_of_reff='sequence2', return_vectors=False,
                                                 sequence_names=None, title=None): 
     """
     Function to plot the interaction vector bewteen a IDR and an ajoining 
@@ -31,15 +32,20 @@ def show_folded_domain_interaction_on_sequence(pdb, FD_start, FD_end,
     above functions.
 
     NOTE  - by defult this returns a plot computing the interaction 
-            vector relitive to the IDR (sequence2). 
+            vector onto the IDR (sequence2). 
 
     Returns
     ----------
     
     out_figure
         figure object of plot of interaction vectors of SAFD residues 
-        relitive to sequence1
+        relitive to sequence2 (the IDR)
 
+    attractive_vector
+        first output of get_interdomain_epsilon_vectors
+
+    repulsive_vector 
+        second output of get_interdomain_epsilon_vectors
     """
 
     # extract solvent accessable residues for sequence1 
@@ -59,17 +65,22 @@ def show_folded_domain_interaction_on_sequence(pdb, FD_start, FD_end,
 
     if not title:
         if sequence_of_reff == 'sequence2':
-            title = f'''Interaction Vector of a {IDR_positon} {sequence_names[1]} relitve to residues
-            on the surface of the folded domain ({FD_start}-{FD_end}) in {sequence_names[0]} 
-            computed with the pdb file:\n {pdb} \n and using the {X.parameters.version} model.'''
+            title = f'''Interaction Vector of a {IDR_positon} {sequence_names[1]} relitve to residues on the surface of the folded domain ({FD_start}-{FD_end}) in {sequence_names[0]} 
+            computed with the pdb file and using the {X.parameters.version} model.'''
         else: 
-            title = f'''Interaction Vector of the surface residue on the folded domain ({FD_start}-{FD_end})
-            in {sequence_names[0]} relitve to the {IDR_positon} {sequence_names[1]}
-            computed with the pdb file:\n {pdb} \n and using the {X.parameters.version} model.'''
+            title = f'''Interaction Vector of the surface residue on the folded domain ({FD_start}-{FD_end}) in {sequence_names[0]} relitve to the {IDR_positon} {sequence_names[1]}
+            computed with the pdb file and using the {X.parameters.version} model.'''
 
-    f = make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence2, sequence_names=sequence_names, 
+    if sequence_of_reff == 'sequence2' :
+        f = make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence2, sequence_names=[sequence_names[1],sequence_names[0]], 
                                      title=title)
-    return f
+    else:
+        f = make_interaction_vector_plot(attractive_vector, repulsive_vector, SAFD_seq, sequence_names=sequence_names, 
+                                     title=title)
+    if return_vectors:
+        return attractive_vector, repulsive_vector
+    else:
+        return f
 
 
 ## ---------------------------------------------------------------------------
@@ -116,7 +127,7 @@ def show_sequence_interaction_vector(sequence1, sequence2, X, prefactor=None,
 ## ---------------------------------------------------------------------------
 ##
 def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1, sequence_names=None, 
-                                    title=None):
+                                    title=None, all_resi_labels=True):
     """
     Function that takes in attractive_vector and repulsive_vector
     and returns a plt figure object
@@ -142,6 +153,12 @@ def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1,
 
     title : str
         Option input title for the ploted figure 
+
+    all_resi_labels : bool 
+        Flag to determine whether to show and color the residues in 
+        the sequence plot on the X-axis labels or to show tradional 
+        tickmarks by residue index. Residues are colored by thier 
+        sequence chemistry.
     
     Returns
     ----------
@@ -153,7 +170,10 @@ def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1,
         sequence_names = ['sequence1', 'sequence2']
 
     # figure axis 
-    f, ax = plt.subplots(1,1, dpi=300, facecolor='w', edgecolor='k')
+    if all_resi_labels:
+        f, ax = plt.subplots(1,1, figsize=(len(sequence1)/5.5, 4), dpi=300, facecolor='w', edgecolor='k')
+    else:
+        f, ax = plt.subplots(1,1, figsize=(6, 4), dpi=300, facecolor='w', edgecolor='k')
 
     # plot repulsive vector
     ax.plot(repulsive_vector, linewidth=0.5,color='Blue', ls='-', alpha=.9)
@@ -161,16 +181,38 @@ def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1,
     # plot attractive vector
     ax.plot(attractive_vector, linewidth=0.5, color='Red',  ls='-',alpha=.9)
 
-    ax.set_ylabel('Interaction',fontsize=6)
-    ax.set_xlabel(sequence_names[0],fontsize=6)
+    ax.set_ylabel('Interaction',fontsize=10, fontfamily='avenir')
+    ax.set_xlabel(sequence_names[0],fontsize=10, fontfamily='avenir')
     ax.hlines(0, 0,len(repulsive_vector),ls='--',lw=.5,color='grey')
 
     if not title:
         title = f'Interaction vector of {sequence_names[1]} and {sequence_names[0]}'
 
-    ax.set_title(title)
-    plt.xticks(np.arange(0,len(repulsive_vector)), sequence1, fontsize=6, ha="center")
-    plt.yticks(fontsize=7)
+    ax.set_title(title, fontfamily='avenir')
+    plt.yticks(fontsize=10, fontfamily='avenir')
+
+    if all_resi_labels: 
+
+        # get 
+        out_html = show_sequence_HTML(sequence1, return_raw_string=True, font_family='avenir', fontsize=12)
+
+        # parse HTML out 
+        fontsize = int(out_html.split('px')[0].split(' ')[-1])
+        fontfamily = out_html.split('font-family:')[1].split(';')[0]
+        html_seq = out_html.split('<span ')[1:]
+        seq = [re.findall(r'>(.*?)</span',i)[0] for i in html_seq]
+        colors = re.findall(r'style="color:(.*?)">', out_html)
+
+        # update ticklabel text 
+        ax.set_xticks([i for i in range(len(sequence1))])
+        ax.set_xticklabels(sequence1, font=fontfamily)
+        ax.tick_params(axis='x',colors='black', labelsize=fontsize)  
+
+        # update ticklable color 
+        for i in range(len(attractive_vector)-1):
+            ax.get_xticklabels()[i].set_color(colors[i])
+    else:
+        plt.xticks(np.arange(0,len(repulsive_vector)), sequence1, fontsize=10, ha="center")
 
     return f
 
@@ -180,8 +222,7 @@ def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1,
 def make_interaction_vector_for_folded_domain(pdb, FD_start, FD_end, sequence2, X,
                                                 issolate_domain=False, prefactor=None,
                                                 null_interaction_baseline=None,
-                                                CHARGE=True, IDR_positon=['Cterm','Nterm'],
-                                                sequence_names=None, title=None): 
+                                                CHARGE=True, IDR_positon=['Cterm','Nterm']): 
     """
     Function to build a per residue interaction vector for every residue
     in the folded domain of intrest relitive to an ajoining IDR.
