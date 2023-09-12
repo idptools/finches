@@ -147,6 +147,9 @@ class mPiPi_model:
                     # pass in function to appropriate class update function 
                     update_function(in_function)
 
+        else:
+            raise Exception(f"Unrecognized version [{version}] passed to mPiPi_model. Must be one of 'default' or 'mPiPi_GGv1'")
+
         # name of parameters below must match naming in other forcefeild modules
         # define all residues types 
         # NOTE THIS IS A NESTED LIST FOR WHICH:

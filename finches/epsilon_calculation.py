@@ -113,11 +113,13 @@ class Interaction_Matrix_Constructor:
                     pass
                     # self.charge_prefactor = 
                 else:
-                    print(f'''NOTE - charge_prefactor NOT found or defined for the parameter version "{parameters.version}". 
-                    Update or set compute_forcefield_dependencies = True. Without charge weighing of the the matrix will not work. 
-                    Precomputed charge_prefactor values can be added to the following location:
-                    data.reference_sequence_info.precomputed_forcefield_dependent_values
-                    To compute a new charge_prefactor see data.forcefeild_dependencies.get_charge_prefactor''')
+                    print(f'''WARNING: Charge_prefactor in NOT found or defined for the parameter version "{parameters.version}".
+    Update or set compute_forcefield_dependencies = True. Without charge weighing of the the matrix will not work. 
+    Precomputed charge_prefactor values can be added to the following location: 
+                    
+       data.reference_sequence_info.precomputed_forcefield_dependent_values
+                    
+    To compute a new charge_prefactor see data.forcefeild_dependencies.get_charge_prefactor\n''')
         # check null_interaction_baseline
         if self.null_interaction_baseline == None: 
             try:
@@ -126,13 +128,13 @@ class Interaction_Matrix_Constructor:
                 if compute_forcefield_dependencies: 
                     self._update_null_interaction_baseline(min_len=10, max_len=500, verbose=True)
                 else:
-                    print(f'''NOTE - null_interaction_baseline NOT found or defined for the parameter version "{parameters.version}". 
-                    Update or set compute_forcefield_dependencies = True. Without epsilon calcualtion of matrix will not work. 
-                    Precomputed null_interaction_baseline values can be added to the following location: 
-                    data.reference_sequence_info.precomputed_forcefield_dependent_values
-                    To compute a new null_interaction_baseline see data.forcefeild_dependencies.null_interaction_baseline''')
+                    print(f'''WARNING: null_interaction_baseline NOT found or defined for the parameter version "{parameters.version}". 
+    Update or set compute_forcefield_dependencies = True. Without epsilon calcualtion of matrix will not work. 
+    Precomputed null_interaction_baseline values can be added to the following location: 
+    data.reference_sequence_info.precomputed_forcefield_dependent_values
+    To compute a new null_interaction_baseline see:
 
-        
+        data.forcefeild_dependencies.null_interaction_baseline\n''')
 
     def _update_lookup_dict(self):
         # make sure all resigroup pairs can be calculated based on passed parameter 
@@ -496,8 +498,13 @@ def flatten_matrix_to_vector(matrix, orientation=[0,1]):
 
 ## ---------------------------------------------------------------------------
 ##
-def get_sequence_epsilon_vectors(sequence1, sequence2, X, prefactor=None, null_interaction_baseline=None,
-                                CHARGE=True, ALIPHATICS=True):
+def get_sequence_epsilon_vectors(sequence1,
+                                 sequence2,
+                                 X,
+                                 prefactor=None,
+                                 null_interaction_baseline=None,
+                                 CHARGE=True,
+                                 ALIPHATICS=True):
     """
     Function to epsilon vectors between a pair of passed sequences
     returned vectors are relitive to sequence1 such that len(sequence1) equals 
