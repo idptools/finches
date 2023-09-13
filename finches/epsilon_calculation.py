@@ -101,25 +101,6 @@ class Interaction_Matrix_Constructor:
         self.lookup = {}
         self._update_parameters(parameters)
 
-        # charge charge_prefactor 
-        if self.charge_prefactor == None: 
-            try:
-                self.charge_prefactor = precomputed_forcefield_dependent_values['charge_prefactor'][parameters.version]
-            except Exception as e: 
-                if compute_forcefield_dependencies:
-
-                    # NOTE NOT computing not working yet 
-                    # raise Exception(f'compute_forcefield_dependencies not working yet')
-                    pass
-                    # self.charge_prefactor = 
-                else:
-                    print(f'''WARNING: Charge_prefactor in NOT found or defined for the parameter version "{parameters.version}".
-    Update or set compute_forcefield_dependencies = True. Without charge weighing of the the matrix will not work. 
-    Precomputed charge_prefactor values can be added to the following location: 
-                    
-       data.reference_sequence_info.precomputed_forcefield_dependent_values
-                    
-    To compute a new charge_prefactor see data.forcefeild_dependencies.get_charge_prefactor\n''')
         # check null_interaction_baseline
         if self.null_interaction_baseline == None: 
             try:
@@ -135,6 +116,22 @@ class Interaction_Matrix_Constructor:
     To compute a new null_interaction_baseline see:
 
         data.forcefeild_dependencies.null_interaction_baseline\n''')
+
+        # charge charge_prefactor 
+        if self.charge_prefactor == None: 
+            try:
+                self.charge_prefactor = precomputed_forcefield_dependent_values['charge_prefactor'][parameters.version]
+            except Exception as e: 
+                if compute_forcefield_dependencies:
+                    self._update_charge_prefactor(refference_data='DAS_KAPPA_RG_MPIPI', verbose=True)
+                else:
+                    print(f'''WARNING: Charge_prefactor in NOT found or defined for the parameter version "{parameters.version}".
+    Update or set compute_forcefield_dependencies = True. Without charge weighing of the the matrix will not work. 
+    Precomputed charge_prefactor values can be added to the following location: 
+                    
+       data.reference_sequence_info.precomputed_forcefield_dependent_values
+                    
+    To compute a new charge_prefactor see data.forcefeild_dependencies.get_charge_prefactor\n''')
 
     def _update_lookup_dict(self):
         # make sure all resigroup pairs can be calculated based on passed parameter 
@@ -187,6 +184,51 @@ class Interaction_Matrix_Constructor:
 
         self.null_interaction_baseline = null_interaction_baseline
 
+    def _update_charge_prefactor(self, refference_data='DAS_KAPPA_RG_MPIPI', prefactor_range=None, verbose=True):
+        """
+        Function to compute and update the charge prefactor
+        for specific passed self.parameters model. This works by calling: 
+            data.forcefeild_dependencies.get_charge_prefactor
+
+        The self.charge_prefactor parameter is then updated.
+
+        *thanks Alex K. for the recomendation on how to organize this feature 
+        
+        Parameters
+        ---------------
+        model : obj
+            An instantiation of the one of the forcefield class object 
+            IE self.parameters 
+
+        refference_data : list 
+            dataset to be used for computing the charge prefactor, this dataset 
+            should be organized as a list of tuples where the tuples contain 
+            three values in the order of (sequence, Rg(y-value), Kappa(x-value)) 
+            where the slope of the computed epsion vs x-value will be matched to 
+            that of Rg(y-value) vs Kappa(x-value). 
+
+            The defult here is DAS_KAPPA_RG_MPIPI stored: 
+                finches.data.reference_sequence_info.DAS_KAPPA_RG_MPIPI 
+
+        prefactor_range : tuple 
+            A two position tuple defining the minimum and maximum prefactors 
+            to itterate over (min, max). If None, defult is hard coded in as (0,2)
+
+        """
+        if verbose:
+            # remind user that the charge_prefactor is being updated
+            print(f'Recomputing the charge_prefactor for {self.parameters.version}...')
+
+        # return the charge_prefactor where the slope of:
+        #    epsilon vs refference_data(x) == refference_data(y) vs refference_data(x) 
+        charge_prefactor = get_charge_prefactor(X_model, refference_data=refference_data, prefactor_range=prefactor_range)
+
+        if verbose:
+            # remind user that the charge_prefactor is being updated
+            print(f' the new charge prefactor = {charge_prefactor}')
+
+        self.charge_prefactor = charge_prefactor
+
     def _check_sequence(self, sequence):
         """
         Function that checks that passed sequence contains valid residues to the model
@@ -234,6 +276,14 @@ class Interaction_Matrix_Constructor:
         _check_sequence(outseq) 
         return outseq
 
+
+    ######################################################################
+    ##                                                                  ##
+    ##                                                                  ##
+    ##              FUNCTIONS FOR MATRIX CALCULATION                    ##
+    ##                                                                  ##
+    ##                                                                  ##
+    ######################################################################
 
     ## ------------------------------------------------------------------------------
     ##

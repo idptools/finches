@@ -18,7 +18,7 @@ VALID_RNA=['U']
 
 class mPiPi_model:
 
-    def __init__(self, version='default', input_directory='default', dielectric=80.0, salt=0.150):
+    def __init__(self, version='mPiPi_default', input_directory='default', dielectric=80.0, salt=0.150):
         """
         The mPiPi_model class defines an mPiPi_model Object which lets you calculate 
         and return both individual components of the mPiPi forcefield potential 
@@ -33,7 +33,7 @@ class mPiPi_model:
             list of tuples where: 
                 x = (class_function update_XY, [list of input functions to pass x[0]])     
         
-            CURRENT OPTIONS : ['defult', 'mPiPi_GGv1']
+            CURRENT OPTIONS : ['mPiPi_default', 'mPiPi_GGv1']
 
             mPiPi_GGv1 calls: 
                 finches.data.mPiPi.mPiPi_GGv1_modification_fxns import update_to_mPiPi_GGv1 
@@ -121,7 +121,7 @@ class mPiPi_model:
 
 
         # PARSER for version of parameters to save
-        if version == 'default':
+        if version == 'mPiPi_default':
             # use parameters read in from pickle files
 
             self.ALL_RESIDUES_TYPES = [VALID_AA] 
@@ -148,7 +148,7 @@ class mPiPi_model:
                     update_function(in_function)
 
         else:
-            raise Exception(f"Unrecognized version [{version}] passed to mPiPi_model. Must be one of 'default' or 'mPiPi_GGv1'")
+            raise Exception(f"Unrecognized version [{version}] passed to mPiPi_model. Must be one of 'mPiPi_default' or 'mPiPi_GGv1'")
 
         # name of parameters below must match naming in other forcefeild modules
         # define all residues types 

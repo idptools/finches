@@ -209,7 +209,7 @@ def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1,
         ax.tick_params(axis='x',colors='black', labelsize=fontsize)  
 
         # update ticklable color 
-        for i in range(len(attractive_vector)-1):
+        for i in range(len(attractive_vector)):
             ax.get_xticklabels()[i].set_color(colors[i])
     else:
         plt.xticks(np.arange(0,len(repulsive_vector)), sequence1, fontsize=10, ha="center")
