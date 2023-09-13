@@ -8,7 +8,7 @@ By : Garrett M. Ginell & Alex S. Holehouse
 import numpy as np
 import math
 
-from .data.forcefeild_dependencies import precomputed_forcefield_dependent_values, get_null_interaction_baseline
+from .data.forcefeild_dependencies import precomputed_forcefield_dependent_values, get_null_interaction_baseline, get_charge_prefactor
 
 from .parsing_aminoacid_sequences import get_charge_weighed_mask, get_charge_weighed_FD_mask
 from .parsing_aminoacid_sequences import get_aliphatic_weighted_mask
@@ -221,7 +221,7 @@ class Interaction_Matrix_Constructor:
 
         # return the charge_prefactor where the slope of:
         #    epsilon vs refference_data(x) == refference_data(y) vs refference_data(x) 
-        charge_prefactor = get_charge_prefactor(X_model, refference_data=refference_data, prefactor_range=prefactor_range)
+        charge_prefactor = get_charge_prefactor(self, refference_data=refference_data, prefactor_range=prefactor_range)
 
         if verbose:
             # remind user that the charge_prefactor is being updated
