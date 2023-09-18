@@ -686,7 +686,7 @@ def get_sequence_epsilon_value(sequence1, sequence2, X, prefactor=None, null_int
 ## ---------------------------------------------------------------------------
 ##
 def get_interdomain_epsilon_vectors(sequence1, sequence2, X, SAFD_cords, prefactor=None, null_interaction_baseline=None,
-                                    CHARGE=True, IDR_positon=['Cterm','Nterm'], 
+                                    CHARGE=True, IDR_positon=['Cterm','Nterm','CUSTOM'], origin_index=None, 
                                     sequence_of_reff=['sequence1','sequence2']):
     """
     Function to epsilon vectors between the surface of a folded domain 
@@ -729,7 +729,14 @@ def get_interdomain_epsilon_vectors(sequence1, sequence2, X, SAFD_cords, prefact
 
     IDR_positon : str 
         Flag to denote whether the IDR sequence (sequence2) is directly 'C-terminal' or 'N-terminal'
-        of the inputed Folded Domain (sequence1)
+        of the inputed Folded Domain (sequence1). If 'CUSTOM' the origin_index flag must be set to 
+        a specific index in SAFD_cords.
+
+    origin_index : int 
+        Optional value formated like on of indexes in the SAFD_cords list that will be used as the 
+        point of origin for where the IDR is attached to the fold domain. Defult here is None.  
+
+        NOTE - IF THIS IS PASSED IDR_positon must be set to CUSTOM)
 
     sequence_of_reff : str 
         Flag to denote whether to build the interaction vectors relitive to 'sequence1' or 'sequence2'
@@ -808,7 +815,7 @@ def get_interdomain_epsilon_vectors(sequence1, sequence2, X, SAFD_cords, prefact
 ## ---------------------------------------------------------------------------
 ##
 def get_interdomain_epsilon_value(sequence1, sequence2, X, SAFD_cords, prefactor=None, null_interaction_baseline=None,
-                                  CHARGE=True, IDR_positon=['Cterm','Nterm'],
+                                  CHARGE=True, IDR_positon=['Cterm','Nterm', 'CUSTOM'], origin_index=None,
                                   sequence_of_reff=['sequence1','sequence2']):
     """
     Function to compute epsilon value between the surface of a folded domain 
@@ -851,7 +858,14 @@ def get_interdomain_epsilon_value(sequence1, sequence2, X, SAFD_cords, prefactor
 
     IDR_positon : str 
         Flag to denote whether the IDR sequence (sequence2) is directly 'C-terminal' or 'N-terminal'
-        of the inputed Folded Domain (sequence1)
+        of the inputed Folded Domain (sequence1). If 'CUSTOM' the origin_index flag must be set to 
+        a specific index in SAFD_cords.
+
+    origin_index : int 
+        Optional value formated like on of indexes in the SAFD_cords list that will be used as the 
+        point of origin for where the IDR is attached to the fold domain. Defult here is None. 
+
+        NOTE - IF THIS IS PASSED IDR_positon must be set to CUSTOM
 
     sequence_of_reff : str 
         Flag to denote whether to build the interaction vectors relitive to 'sequence1' or 'sequence2'
@@ -881,7 +895,7 @@ def get_interdomain_epsilon_value(sequence1, sequence2, X, SAFD_cords, prefactor
     """
     # get attractive and repulsive matrixes 
     attractive_vector, repulsive_vector = get_interdomain_epsilon_vectors(sequence1, sequence2, X, SAFD_cords, 
-                                                prefactor=prefactor, 
+                                                prefactor=prefactor, origin_index=origin_index,
                                                 null_interaction_baseline=null_interaction_baseline,
                                                 CHARGE=CHARGE, IDR_positon=IDR_positon, 
                                                 sequence_of_reff=sequence_of_reff)

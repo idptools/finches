@@ -154,7 +154,7 @@ def calculate_distance(coord1, coord2):
 
 ## ---------------------------------------------------------------------------
 ##
-def build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=['Cterm','Nterm']):
+def build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=['Cterm','Nterm','CUSTOM'], origin_index=None):
     """
     Function to read in SAFD_cords and build a 2D mask for the matrix based on which
     residues are generally reachable in 3D space on the IDR. The matrix is read in such
@@ -179,7 +179,13 @@ def build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=['Cterm','Nte
 
     IDR_positon : str 
         Flag to denote whether the IDR sequence (sequence2) is directly 'C-terminal' or 'N-terminal'
-        of the inputed Folded Domain (sequence1)
+        of the inputed Folded Domain (sequence1). If 'CUSTOM' the origin_index flag must be set to 
+        a specific index in SAFD_cords.
+
+    Optional value formated like on of indexes in the SAFD_cords list that will be used as the 
+        point of origin for where the IDR is attached to the fold domain. Defult here is None.  
+
+        NOTE - IF THIS IS PASSED IDR_positon must be set to CUSTOM)
     
     Returns
     --------
@@ -201,6 +207,12 @@ def build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=['Cterm','Nte
 
     elif IDR_positon == 'Nterm':
         IDR0_xyz = SAFD_cords[0]
+
+    elif IDR_positon == 'CUSTOM':
+        if not origin_index:
+            raise Exception('origin_index can not be NONE if IDR_positon = CUSTOM')
+        else:
+            IDR0_xyz = SAFD_cords[origin_index]
 
     out_matrix = []
     # for each SAFD residue row
