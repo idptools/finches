@@ -126,7 +126,7 @@ def show_sequence_interaction_vector(sequence1, sequence2, X, prefactor=None,
 
 ## ---------------------------------------------------------------------------
 ##
-def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1, sequence_names=None, 
+def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1, sequence_names=None, fig=None,
                                     title=None, all_resi_labels=True):
     """
     Function that takes in attractive_vector and repulsive_vector
@@ -145,6 +145,9 @@ def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1,
     sequence1 : str
         Amino acid sequence of sequence1. NOTE: 
             len(sequence1) == len(input vectors)
+    
+    fig : obj
+        matplotlib figure object to plot ontop of, defult = None
 
     sequence_names : list
         List of names of the sequences used to compute the interaction
@@ -169,11 +172,19 @@ def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1,
     if not sequence_names:
         sequence_names = ['sequence1', 'sequence2']
 
-    # figure axis 
-    if all_resi_labels:
-        f, ax = plt.subplots(1,1, figsize=(len(sequence1)/5.5, 4), dpi=300, facecolor='w', edgecolor='k')
+    if not fig:
+        # figure axis 
+        if all_resi_labels:
+            f, ax = plt.subplots(1,1, figsize=(len(sequence1)/5.5, 4), dpi=300, facecolor='w', edgecolor='k')
+        else:
+            f, ax = plt.subplots(1,1, figsize=(6, 4), dpi=300, facecolor='w', edgecolor='k')
     else:
-        f, ax = plt.subplots(1,1, figsize=(6, 4), dpi=300, facecolor='w', edgecolor='k')
+        # check if X axis is same size as sequence 
+        if len(fig.axes[0].get_children()[2].get_xdata(orig=True)) == len(sequence1):
+            f = fig
+            ax = fig.axes[0]
+        else:
+            raise Exception('Lenth of X-axis in passed figure "fig" does NOT match length of attractive_vector to be plotted')
 
     # plot repulsive vector
     ax.plot(repulsive_vector, linewidth=0.5,color='Blue', ls='-', alpha=.9)
