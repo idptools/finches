@@ -182,6 +182,12 @@ def build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=['Cterm','Nte
         of the inputed Folded Domain (sequence1). If 'CUSTOM' the origin_index flag must be set to 
         a specific index in SAFD_cords.
 
+    origin_index : int 
+        Optional value formated like indexes in the SAFD_cords list that will be used as the 
+        point of origin for where the IDR is attached to the fold domain. Defult here is None.  
+
+        NOTE - IF THIS IS PASSED IDR_positon must be set to CUSTOM)
+
     Optional value formated like on of indexes in the SAFD_cords list that will be used as the 
         point of origin for where the IDR is attached to the fold domain. Defult here is None.  
 
@@ -212,7 +218,7 @@ def build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=['Cterm','Nte
         if not origin_index:
             raise Exception('origin_index can not be NONE if IDR_positon = CUSTOM')
         else:
-            IDR0_xyz = SAFD_cords[origin_index]
+            IDR0_xyz = origin_index
 
     out_matrix = []
     # for each SAFD residue row
@@ -596,6 +602,7 @@ def extract_flanking_domain_combinations(pdb, return_domain_lists=False):
         PO = SSTrajectory(pdb, pdb).proteinTrajectoryList[0]
     except Exception as e:
         print(f"Exception thrown on [{pdb}] while parsing file with soursop\n{e}\n")
+        raise Exception(e)
 
     ### FOR ALEX OR RYAN TO INSERT PDB PARSER HERE IF WE WANT ###
 

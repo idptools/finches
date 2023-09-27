@@ -63,7 +63,7 @@ def calculate_FCR(s):
 
     """
 
-        # define charges
+    # define charges
     charges = {'R':1, 'K':1, 'E':1, 'D':1}
 
     # set up counter
@@ -95,6 +95,7 @@ def calculate_FCR_and_NCPR(s):
     list
         Returns a list of the FCR and NCPR of the input sequence
 
+    ### TESTED AND FIX TO ENSURE FUNCTIONS ARE BEING CALLED ###
 
     """
     # define charges
@@ -104,7 +105,6 @@ def calculate_FCR_and_NCPR(s):
     # set up counter
     total_pos = 0
     total_neg = 0
-
 
     # iterate sequence and add up charges
     for r in s:

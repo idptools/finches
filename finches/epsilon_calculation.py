@@ -687,7 +687,7 @@ def get_sequence_epsilon_value(sequence1, sequence2, X, prefactor=None, null_int
 ##
 def get_interdomain_epsilon_vectors(sequence1, sequence2, X, SAFD_cords, prefactor=None, null_interaction_baseline=None,
                                     CHARGE=True, IDR_positon=['Cterm','Nterm','CUSTOM'], origin_index=None, 
-                                    sequence_of_reff=['sequence1','sequence2']):
+                                    sequence_of_reff='sequence1'):
     """
     Function to epsilon vectors between the surface of a folded domain 
     and a directly ajoining attached IDR sequence. This epsilon value is weighted by
@@ -764,6 +764,12 @@ def get_interdomain_epsilon_vectors(sequence1, sequence2, X, SAFD_cords, prefact
         sequence epsilon value as computed between sequence1 and sequence2 
     
     """
+    if IDR_positon not in ['Cterm','Nterm','CUSTOM']:
+        raise Exception(f'INVALID IDR_positon passed')
+    
+    if sequence_of_reff not in ['sequence1','sequence2']:
+        raise Exception(f'INVALID sequence_of_reff passed')
+
     # check for prefactor  
     if not prefactor:
         prefactor = X.charge_prefactor
@@ -771,6 +777,15 @@ def get_interdomain_epsilon_vectors(sequence1, sequence2, X, SAFD_cords, prefact
     # check for baseline 
     if not null_interaction_baseline:
         null_interaction_baseline = X.null_interaction_baseline
+
+    # check origin location 
+    if IDR_positon == 'CUSTOM':
+        if not origin_index:
+            raise Exception('When IDR_positon is set to CUSTOM the origin_index must be set an index in (X,Y,Z) the cordinate')
+        try:
+            list(map(lambda a: float(a)), origin_index)
+        except:
+            raise Exception('origin_index must be set to (X,Y,Z) cordinate where XYZ can be floats')
 
     # parse sequence_of_reff flag 
     orientation = {'sequence1':1,'sequence2':0}[sequence_of_reff] 
@@ -784,7 +799,7 @@ def get_interdomain_epsilon_vectors(sequence1, sequence2, X, SAFD_cords, prefact
     
     # get mask for IDR residues relitive resisdues on FD
     # just returns bionary mask
-    w_xyz_mask = build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=IDR_positon)
+    w_xyz_mask = build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=IDR_positon, origin_index=origin_index)
 
     # NOTE - NO weighting of aliphatics is conducted here because aliphatic weighting is 
     #   only performed between groups of local aliphatic residues, and no groups are caluculated 
@@ -816,7 +831,7 @@ def get_interdomain_epsilon_vectors(sequence1, sequence2, X, SAFD_cords, prefact
 ##
 def get_interdomain_epsilon_value(sequence1, sequence2, X, SAFD_cords, prefactor=None, null_interaction_baseline=None,
                                   CHARGE=True, IDR_positon=['Cterm','Nterm', 'CUSTOM'], origin_index=None,
-                                  sequence_of_reff=['sequence1','sequence2']):
+                                  sequence_of_reff='sequence1'):
     """
     Function to compute epsilon value between the surface of a folded domain 
     and a directly ajoining attached IDR sequence. This epsilon value is weighted by
@@ -862,7 +877,7 @@ def get_interdomain_epsilon_value(sequence1, sequence2, X, SAFD_cords, prefactor
         a specific index in SAFD_cords.
 
     origin_index : int 
-        Optional value formated like on of indexes in the SAFD_cords list that will be used as the 
+        Optional value formated like thes indexes in the SAFD_cords list that will be used as the 
         point of origin for where the IDR is attached to the fold domain. Defult here is None. 
 
         NOTE - IF THIS IS PASSED IDR_positon must be set to CUSTOM

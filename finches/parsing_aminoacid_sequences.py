@@ -62,8 +62,7 @@ def get_charge_weighed_mask(sequence1, sequence2):
                     # old way using Sparrow
                     #chrg_weight = np.abs(Protein(l_resis).NCPR / Protein(l_resis).FCR)
 
-                    # new way that avoids Sparrow; note this has not been tested because finches
-                    # doesn't currently work...
+                    # new way that avoids Sparrow
                     [local_fcr, local_ncpr] = calculate_FCR_and_NCPR(l_resis)
                     chrg_weight = np.abs(local_ncpr / local_fcr)
 

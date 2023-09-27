@@ -72,10 +72,10 @@ def show_folded_domain_interaction_on_sequence(pdb, FD_start, FD_end,
             computed with the pdb file and using the {X.parameters.version} model.'''
 
     if sequence_of_reff == 'sequence2' :
-        f = make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence2, sequence_names=[sequence_names[1],sequence_names[0]], 
+        f = make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence2, sequence_names=[sequence_names[1],'surface of '+sequence_names[0]], 
                                      title=title)
     else:
-        f = make_interaction_vector_plot(attractive_vector, repulsive_vector, SAFD_seq, sequence_names=sequence_names, 
+        f = make_interaction_vector_plot(attractive_vector, repulsive_vector, SAFD_seq, sequence_names=['surface of '+sequence_names[0],sequence_names[1]], 
                                      title=title)
     if return_vectors:
         return attractive_vector, repulsive_vector
@@ -115,8 +115,7 @@ def show_sequence_interaction_vector(sequence1, sequence2, X, prefactor=None,
         sequence_names = ['sequence1', 'sequence2']
 
     if not title:
-        title = f'''Interaction Vector of {sequence_names[1]} Relitve to {sequence_names[0]}\n 
-                    computed using the {X.parameters.version} model.'''
+        title = f'Interaction Vector of {sequence_names[1]} Relitve to {sequence_names[0]} computed using the {X.parameters.version} model.'
 
     f = make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1, 
                                         sequence_names=sequence_names, title=title)
