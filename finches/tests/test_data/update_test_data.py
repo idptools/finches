@@ -12,7 +12,7 @@ import os
 
 import finches
 
-from test_sequences import test_sequences, t0
+from test_sequences import test_sequences, test_condition_dict
 
 # ..........................................................................................
 #
@@ -166,3 +166,38 @@ def write_test_seq_epsilon_and_vectors(filepath, model, model_name):
 
     # write file 
     np.savez(data_file, **all_manipulated)
+
+
+#..........................................................................................
+#
+def write_FH_out_data(filepath, model, model_name):
+
+    data_file = f'{filepath}/{model_name}_FH_outdata'
+    X_local = model 
+
+    with open(data_file+'.npz','w') as fh:
+        pass
+
+    all_manipulated = {}
+    names = ['t0']
+ 
+    # test salt JUST outdiagrams
+    out_diagrams = finches.epsilon_to_FHtheory.build_SALT_dependent_phase_diagrams(t0, model, test_condition_dict['test_SALT'])[1]
+    all_manipulated[f'SALT_t0_defult'] = out_diagrams
+
+    # test pH JUST outdiagrams
+    out_diagrams = finches.epsilon_to_FHtheory.build_PH_dependent_phase_diagrams(t0, model, test_condition_dict['test_PH'])[1]
+    all_manipulated[f'PH_t0_defult'] = out_diagrams
+    
+    # test DIELETRIC JUST outdiagrams
+    out_diagrams = finches.epsilon_to_FHtheory.build_DIELECTRIC_dependent_phase_diagrams(t0, model, test_condition_dict['test_DIELECTRIC'])[1]
+    all_manipulated[f'DIELECTRIC_t0_defult'] = out_diagrams
+
+
+    # write file 
+    np.savez(data_file, **all_manipulated)
+
+
+
+
+

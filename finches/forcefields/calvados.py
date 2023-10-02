@@ -183,6 +183,8 @@ class calvados_model:
         self.ALL_RESIDUES_TYPES = [['M', 'G', 'K', 'T', 'Y', 'A', 'D', 'E', 'V', 'L', 'Q', 'W', 'R', 'F', 'S', 'H', 'N', 'P', 'C', 'I'],
                                     ]
 
+        self.conditions = ['salt', 'pH', 'temp']
+
     # ----------------------------------------------------------
     #
     def _genParams(self, r):

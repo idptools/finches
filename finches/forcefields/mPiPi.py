@@ -162,6 +162,8 @@ class mPiPi_model:
         self.dielectric = dielectric 
         self.salt = salt 
 
+        self.conditions = ['salt', 'dielectric']
+
 
     # .....................................................................................
     #
