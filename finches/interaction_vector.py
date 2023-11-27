@@ -19,7 +19,7 @@ from .sequence_tools import show_sequence_HTML
 def show_folded_domain_interaction_on_sequence(pdb, FD_start, FD_end,  
                                                 sequence2, X, IDR_positon=['Cterm','Nterm'], issolate_domain=False,
                                                 prefactor=None, null_interaction_baseline=None, CHARGE=True, 
-                                                sequence_of_reff='sequence2', return_vectors=False,
+                                                sequence_of_ref='sequence2', return_vectors=False,
                                                 sequence_names=None, title=None): 
     """
     Function to plot the interaction vector bewteen a IDR and an ajoining 
@@ -39,7 +39,7 @@ def show_folded_domain_interaction_on_sequence(pdb, FD_start, FD_end,
     
     out_figure
         figure object of plot of interaction vectors of SAFD residues 
-        relitive to sequence2 (the IDR)
+        relative to sequence2 (the IDR)
 
     attractive_vector
         first output of get_interdomain_epsilon_vectors
@@ -53,25 +53,25 @@ def show_folded_domain_interaction_on_sequence(pdb, FD_start, FD_end,
                                                                    issolate_domain=issolate_domain)
 
 
-    # compute interaction vectors (NOTE defult of sequence_of_reff is sequence2 the IDR)
+    # compute interaction vectors (NOTE defult of sequence_of_ref is sequence2 the IDR)
     attractive_vector, repulsive_vector = get_interdomain_epsilon_vectors(SAFD_seq, sequence2, X, SAFD_cords,
                                                             prefactor=prefactor,
                                                             null_interaction_baseline=null_interaction_baseline,
                                                             CHARGE=CHARGE, IDR_positon=IDR_positon, 
-                                                            sequence_of_reff=sequence_of_reff)
+                                                            sequence_of_ref=sequence_of_ref)
 
     if not sequence_names:
         sequence_names = ['sequence1', 'sequence2']
 
     if not title:
-        if sequence_of_reff == 'sequence2':
+        if sequence_of_ref == 'sequence2':
             title = f'''Interaction Vector of a {IDR_positon} {sequence_names[1]} relitve to residues on the surface of the folded domain ({FD_start}-{FD_end}) in {sequence_names[0]} 
             computed with the pdb file and using the {X.parameters.version} model.'''
         else: 
             title = f'''Interaction Vector of the surface residue on the folded domain ({FD_start}-{FD_end}) in {sequence_names[0]} relitve to the {IDR_positon} {sequence_names[1]}
             computed with the pdb file and using the {X.parameters.version} model.'''
 
-    if sequence_of_reff == 'sequence2' :
+    if sequence_of_ref == 'sequence2' :
         f = make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence2, sequence_names=[sequence_names[1],'surface of '+sequence_names[0]], 
                                      title=title)
     else:
@@ -103,7 +103,7 @@ def show_sequence_interaction_vector(sequence1, sequence2, X, prefactor=None,
     ----------
     
     out_figure
-        figure object of plot of interaction vectors relitive to sequence1
+        figure object of plot of interaction vectors relative to sequence1
 
     """
     attractive_vector, repulsive_vector = get_sequence_epsilon_vectors(sequence1, sequence2, X, 
@@ -134,11 +134,11 @@ def make_interaction_vector_plot(attractive_vector, repulsive_vector, sequence1,
     Parameters
     ---------- 
     attractive_vector : list 
-        attractive epsilon vector of sequence1 relitive to sequence2
+        attractive epsilon vector of sequence1 relative to sequence2
         as returned by epsilon_calculation.get_sequence_epsilon_value
 
     repulsive_vector : list 
-        repulsive epsilon vector of sequence1 relitive to sequence2 
+        repulsive epsilon vector of sequence1 relative to sequence2 
         as returned by epsilon_calculation.get_sequence_epsilon_value
     
     sequence1 : str
@@ -235,7 +235,7 @@ def make_interaction_vector_for_folded_domain(pdb, FD_start, FD_end, sequence2, 
                                                 CHARGE=True, IDR_positon=['Cterm','Nterm']): 
     """
     Function to build a per residue interaction vector for every residue
-    in the folded domain of intrest relitive to an ajoining IDR.
+    in the folded domain of intrest relative to an ajoining IDR.
     This is just a wrapper over the functions: 
         
         finches.PDB_structure_tools.pdb_to_SDFDresidues_and_xyzs
@@ -251,12 +251,12 @@ def make_interaction_vector_for_folded_domain(pdb, FD_start, FD_end, sequence2, 
     ----------
     
     FULL_FD_attractive_vector : list 
-        attractive epsilon vector of SAFD relitive to the ajoining IDR
+        attractive epsilon vector of SAFD relative to the ajoining IDR
         length is equal to that of the entire folded domain INCLUDING 
         non_solvent accessble residues 
 
     FULL_FD_repulsive_vector : list 
-        repulsive epsilon vector of SAFD relitive to the ajoining IDR
+        repulsive epsilon vector of SAFD relative to the ajoining IDR
         length is equal to that of the entire folded domain INCLUDING 
         non_solvent accessble residues 
 
@@ -266,12 +266,12 @@ def make_interaction_vector_for_folded_domain(pdb, FD_start, FD_end, sequence2, 
                                                                     issolate_domain=issolate_domain)
 
 
-    # compute interaction vectors (NOTE sequence_of_reff is sequence1, the SAFD)
+    # compute interaction vectors (NOTE sequence_of_ref is sequence1, the SAFD)
     attractive_vector, repulsive_vector = get_interdomain_epsilon_vectors(SAFD_seq, sequence2, X, SAFD_cords,
                                                             prefactor=prefactor,
                                                             null_interaction_baseline=null_interaction_baseline,
                                                             CHARGE=CHARGE, IDR_positon=IDR_positon, 
-                                                            sequence_of_reff='sequence1')
+                                                            sequence_of_ref='sequence1')
 
     # convert SAFD_vector to FULL_FD_vector 
     FULL_FD_attractive_vector, FULL_FD_idxs = map_SAFD_vector_to_full_folded_domain(attractive_vector, SAFD_idxs, 

@@ -162,20 +162,20 @@ def mask_sequence(sequence, target_residues):
 
 ## ---------------------------------------------------------------------------
 ##
-def get_neighboors_window_of3(i, sequence):
+def get_neighbors_window_of3(i, sequence):
     """
     Function that takes in an index position and sequence and returns 
     the portion of the sequence based off the index (i) and the 
-    1 neighbooring residues befor and after that index for a window size 
+    1 neighboring residues before and after that index for a window size 
     of 3 residues.
 
-    NOTE - if the index is at the begining or end of the sequence the 
+    NOTE - if the index is at the begining or end of the sequence, the 
             returned string may not be a window size of 3.
 
     Parameters
     ----------
     i : int
-        Set which position in the sequence to refference
+        Set which position in the sequence to reference
 
     sequence : string 
         the sequence to reference
@@ -183,7 +183,8 @@ def get_neighboors_window_of3(i, sequence):
     Returns
     -------
     s2 : str
-        portion of sequence which includes and is surrounding i
+        Portion of sequence which includes and the residues N- 
+        and C-terminal of the index position
 
     """
     if i == 0:
@@ -236,7 +237,7 @@ def MASK_n_closest_nearest_neighbors(mask, max_separation=1, max_distance=4):
     FUNCTION FROM - housetools.sequence_tools.sequence_masking
 
     Takes in mask and converts this residues to into none binary mask 
-    based on the relitive posision for the hit residues to each other 
+    based on the relative posision for the hit residues to each other 
 
     Parameters
     --------------

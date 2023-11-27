@@ -59,6 +59,17 @@ import pandas as pd
 types = ['M', 'G', 'K', 'T', 'Y', 'A', 'D', 'E', 'V', 'L', 'Q', 'W', 'R', 'F', 'S', 'H', 'N', 'P', 'C', 'I']
 pairs = np.array(list(itertools.combinations_with_replacement(types,2)))
 
+CALVADOS_CONFIGS = {}
+CALVADOS_CONFIGS['CALVADOS1'] = {}
+CALVADOS_CONFIGS['CALVADOS2'] = {}
+
+CALVADOS_CONFIGS['CALVADOS1']['charge_prefactor'] = np.nan # not computed yet
+CALVADOS_CONFIGS['CALVADOS2']['charge_prefactor'] = 1.442590
+
+CALVADOS_CONFIGS['CALVADOS1']['null_interaction_baseline'] = np.nan # not computed yet
+CALVADOS_CONFIGS['CALVADOS2']['null_interaction_baseline'] = -0.047859
+
+
 
 class calvados_model:
 
@@ -91,11 +102,11 @@ class calvados_model:
             Current options are: [CALVADOS1, CALVADOS2]
 
         salt : float
-            Defines the general salt concentration build the refference model.
+            Defines the general salt concentration build the reference model.
             this salt values tune the electrostatic interactions 
 
         pH : float 
-            Defines the general pH to build the refference model.
+            Defines the general pH to build the reference model.
 
         temp : int
             Defines the tempurature at which the the focefield model is computed 
@@ -145,7 +156,8 @@ class calvados_model:
         self.ionic = salt 
         self.salt = salt
         self.pH = pH
-        self.temp = temp 
+        self.temp = temp
+        self.CONFIGS = CALVADOS_CONFIGS[self.version]
 
         # calculate other parameters based off of defults in the CALVADOS model
         # line 65 single_chain/simulate.py & (line 138 of direct_coexistence/analyse.py and also toonable in prot obj)
@@ -176,7 +188,7 @@ class calvados_model:
         self.sigmamap = sigmamap
         self.lambdamap = lambdamap
 
-        # name of parameters below must match naming in other forcefeild module
+        # name of parameters below must match naming in other forcefield module
         # NOTE THIS IS A NESTED LIST FOR WHICH:
         #   every residue in each sublist can occur in the same sequeuce, for sequences with residues 
         #   found in multible sublist and error will be thrown
@@ -229,7 +241,8 @@ class calvados_model:
     #
     def compute_interaction_parameter(self, residue_1, residue_2, r=None):
         """
-        NOTE - the name of this function must match name in other forcefeild modules
+        NOTE - the name of this function must match name in other forcefield 
+        modules.
 
         Standalone function that computes pariwise interaction parameter
         between two residue types based on the finite integral between 1

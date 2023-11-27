@@ -16,6 +16,19 @@ from os.path import exists
 VALID_AA= ['A','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y','C']
 VALID_RNA=['U']
 
+MPIPI_CONFIGS = {}
+
+# different versions can have different parameters
+MPIPI_CONFIGS['mPiPi_default'] = {}
+MPIPI_CONFIGS['mPiPi_GGv1'] = {}
+
+MPIPI_CONFIGS['mPiPi_default']['charge_prefactor'] = 0.184890
+MPIPI_CONFIGS['mPiPi_GGv1']['charge_prefactor'] = 0.216145
+
+MPIPI_CONFIGS['mPiPi_default']['null_interaction_baseline'] = -0.066265
+MPIPI_CONFIGS['mPiPi_GGv1']['null_interaction_baseline'] = -0.128539
+
+
 class mPiPi_model:
 
     def __init__(self, version='mPiPi_default', input_directory='default', dielectric=80.0, salt=0.150):
@@ -75,10 +88,10 @@ class mPiPi_model:
         
         dielectric : float 
             Defines the dielectric constant of the solvent when computing the interactions 
-            in the refference model.
+            in the reference model.
 
         salt : float
-            Defines the general salt concentration build the refference model.
+            Defines the general salt concentration build the reference model.
             this salt values tune the electrostatic interactions 
 
         Returns
@@ -122,9 +135,9 @@ class mPiPi_model:
 
         # PARSER for version of parameters to save
         if version == 'mPiPi_default':
+            
             # use parameters read in from pickle files
-
-            self.ALL_RESIDUES_TYPES = [VALID_AA] 
+            self.ALL_RESIDUES_TYPES = [VALID_AA]
 
         elif version == 'mPiPi_GGv1':
 
@@ -147,22 +160,24 @@ class mPiPi_model:
                     # pass in function to appropriate class update function 
                     update_function(in_function)
 
+            
+
         else:
             raise Exception(f"Unrecognized version [{version}] passed to mPiPi_model. Must be one of 'mPiPi_default' or 'mPiPi_GGv1'")
 
-        # name of parameters below must match naming in other forcefeild modules
-        # define all residues types 
-        # NOTE THIS IS A NESTED LIST FOR WHICH:
-        #   every residue in each sublist can occur in the same sequeuce, for sequences with residues 
-        #   found in multible sublist and error will be thrown
+        # set precomputed forcfield parameters
+        self.CONFIGS = MPIPI_CONFIGS[version]
+
+        # initialize object variables
         self.version =  version
 
-
-        # initiate updatable parameters 
+        # intu
         self.dielectric = dielectric 
         self.salt = salt 
 
+        # name the identity of the conditions we've assigned
         self.conditions = ['salt', 'dielectric']
+
 
 
     # .....................................................................................
@@ -302,7 +317,7 @@ class mPiPi_model:
     #
     def compute_interaction_parameter(self, residue_1, residue_2, r=None, dielectric=None, salt=None):
         """
-        NOTE - the name of this function must match name in other forcefeild modules
+        NOTE - the name of this function must match name in other forcefield modules
 
         Standalone function that computes pariwise interaction parameter
         between two residue types based on the finite integral between 1

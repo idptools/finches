@@ -78,7 +78,7 @@ def get_null_interaction_baseline(X_model, min_len=10, max_len=500):
     """
 
     null_baseline_values_dict = {}
-    base_lines = np.arange(-0.2,0,.01) # range may need to be updated
+    base_lines = np.arange(-0.2, 0, 0.01) # range may need to be updated
 
     GS_refseq = {i: _GS_length_generator(i, start_AA="G") for i in range(min_len,max_len)}
     SG_refseq = {i: _GS_length_generator(i, start_AA="S") for i in range(min_len,max_len)}
@@ -106,7 +106,7 @@ def get_null_interaction_baseline(X_model, min_len=10, max_len=500):
 
 ## ------------------------------------------------------------------------------
 ##
-def get_charge_prefactor(X_model, refference_data='DAS_KAPPA_RG_MPIPI', prefactor_range=None):
+def get_charge_prefactor(X_model, reference_data='DAS_KAPPA_RG_MPIPI', prefactor_range=None):
     """
     Function to arrive at the charge prefactor for weighting the specific passed
     model based on local charged residues. This works by computing the epsilon 
@@ -119,14 +119,14 @@ def get_charge_prefactor(X_model, refference_data='DAS_KAPPA_RG_MPIPI', prefacto
 
     The valitity of the this prefactor depends on the trusted corilary 
     relationship between Rg and homotypic epsilon.The prefactor that returned is 
-    that which has a slope which a matches the kappa to Rg slope of refference data. 
+    that which has a slope which a matches the kappa to Rg slope of reference data. 
     
     Parameters
     ---------------
     X_model : obj
         An instantiation of the Interaction_Matrix_Constructor class 
 
-    refference_data : list 
+    reference_data : list 
         dataset to be used for computing the charge prefactor, this dataset 
         should be organized as a list of tuples where the tuples contain 
         three values in the order of (sequence, Rg(y-value), Kappa(x-value)) 
@@ -175,7 +175,7 @@ def get_charge_prefactor(X_model, refference_data='DAS_KAPPA_RG_MPIPI', prefacto
         slope_of_fit = linregress(x=ref_X, y=seq_ref_list).slope
 
         # because we are looking for the slope that matches that of the 
-        # refference slope, here we subtract off the refference slope 
+        # reference slope, here we subtract off the reference slope 
         # from the computed slope 
         charge_prefactor_dict[prf] = slope_of_fit - ref_slope
 
@@ -195,6 +195,8 @@ def get_charge_prefactor(X_model, refference_data='DAS_KAPPA_RG_MPIPI', prefacto
 ######################################################################
 
 
+## NB THESE ARE TO BE DELETED - FORCEFIELD SPECIFIC DATA SHOULD BE STORED IN THE FORCEFIELD CLASS,
+## AND THIS HAS NOW BEEN ADDED AS CONFIG PARAMETERS TO THE FORCEFIELD CLASS
 precomputed_forcefield_dependent_values =  {'charge_prefactor':{'mPiPi_default': 0.184890,
                                                                 'mPiPi_GGv1': 0.216145,
                                                                 'CALVADOS2': 1.442590,

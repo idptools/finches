@@ -12,6 +12,20 @@ import numpy as np
 import finches
 from os.path import exists
 
+
+
+# The block below defines key metadata associated with a specific for
+CUSTOM_MODEL_CONFIGS = {}
+
+
+CUSTOM_MODEL_CONFIGS['VERSION_1'] = {}
+
+#
+CUSTOM_MODEL_CONFIGS['VERSION_1']['charge_prefactor'] = 0.2
+CUSTOM_MODEL_CONFIGS['VERSION_2']['null_interaction_baseline'] = -0.1
+
+
+
 class custom_model:
 
     def __init__(self, version, input_dictionary, valid_residue_groups=[],
@@ -218,11 +232,20 @@ class custom_model:
             # all beads found are allowed in the same chain
             self.ALL_RESIDUES_TYPES = [list(self.parameters.keys())]
 
+
+        try:
+            self.CONFIGS = CUSTOM_MODEL_CONFIGS[self.version]
+        except KeyError:
+            raise Exception('Version was not recognized - this probably should have been checked before now...')
+
+
+        
+
     # ----------------------------------------------------------
     #
     def compute_interaction_parameter(self, residue_1, residue_2, **conditions):
         """
-        NOTE - the name of this function must match name in other forcefeild modules
+        NOTE - the name of this function must match name in other forcefield modules
 
         Standalone function that computes pariwise interaction parameter
         between two residue types based on self.parameters and the conditions 

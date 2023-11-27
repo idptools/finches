@@ -624,7 +624,7 @@ def run_evolution_by_sequence(
     for generation in range(1, num_generations + 1):
         # evolve the population one generation
 
-        # store previous generation as refference
+        # store previous generation as reference
         prev_population = copy.deepcopy(population)
         prev_population_sequences = copy.deepcopy(population_sequences)
         prev_performances = copy.deepcopy(performances)

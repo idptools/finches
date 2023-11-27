@@ -15,9 +15,9 @@ updated: 2022-07-22
 """
 import numpy as np
 
-# NB from Alex; underscored functions should not be exported from a model so should rename _get_neighboors_3
-# _get_neighboors_3 replaced with get_neighboors_window_of3
-from .sequence_tools import MASK_n_closest_nearest_neighbors, mask_sequence, get_neighboors_window_of3, calculate_FCR_and_NCPR
+# NB from Alex; underscored functions should not be exported from a model so should rename _get_neighbors_3
+# _get_neighbors_3 replaced with get_neighbors_window_of3
+from .sequence_tools import MASK_n_closest_nearest_neighbors, mask_sequence, get_neighbors_window_of3, calculate_FCR_and_NCPR
 
 # new charecters for PIMMS aliphatic groups 
 aliphatic_group1 = {'A':'a', 'L':'l', 'M':'m','I':'i','V':'v'}
@@ -25,13 +25,32 @@ aliphatic_group2 = {'A':'b', 'L':'o', 'M':'x', 'I':'y','V':'z'}
 
 ## ---------------------------------------------------------------------------
 ##
-def get_charge_weighed_mask(sequence1, sequence2):
+def get_charge_weighted_mask(sequence1, sequence2):
     """
-    Function to get the charge weighed mask of a Matrix
+    Function to get the charge weighted mask of the inter-residue interaction
+    matrix.
+
+    Specifically, this function loops over all cross-interacting residues from
+    the two sequences (i.e. every pair of r1-r2 (where r1 is from seq1 and r2 
+    is from seq1) and if BOTH residues are charged then a 'charge weight' is
+    calculated whereby the +/- 1 residues around that two residues are extracted
+    and the |NCPR|/FCR of the resulting concatenated sequence is a weighting factor.
+
+    What does this mean, practically?
+
+    If I have 2 fragements that are KKK and EEE then my charge weighting will be
+
+    |NCPR/FCR| = 0/1 = 0.0
+
+    If I have 2 fragments that are EEE and EEE then my charge weighting will be
+    
+    |NCPR/FCR| = |-1/1| = 1.0
+
+    In this way, clusters of like-charged residues are weighted up
 
     NOTE ADD MORE DETAIL HERE 
 
-    depends on: sequence_tools.get_neighboors_window_of3
+    depends on: sequence_tools.get_neighbors_window_of3
     
     Parameters
     --------------
@@ -44,7 +63,10 @@ def get_charge_weighed_mask(sequence1, sequence2):
     Returns
     ---------------
     np.array 
-        returns a 2D mask the same shape of (len(sequence1), len(sequence2))
+        returns a 2D mask the same shape of (len(sequence1), len(sequence2)) 
+        where at intersections of charged residues between the two sequences
+        we get a charge weighting factor calculated as |NCPR|/FCR 
+
         
     """
     charges = ['R','K','E','D']
@@ -56,20 +78,23 @@ def get_charge_weighed_mask(sequence1, sequence2):
         if r1 in charges:
             for j,r2 in enumerate(sequence2):  
                 if r2 in charges: 
-                    
-                    l_resis = get_neighboors_window_of3(i,sequence1) + get_neighboors_window_of3(j,sequence2)
-                    
-                    # old way using Sparrow
-                    #chrg_weight = np.abs(Protein(l_resis).NCPR / Protein(l_resis).FCR)
 
-                    # new way that avoids Sparrow
+                    # this generates a string of max 6 residues (for terminal residues 5 or 4 residues)
+                    # which is basically a concatenated fragment 
+                    l_resis = get_neighbors_window_of3(i,sequence1) + get_neighbors_window_of3(j,sequence2)
+
+                    # for that fragment, calculate the local fcr and ncpr
                     [local_fcr, local_ncpr] = calculate_FCR_and_NCPR(l_resis)
+
+                    # calculate the charge weight as |NCPR/FRC|
                     chrg_weight = np.abs(local_ncpr / local_fcr)
 
                     tmp.append(chrg_weight)
                 else:
                     tmp.append(0)
         else:
+
+            # if r1 was not charged create an empty vector
             tmp = [0]*n2
             
         matrix.append(tmp)
@@ -78,12 +103,12 @@ def get_charge_weighed_mask(sequence1, sequence2):
 
 ## ---------------------------------------------------------------------------
 ##
-def get_charge_weighed_FD_mask(sequence1, sequence2):
+def get_charge_weighted_FD_mask(sequence1, sequence2):
     """
-    Function to get the charge weighed mask of a Matrix EXCEPT 
+    Function to get the charge weighted mask of a Matrix EXCEPT 
     that residues in sequence1 are treated in issolation. 
 
-    depends on: sequence_tools.get_neighboors_window_of3
+    depends on: sequence_tools.get_neighbors_window_of3
                  
     Here sequence1 is the the SAFD sequence so weighting is computed 
     between the 1FD residue and the normal 3 residues in the IDR
@@ -113,7 +138,7 @@ def get_charge_weighed_FD_mask(sequence1, sequence2):
         if r1 in charges:
             for j,r2 in enumerate(sequence2):  
                 if r2 in charges: 
-                    l_resis = r1 + get_neighboors_window_of3(j,sequence2) #this line is the difference HERE 
+                    l_resis = r1 + get_neighbors_window_of3(j,sequence2) #this line is the difference HERE 
                     
                     [local_fcr, local_ncpr] = calculate_FCR_and_NCPR(l_resis)
                     chrg_weight = np.abs(local_ncpr / local_fcr)
@@ -134,7 +159,7 @@ def get_charge_weighed_FD_mask(sequence1, sequence2):
 ##  
 def get_aliphatic_weighted_mask(sequence1, sequence2):
     """
-    Function to get the aliphatic weighed mask of a Matrix. This 
+    Function to get the aliphatic weighted mask of a Matrix. This 
     is done to account for the interactions between local aliphaic surfaces 
     likly to have stronger interactions. Functionaly this builds a mask to 
     which strenthens interactions between clusters of aliphatic residues.
@@ -184,7 +209,7 @@ def get_aliphatic_weighted_mask(sequence1, sequence2):
 def get_aliphatic_groups(chain):
     """
     Function to get groups of aliphatic residues based on their 
-    local clustering relitive to each other. Returns a 1D SEQUENCE 
+    local clustering relative to each other. Returns a 1D SEQUENCE 
     mask of the passed sequence.
 
     Parameters
@@ -206,7 +231,7 @@ def get_aliphatic_groups(chain):
     # get bionary mask of aliphatics 
     ali_mask = mask_sequence(chain, ['A','V','I','L','M'])
     
-    # count number of nearest neighboors per aliphatic
+    # count number of nearest neighbors per aliphatic
     aliphaticgrouping = MASK_n_closest_nearest_neighbors(ali_mask)
     
     # filter aliphaticgrouping in 3 groups 
