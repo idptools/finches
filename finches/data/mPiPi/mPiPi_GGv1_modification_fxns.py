@@ -11,7 +11,7 @@ by: Garrett M. Ginell
 
 updated: 2022-09-26
 """
-
+from . import defined_RNA_params
 ### defined functions to modify parameters ###
 
 # -------------------------------------------------
@@ -53,7 +53,7 @@ def CORRECT_aliphatic_aliphatic_ALL(CHARGE_ALL, MU_ALL, NU_ALL, EPSILON_ALL, SIG
     """
     # CORRECT aliphatic:aliphatic interation 
     # ILVAM:ILVAM epsilon rebuild 
-    # epsilons are now relitive Kyte-doolittle Hydrophobisity scale
+    # epsilons are now relative Kyte-doolittle Hydrophobisity scale
     # NEW_epsilon = 0.008X + 0.018 ; where X = sum(KDhydro_A1, KDhydro_A2) ;
     #         where A1 and A2 are the aliphatic residues in the pairwise interaction
     """
@@ -167,7 +167,6 @@ def ADD_RNA_U_ALL(CHARGE_ALL, MU_ALL, NU_ALL, EPSILON_ALL, SIGMA_ALL):
     CHARGE:
     U = -0.75
     """
-    import defined_RNA_params
 
     AAs = ['P','E','D','R','K','I','V','L','T','H','M','G','A','C','S','N','Q','F','Y','W']
 

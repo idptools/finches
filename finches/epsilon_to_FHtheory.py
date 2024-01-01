@@ -22,15 +22,19 @@ By : Garrett M. Ginell & Alex S. Holehouse
 2023-08-18
 """
 
-from .epsilon_calculation import get_weighted_sequence_epsilon_value
+import numpy as np
+
+from .epsilon_calculation import get_sequence_epsilon_value
 from .analytical_fh import floryhuggins
+
 
 ## ---------------------------------------------------------------------------
 ##
-def build_condition_dependent_phase_diagrams(seq, X_class, prefactor, null_interaction_baseline, condition_list):
+def build_DIELECTRIC_dependent_phase_diagrams(seq, X_class, condition_list,
+                                                 prefactor=None, null_interaction_baseline=None):
     """
     Fuction that iterativly calls return_phase_diagram base on a list 
-    of passed conditions that re-intialize the input parameter_model
+    of passed conditions for dielectric that re-intialize the input parameter_model
 
     Parameters
     ---------------
@@ -38,8 +42,8 @@ def build_condition_dependent_phase_diagrams(seq, X_class, prefactor, null_inter
         Input sequence
 
     X_model : object
-        instantiation of the Interaction_Matrix_Constructor object for which gets re-initialized for
-        each condition in the condition dict
+        instantiation of the Interaction_Matrix_Constructor object for which gets
+         re-initialized for each condition in the condition dict
 
     prefactor : object
         instantiation
@@ -48,66 +52,219 @@ def build_condition_dependent_phase_diagrams(seq, X_class, prefactor, null_inter
         instantiation
 
     condition_list : list
-        list of [condition_parameter , conditions_list] where:
-            condition_parameter = input parameter of the X_model
-            conditions_list = list of values (v) passed one at 
-                                a time to X_model.parameters.{condition_parameter} = v
+        list of conditions values where:
+        conditions_list = list of values (v) passed one at 
+                            a time to X_model.parameters.salt = v
 
     Returns
     ---------------
-    list
+    out_list : list 
     
         The function returns a list with the following elements
         
         [0] - List of concentrations
-        [1] - List of outputs from return_phase_diagram
-        [2] - List epsilons for each concentrations
-    """
-    """
-    SUDO testing functionalitly here 
-
-
-    mPiPi_model = mPiPi.mPiPi_model('mPiPi_GGv1', salt=0.1)
-    XG_mPiPi = epsilon_calculation.Interaction_Matrix_Constructor(mPiPi_model)
-    def test(X_mPiPi, condition_list):
-        
-        l_param = X_mPiPi.parameters 
-        
-        print(X_mPiPi.lookup["R"]["E"], X_mPiPi.parameters.salt)
-        l_con = condition_list[1]
-        base_value = X_mPiPi.parameters.salt
-        for i in condition_list[1]:
-            # print(l_param.salt)
-            l_param.salt = i
-            X_mPiPi._update_lookup_dict()
-            # print(l_param.salt)
-            
-            ### you would call return_phase_diagram here
-            return_phase_diagram(seq, X_mPiPi)
-
-        print(X_mPiPi.lookup["R"]["E"], X_mPiPi.parameters.salt)
-        
-        #reset_parameters to base value 
-        l_param.salt = base_value
-        X_mPiPi._update_parameters(l_param)
-        print(X_mPiPi.lookup["R"]["E"], X_mPiPi.parameters.salt)
-        
-    condition_list = ['salt',[0.1,0.2,0.3,0.4]]
-    print(XG_mPiPi.lookup["R"]["E"], XG_mPiPi.parameters.salt)
-
-    test(XG_mPiPi, condition_list)
-
-    print(XG_mPiPi.lookup["R"]["E"], XG_mPiPi.parameters.salt)
-
+        [1] - Dictionary of outputs from return_phase_diagram with keys as concentrations
+        [2] - Dictionary of outputs from epsilons for each concentrations keys as concentrations
     """
 
+    out_diagrams = {}
+    out_epsilons = {}
 
-    pass  
+    # check if condition_parameter exists and if so set base condition_parameter 
+    try:
+        base_value = X_class.parameters.dielectric 
+    except Exception as E:
+        print(E)
+        raise Exception(f'''Condition "dielectric" NOT FOUND - Input parameter model {X_class.parameters.version} of passed X_model does 
+                            not contain parameters.dielectric as viable condition. Properties of the passed parameter model are below:
+                            {vars(X_class.parameters).keys()}''')
+
+    base_params = X_class.parameters
+
+    # itterate conditions to get epsilon values at different conditions
+    for i in condition_list:
+
+        # get local parameters 
+        l_param = X_class.parameters
+        l_param.dielectric = i
+
+        # update constructor with for new parameters
+        X_class._update_lookup_dict()
+
+        # get phase diagram for condition
+        out_diagrams[i] = return_phase_diagram(seq, X_class)
+        out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor, 
+                                                        null_interaction_baseline=null_interaction_baseline, 
+                                                        CHARGE=True, ALIPHATICS=True)
+
+    # reset parameters to base_value 
+    X_class.parameters.salt = base_value
+
+    # update base parameters 
+    X_class._update_parameters(base_params)
+
+    return [condition_list, out_diagrams, out_epsilons]
+
+## ---------------------------------------------------------------------------
+##
+def build_PH_dependent_phase_diagrams(seq, X_class, condition_list,
+                                        prefactor=None, null_interaction_baseline=None):
+    """
+    Fuction that iterativly calls return_phase_diagram base on a list 
+    of passed conditions for ph that re-intialize the input parameter_model
+
+    Parameters
+    ---------------
+    seq : str
+        Input sequence
+
+    X_model : object
+        instantiation of the Interaction_Matrix_Constructor object for which gets
+         re-initialized for each condition in the condition dict
+
+    prefactor : object
+        instantiation
+
+    null_interaction_baseline : object
+        instantiation
+
+    condition_list : list
+        list of conditions values where:
+        conditions_list = list of values (v) passed one at 
+                            a time to X_model.parameters.salt = v
+
+    Returns
+    ---------------
+    out_list : list 
+    
+        The function returns a list with the following elements
+        
+        [0] - List of concentrations
+        [1] - Dictionary of outputs from return_phase_diagram with keys as concentrations
+        [2] - Dictionary of outputs from epsilons for each concentrations keys as concentrations
+    """
+
+    out_diagrams = {}
+    out_epsilons = {}
+
+    # check if condition_parameter exists and if so set base condition_parameter 
+    try:
+        base_value = X_class.parameters.pH 
+    except Exception as E:
+        print(E)
+        raise Exception(f'''Condition "pH" NOT FOUND - Input parameter model {X_class.parameters.version} of passed X_model does 
+                            not contain parameters.pH as viable condition. Properties of the passed parameter model are below:
+                            {vars(X_class.parameters).keys()}''')
+
+    base_params = X_class.parameters
+
+    # itterate conditions to get epsilon values at different conditions
+    for i in condition_list:
+
+        # get local parameters 
+        l_param = X_class.parameters
+        l_param.pH = i
+
+        # update constructor with for new parameters
+        X_class._update_lookup_dict()
+
+        # get phase diagram for condition
+        out_diagrams[i] = return_phase_diagram(seq, X_class)
+        out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor, 
+                                                        null_interaction_baseline=null_interaction_baseline, 
+                                                        CHARGE=True, ALIPHATICS=True)
+
+    # reset parameters to base_value 
+    X_class.parameters.salt = base_value
+
+    # update base parameters 
+    X_class._update_parameters(base_params)
+
+    return [condition_list, out_diagrams, out_epsilons]
 
 
 ## ---------------------------------------------------------------------------
 ##
-def return_phase_diagram(seq, X_class, prefactor, null_interaction_baseline):
+def build_SALT_dependent_phase_diagrams(seq, X_class, condition_list,
+                                            prefactor=None, null_interaction_baseline=None):
+    """
+    Fuction that iterativly calls return_phase_diagram base on a list 
+    of passed conditions for salt that re-intialize the input parameter_model
+
+    Parameters
+    ---------------
+    seq : str
+        Input sequence
+
+    X_model : object
+        instantiation of the Interaction_Matrix_Constructor object for which gets
+         re-initialized for each condition in the condition dict
+
+    prefactor : object
+        instantiation
+
+    null_interaction_baseline : object
+        instantiation
+
+    condition_list : list
+        list of conditions values where:
+        conditions_list = list of values (v) passed one at 
+                            a time to X_model.parameters.salt = v
+
+    Returns
+    ---------------
+    out_list : list 
+    
+        The function returns a list with the following elements
+        
+        [0] - List of concentrations
+        [1] - Dictionary of outputs from return_phase_diagram with keys as concentrations
+        [2] - Dictionary of outputs from epsilons for each concentrations keys as concentrations
+    """
+
+    out_diagrams = {}
+    out_epsilons = {}
+
+    # check if condition_parameter exists and if so set base condition_parameter 
+    try:
+        base_value = X_class.parameters.salt 
+    except Exception as E:
+        print(E)
+        raise Exception(f'''Condition "salt" NOT FOUND - Input parameter model {X_class.parameters.version} of passed X_model does 
+                            not contain parameters.salt as viable condition. Properties of the passed parameter model are below:
+                            {vars(X_class.parameters).keys()}''')
+        
+
+    base_params = X_class.parameters
+
+    # itterate conditions to get epsilon values at different conditions
+    for i in condition_list:
+
+        # get local parameters 
+        l_param = X_class.parameters
+        l_param.salt = i
+
+        # update constructor with for new parameters
+        X_class._update_lookup_dict()
+
+        # get phase diagram for condition
+        out_diagrams[i] = return_phase_diagram(seq, X_class)
+        out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor, 
+                                                        null_interaction_baseline=null_interaction_baseline, 
+                                                        CHARGE=True, ALIPHATICS=True)
+
+    # reset parameters to base_value 
+    X_class.parameters.salt = base_value
+
+    # update base parameters 
+    X_class._update_parameters(base_params)
+
+    return [condition_list, out_diagrams, out_epsilons]
+
+
+## ---------------------------------------------------------------------------
+##
+def return_phase_diagram(seq, X_class, prefactor=None, null_interaction_baseline=None):
     """
     Wrapper function that takes in a sequence and builds a phase diagram using the Analytical approximation 
     of FH theory to build a phase diagram. This works by computing a phase diagram in terms of chi vs. T, and then
@@ -162,7 +319,8 @@ def return_phase_diagram(seq, X_class, prefactor, null_interaction_baseline):
     
     
     # calculate the 
-    eps_real = get_weighted_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor,null_interaction_baseline=null_interaction_baseline)
+    eps_real = get_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor, null_interaction_baseline=null_interaction_baseline, 
+                                          CHARGE=True, ALIPHATICS=True)
     
     # if we have a positive (i.e. repulsive) epsilon set this to -0.01, which means super 
     # weakly attractive. We do this because otherwise a positive epsilon value leads to a

@@ -8,6 +8,115 @@ NOTE - Some of the functions below also exist in housetools but are
 By : Garrett M. Ginell & Alex S. Holehouse 
 2023-3-13
 """
+from IPython.display import display # dependency for showing sequence
+from IPython.display import HTML  # dependency for showing sequence
+
+## ------------------------------------------------------------------ 
+##
+def calculate_NCPR(s):
+    """
+    Simple function which calculates the net charge per residue of a
+    protein sequence.
+
+    Parameters
+    --------------
+    s : str
+        Input amino acid sequence
+
+    Returns
+    ---------------
+    float
+        Returns the net charge per residue of the input sequence
+
+    """
+
+    # define charges
+    charges = {'R':1, 'K':1, 'E':-1, 'D':-1}
+
+    # set up counter
+    total_charge = 0
+
+    # iterate sequence and add up charges
+    for r in s:
+        if r not in charges:
+            pass
+        else:
+            total_charge += charges[r]
+
+    return total_charge / len(s)
+
+## ------------------------------------------------------------------ 
+##
+def calculate_FCR(s):
+    """
+    Simple function which calculates the fraction of charged residues
+
+    Parameters
+    --------------
+    s : str
+        Input amino acid sequence
+
+    Returns
+    ---------------
+    float
+        Returns the fraction of charged residues in the input sequence
+
+    """
+
+    # define charges
+    charges = {'R':1, 'K':1, 'E':1, 'D':1}
+
+    # set up counter
+    total_charge = 0
+
+    # iterate sequence and add up charges
+    for r in s:
+        if r not in charges:
+            pass
+        else:
+            total_charge += charges[r]
+
+    return total_charge / len(s)
+
+## ------------------------------------------------------------------ 
+##
+def calculate_FCR_and_NCPR(s):
+    """
+    Simple function which calculates the fraction of charged residues (FCR)
+    and net charge per residue (NCPR) of a protein sequence. 
+
+    Parameters
+    --------------
+    s : str
+        Input amino acid sequence
+
+    Returns
+    ---------------
+    list
+        Returns a list of the FCR and NCPR of the input sequence
+
+    ### TESTED AND FIX TO ENSURE FUNCTIONS ARE BEING CALLED ###
+
+    """
+    # define charges
+    pos = set(['R','K'])
+    neg = set(['E','D'])
+
+    # set up counter
+    total_pos = 0
+    total_neg = 0
+
+    # iterate sequence and add up charges
+    for r in s:
+        if r in pos:
+            total_pos = total_pos + 1
+        elif r in neg:
+            total_neg = total_neg + 1
+        else:
+            pass
+
+    return [(total_pos + total_neg)/len(s), (total_pos - total_neg)/len(s)]
+
 
 def calculate_NCPR(s):
     """
@@ -160,8 +269,30 @@ def mask_sequence(sequence, target_residues):
 
 ## ---------------------------------------------------------------------------
 ##
-def _get_neighboors_3(i, sequence):
+def get_neighbors_window_of3(i, sequence):
     """
+    Function that takes in an index position and sequence and returns 
+    the portion of the sequence based off the index (i) and the 
+    1 neighboring residues before and after that index for a window size 
+    of 3 residues.
+
+    NOTE - if the index is at the begining or end of the sequence, the 
+            returned string may not be a window size of 3.
+
+    Parameters
+    ----------
+    i : int
+        Set which position in the sequence to reference
+
+    sequence : string 
+        the sequence to reference
+
+    Returns
+    -------
+    s2 : str
+        Portion of sequence which includes and the residues N- 
+        and C-terminal of the index position
+
     """
     if i == 0:
         s2= sequence[:i+2]
@@ -213,7 +344,7 @@ def MASK_n_closest_nearest_neighbors(mask, max_separation=1, max_distance=4):
     FUNCTION FROM - housetools.sequence_tools.sequence_masking
 
     Takes in mask and converts this residues to into none binary mask 
-    based on the relitive posision for the hit residues to each other 
+    based on the relative posision for the hit residues to each other 
 
     Parameters
     --------------
@@ -275,3 +406,135 @@ def MASK_n_closest_nearest_neighbors(mask, max_separation=1, max_distance=4):
     
     return nearest_neighbor_sums_mask
 
+##------------------------------------------------------------------ 
+#
+def show_sequence_HTML(seq, blocksize=10, newline=50, fontsize=14, 
+                        font_family='Courier', colors={},header=None,
+                        bold_positions=[],bold_residues=[],opaque_positions=[],
+                        return_raw_string=True):
+    """
+    FUNCTION FROM - sparrow.Protein.show_sequence 
+
+
+    Function that generates an HTML colored string that either renders in the browser or returns the 
+    html string. Contains various customizable components.
+
+    Parameters
+    -------------
+
+    blocksize : int
+        Defines how big blocks of residues are. Blocks are equal to blocksize or the newline parameter, whicever is smaller. 
+        Default=10. If set to -1 uses length of the sequence.
+
+    newline : int
+        Defines how many residues are shown before a newline is printed. Default is 50. If set to -1 uses the length of
+        the sequence.
+
+    fontsize : int
+        Fontsize used. Default is 14
+
+    font_family : str
+        Which font family (from HTML fonts) is used. Using a non-monospace font makes no sense as columns will be 
+        unaligned. Default is Courier. 
+
+    colors : dict
+        Dictionary that allows overiding of default color scheme. Should be of format key-value as 'residue'-'color' where 
+        residue is a residue in the string and color is a valid HTML color (which can be a Hexcode, standard HTML color name). 
+        Note that this also lets you define colors for non-standard amino acids should these be useful. Default is an empty 
+        dictionary. Note also that the standard amino acid colorings are defined at sparrow.data.amino_acids.AA_COLOR
+        
+
+    header : str
+        If provided, this is a string that provides a FASTA-style header (with a leading carrett included). Default None.
+
+    bold_positions : list
+        List of positions (indexing from 1 onwards) which will be bolded. Useful for highlighting specific regions. Note that this
+        defines individual residues so (for example) to bold residues 10 to 15 would require bold_positions=[10,11,12,13,14,15]. 
+        Default is an empty list.
+
+    bold_residues : list
+        List of residue types that can be bolded. Useful for highlighting specific residue groups.  Default is an empty list.
+    
+    opaque_positions : list
+        List of positions (indexing from 1 onwards) which will be grey and slighlty opaque. Useful for highlighting specific regions. 
+        Note that this defines individual residues so (for example) to bold residues 10 to 15 would require 
+        bold_positions=[10,11,12,13,14,15]. Default is an empty list.
+
+    return_raw_string : bool
+        If set to true, the function returns the actual raw HTML string, as opposed to an in-notebook rendering. 
+        Default is TRUE as function is named
+
+    Returns
+    ----------
+    None or str
+        If return_raw_string is set to true then an HTML-compatible string is returned.
+    """
+
+    if blocksize > newline:
+        newline = blocksize
+
+    if blocksize == -1:
+        blocksize = len(seq)
+        newline = len(seq)
+
+
+    if blocksize < 1:
+        raise 
+
+
+    colorString = '<p style="font-family:%s;font-size: %ipx">'%(font_family, fontsize)
+
+    if header:
+        colorString = colorString + "><b>%s</b><br>"%(str(header))
+        
+
+    count = -1
+    for residue in seq:
+
+        count = count + 1
+
+        if count > 0:
+            if count % newline == 0:
+                colorString = colorString + "<br>"
+            
+            elif count % blocksize == 0:
+                colorString = colorString + " "
+
+
+        if residue not in AA_COLOR and residue not in colors:
+            print('Warning: found invalid amino acid (%s and position %i'%(residue, count+1))
+            colorString = colorString + '<span style="color:%s"><b>%s</b></span>' % ('black', residue)
+        else:
+
+            # override with user-suppplied pallete if present
+            if residue in colors:
+                c = colors[residue]
+
+            # else fall back on the standard pallete 
+            else:
+                c = AA_COLOR[residue]
+
+             # check if residue should be light grey and opaque
+            # This overrides other coloring 
+            if count+1 in opaque_positions:
+                 c = '#a9a9a9'
+
+            # if the residue type OR residue position is to be bolded...
+            if residue in bold_residues or (count+1) in bold_positions:
+                colorString = colorString + '<span style="color:%s"><b>%s</b></span>' % (c, residue)
+            else:
+                colorString = colorString + '<span style="color:%s">%s</span>' % (c, residue)
+
+    colorString = colorString +"</p>"
+            
+    if return_raw_string:
+        return colorString
+    else:
+        display(HTML(colorString))
+
+
+# annotation of amino acid coloring.
+AA_COLOR = {'Y':'#ff9d00','W':'#ff9d00','F':'#ff9d00','A':'#171616','L':'#171616','M':'#171616',
+            'I':'#171616','V':'#171616','Q':'#04700d','N':'#04700d','S':'#04700d','T':'#04700d',
+            'H':'#04700d','G':'#04700d','E':'#ff0d0d','D':'#ff0d0d','R':'#2900f5','K':'#2900f5',
+            'C':'#ffe70d','P':'#cf30b7'}
