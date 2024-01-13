@@ -4,9 +4,6 @@ Holehouse Lab - Internal Script
 This script has code to update pairwise interaction strengths for 
 mPiPi force field tooning written for development of AA params in mPiPi.
 
-
-
-
 updated: 2024-01-13
 """
 
@@ -469,16 +466,3 @@ def ADD_RNA_U_ALL(CHARGE_ALL, MU_ALL, NU_ALL, EPSILON_ALL, SIGMA_ALL):
 
     return CHARGE_ALL, MU_ALL, NU_ALL, EPSILON_ALL, SIGMA_ALL
 
-# list of tuples for updating parameters ### 
-# where tuple[0] = class function to call
-#       tuple[1] = list of functions to pass to tuple[0]
-# 
-# this is parsed by iterativly passing each item in tuple[1] to tuple[0]. Note the ORDER here REALLY
-# matters.
-update_to_mPiPi_GGv1 = [('update_ALL', [CORRECT_aliphatic_aliphatic_ALL, CREATE_new_aliphatic_residues_ALL]),
-                        ('update_SIGMA_ALL', [ENLARGE_Proline_SIGMA]),
-                        ('add_ALL_RNA_U', [ADD_RNA_U_ALL]),
-                        ('update_EPSILON_ALL', [STRENGTHEN_small_polar_EPSILON,
-                                                WEAKEN_Aromatic_Charge_EPSILON, 
-                                                SCALE_aliphatic_group_EPSILON])
-                        ]
