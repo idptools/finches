@@ -20,8 +20,8 @@ import numpy as np
 from .sequence_tools import MASK_n_closest_nearest_neighbors, mask_sequence, get_neighbors_window_of3, calculate_FCR_and_NCPR
 
 # new charecters for PIMMS aliphatic groups 
-aliphatic_group1 = {'A':'a', 'L':'l', 'M':'m','I':'i','V':'v'}
-aliphatic_group2 = {'A':'b', 'L':'o', 'M':'x', 'I':'y','V':'z'}
+aliphatic_group1 = {'A':'a', 'L':'l', 'M':'m', 'I':'i', 'V':'v'}
+aliphatic_group2 = {'A':'b', 'L':'o', 'M':'x', 'I':'y', 'V':'z'}
 
 ## ---------------------------------------------------------------------------
 ##
