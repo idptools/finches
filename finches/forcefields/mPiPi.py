@@ -21,12 +21,17 @@ MPIPI_CONFIGS = {}
 # different versions can have different parameters
 MPIPI_CONFIGS['mPiPi_default'] = {}
 MPIPI_CONFIGS['mPiPi_GGv1'] = {}
+MPIPI_CONFIGS['OLD_mPiPi_GGv1'] = {}
 
 MPIPI_CONFIGS['mPiPi_default']['charge_prefactor'] = 0.184890
-MPIPI_CONFIGS['mPiPi_GGv1']['charge_prefactor'] = 0.216145
-
 MPIPI_CONFIGS['mPiPi_default']['null_interaction_baseline'] = -0.066265
+
+MPIPI_CONFIGS['mPiPi_GGv1']['charge_prefactor'] = 0.216145
 MPIPI_CONFIGS['mPiPi_GGv1']['null_interaction_baseline'] = -0.128539
+
+
+MPIPI_CONFIGS['OLD_mPiPi_GGv1']['charge_prefactor'] = 0.216145
+MPIPI_CONFIGS['OLD_mPiPi_GGv1']['null_interaction_baseline'] = -0.128539
 
 class mPiPi_model:
 
@@ -154,6 +159,29 @@ class mPiPi_model:
                 with open(f'{data_prefix}/charge_ggv1.pickle', 'rb') as fh:
                     self.CHARGE_ALL = pickle.load(fh)
 
+
+        elif version == 'OLD_mPiPi_GGv1':
+            
+            # check files are present    
+            for n in ['old_sigma_ggv1.pickle', 'old_epsilon_ggv1.pickle', 'old_nu_ggv1.pickle', 'old_mu_ggv1.pickle', 'old_charge_ggv1.pickle']:                
+                if not exists(f'{data_prefix}/{n}'):
+                    raise Exception(f'Using [{data_prefix}] as our data directory but no {n} file found')
+            
+                with open(f'{data_prefix}/old_sigma_ggv1.pickle', 'rb') as fh:
+                    self.SIGMA_ALL = pickle.load(fh)
+            
+                with open(f'{data_prefix}/old_epsilon_ggv1.pickle', 'rb') as fh:
+                    self.EPSILON_ALL = pickle.load(fh)
+            
+                with open(f'{data_prefix}/old_nu_ggv1.pickle', 'rb') as fh:
+                    self.NU_ALL = pickle.load(fh)    
+            
+                with open(f'{data_prefix}/old_mu_ggv1.pickle', 'rb') as fh:
+                    self.MU_ALL = pickle.load(fh)        
+            
+                with open(f'{data_prefix}/old_charge_ggv1.pickle', 'rb') as fh:
+                    self.CHARGE_ALL = pickle.load(fh)
+                    
         else:
             raise Exception(f"Unrecognized version [{version}] passed to mPiPi_model. Must be one of 'mPiPi_default' or 'mPiPi_GGv1'")
 
