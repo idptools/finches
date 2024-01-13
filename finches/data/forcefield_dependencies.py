@@ -183,27 +183,3 @@ def get_charge_prefactor(X_model, reference_data='DAS_KAPPA_RG_MPIPI', prefactor
     charge_prefactor = linregress(y=list(charge_prefactor_dict.keys()), x=list(charge_prefactor_dict.values())).intercept
 
     return charge_prefactor
-
-
-
-######################################################################
-##                                                                  ##
-##                                                                  ##
-##              PRECOMPUTED FORCEFEILD DEPENDNED PARAMS             ##
-##                                                                  ##
-##                                                                  ##
-######################################################################
-
-
-## NB THESE ARE TO BE DELETED - FORCEFIELD SPECIFIC DATA SHOULD BE STORED IN THE FORCEFIELD CLASS,
-## AND THIS HAS NOW BEEN ADDED AS CONFIG PARAMETERS TO THE FORCEFIELD CLASS
-precomputed_forcefield_dependent_values =  {'charge_prefactor':{'mPiPi_default': 0.184890,
-                                                                'mPiPi_GGv1': 0.216145,
-                                                                'CALVADOS2': 1.442590,
-                                                                },
-
-                                            'null_interaction_baseline':{'mPiPi_default':-0.066265,
-                                                                         'mPiPi_GGv1':-0.128539,
-                                                                         'CALVADOS2':-0.047859,
-                                                                        },
-                                            }

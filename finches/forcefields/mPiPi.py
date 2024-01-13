@@ -28,7 +28,6 @@ MPIPI_CONFIGS['mPiPi_GGv1']['charge_prefactor'] = 0.216145
 MPIPI_CONFIGS['mPiPi_default']['null_interaction_baseline'] = -0.066265
 MPIPI_CONFIGS['mPiPi_GGv1']['null_interaction_baseline'] = -0.128539
 
-
 class mPiPi_model:
 
     def __init__(self, version='mPiPi_default', input_directory='default', dielectric=80.0, salt=0.150):
@@ -111,56 +110,49 @@ class mPiPi_model:
             data_prefix = input_directory
 
 
-        # check files are present
-        for n in ['sigma.pickle', 'epsilon.pickle', 'nu.pickle', 'mu.pickle', 'charge.pickle']:                
-            if not exists(f'{data_prefix}/{n}'):
-                raise Exception(f'Using [{data_prefix}] as our data directory but no {n} file found')
-            
-
-        with open(f'{data_prefix}/sigma.pickle', 'rb') as fh:
-            self.SIGMA_ALL = pickle.load(fh)
-            
-        with open(f'{data_prefix}/epsilon.pickle', 'rb') as fh:
-            self.EPSILON_ALL = pickle.load(fh)
-            
-        with open(f'{data_prefix}/nu.pickle', 'rb') as fh:
-            self.NU_ALL = pickle.load(fh)    
-            
-        with open(f'{data_prefix}/mu.pickle', 'rb') as fh:
-            self.MU_ALL = pickle.load(fh)        
-            
-        with open(f'{data_prefix}/charge.pickle', 'rb') as fh:
-            self.CHARGE_ALL = pickle.load(fh)    
-
-
-        # PARSER for version of parameters to save
         if version == 'mPiPi_default':
-            
-            # use parameters read in from pickle files
-            self.ALL_RESIDUES_TYPES = [VALID_AA]
 
+            # check files are present    
+            for n in ['sigma.pickle', 'epsilon.pickle', 'nu.pickle', 'mu.pickle', 'charge.pickle']:                
+                if not exists(f'{data_prefix}/{n}'):
+                    raise Exception(f'Using [{data_prefix}] as our data directory but no {n} file found')
+            
+                with open(f'{data_prefix}/sigma.pickle', 'rb') as fh:
+                    self.SIGMA_ALL = pickle.load(fh)
+            
+                with open(f'{data_prefix}/epsilon.pickle', 'rb') as fh:
+                    self.EPSILON_ALL = pickle.load(fh)
+            
+                with open(f'{data_prefix}/nu.pickle', 'rb') as fh:
+                    self.NU_ALL = pickle.load(fh)    
+            
+                with open(f'{data_prefix}/mu.pickle', 'rb') as fh:
+                    self.MU_ALL = pickle.load(fh)        
+            
+                with open(f'{data_prefix}/charge.pickle', 'rb') as fh:
+                    self.CHARGE_ALL = pickle.load(fh)
+                    
         elif version == 'mPiPi_GGv1':
-
-            self.ALL_RESIDUES_TYPES = [VALID_AA, VALID_RNA]
-            from ..data.mPiPi.mPiPi_GGv1_modification_fxns import update_to_mPiPi_GGv1
-
-            update_function_dict = {'update_ALL':self.update_ALL, 
-                             'update_SIGMA_ALL':self.update_SIGMA_ALL,
-                             'update_EPSILON_ALL':self.update_EPSILON_ALL,
-                             'add_ALL_RNA_U':self.update_ALL} 
-
-            # iterate list of tuples to update each dict.
-            for dict_update_tuple in update_to_mPiPi_GGv1:
-
-                update_function = update_function_dict[dict_update_tuple[0]]
-
-                # iterate each in_function associated parameter dictionary 
-                for in_function in dict_update_tuple[1]:
-
-                    # pass in function to appropriate class update function 
-                    update_function(in_function)
-
             
+            # check files are present    
+            for n in ['sigma_ggv1.pickle', 'epsilon_ggv1.pickle', 'nu_ggv1.pickle', 'mu_ggv1.pickle', 'charge_ggv1.pickle']:                
+                if not exists(f'{data_prefix}/{n}'):
+                    raise Exception(f'Using [{data_prefix}] as our data directory but no {n} file found')
+            
+                with open(f'{data_prefix}/sigma_ggv1.pickle', 'rb') as fh:
+                    self.SIGMA_ALL = pickle.load(fh)
+            
+                with open(f'{data_prefix}/epsilon_ggv1.pickle', 'rb') as fh:
+                    self.EPSILON_ALL = pickle.load(fh)
+            
+                with open(f'{data_prefix}/nu_ggv1.pickle', 'rb') as fh:
+                    self.NU_ALL = pickle.load(fh)    
+            
+                with open(f'{data_prefix}/mu_ggv1.pickle', 'rb') as fh:
+                    self.MU_ALL = pickle.load(fh)        
+            
+                with open(f'{data_prefix}/charge_ggv1.pickle', 'rb') as fh:
+                    self.CHARGE_ALL = pickle.load(fh)
 
         else:
             raise Exception(f"Unrecognized version [{version}] passed to mPiPi_model. Must be one of 'mPiPi_default' or 'mPiPi_GGv1'")
@@ -212,7 +204,6 @@ class mPiPi_model:
         """
         
         return wang_frenkel(r, self.SIGMA_ALL[residue_1][residue_2], self.EPSILON_ALL[residue_1][residue_2], self.MU_ALL[residue_1][residue_2], self.NU_ALL[residue_1][residue_2])
-
 
 
     # .....................................................................................
@@ -383,113 +374,6 @@ class mPiPi_model:
         interaction_param = np.trapz(combo[s1:s3], x=r[s1:s3])
 
         return (interaction_param, combo, s1, s3, r)
-
-
-    ##
-    ## Update functions below
-    ## 
-    
-    def update_SIGMA_ALL(self, in_function):
-        """
-        Function that enables the user to update the mPiPi sigma parameters
-        associated with the underlying mPiPi_model object.
-
-        Parameters
-        --------------
-        in_function : function
-            Input function which should take a single argument (the self.SIGMAL_ALL 
-            dictionary) and return an equivalent SIGMA_ALL dictionary, which is 
-            itself a nested dictionary where self.SIGMA_ALL['A']['D'] returns the
-            sigma_{i,j} parameter associated with i=Ala and j=Asp.
-
-        Returns
-        ------------
-        None
-            No return type, but the underlying sigma parameters are updated
-            according to the dictionary generated by the in_ducntion
-
-        Raises
-        -----------
-        Exception
-            The function will raise an exception of the in_function does not
-            generate a dictionary that enables all pairwise sigma values to
-            be recovered.
-        
-        """
-
-        tmp = in_function(self.SIGMA_ALL)
-
-        ## sanity check to make sure things look ok - always wise if you're asking
-        # users to pass in functions!
-        
-        if not isinstance(tmp, dict):
-            raise Exception('Passed function did not generate a dictionary')
-            
-        # check all possible combos return floatable values
-        for aa1 in VALID_AA:
-            for aa2 in VALID_AA:
-                try:
-                    _x = float(tmp[aa1][aa2])
-                except Exception as e:
-                    raise Exception(f'Dictionary could not return sigma values betwee {aa1} and {aa2}.\nUpdate dictionary generated is: {str(tmp)}.Error below:\n({str(e)}\n')
-
-        # if we get here hopefully we're OK...
-        self.SIGMA_ALL = tmp
-
-
-    # ................................................................................
-    #
-    #
-    def update_EPSILON_ALL(self, in_function):
-        """
-        TO DO: update this function as per update_SIGMA_ALL
-
-        this in in_function can do whatever but must take and return 
-        the EPSILON_ALL dictionary in the same format as initiated 
-        """
-        self.EPSILON_ALL = in_function(self.EPSILON_ALL)
-
-
-    # ................................................................................
-    #
-    #
-    def update_NU_ALL(self, in_function):
-        """
-        TO DO: update this function as per update_SIGMA_ALL
-        
-        this in in_function can do whatever but must take and return 
-        the NU_ALL dictionary in the same format as initiated 
-        """
-        self.NU_ALL = in_function(self.NU_ALL)
-
-    # ................................................................................
-    #
-    #
-    def update_MU_ALL(self, in_function):
-        """
-        TO DO: update this function as per update_SIGMA_ALL
-    
-        this in in_function can do whatever but must take and return 
-        the MU_ALL dictionary in the same format as initiated 
-        """
-        self.MU_ALL = in_function(self.MU_ALL)
-
-    # ................................................................................
-    #
-    #
-    def update_CHARGE_ALL(self, in_function):
-        """
-        this in in_function can do whatever but must take and return 
-        the CHARGE_ALL dictionary in the same format as initiated 
-        """
-        self.CHARGE_ALL = in_function(self.CHARGE_ALL)
-
-    # ................................................................................
-    #
-    #
-    def update_ALL(self, in_function):
-        """Function takes in all parameter dicts and returns all"""
-        self.CHARGE_ALL, self.MU_ALL, self.NU_ALL, self.EPSILON_ALL, self.SIGMA_ALL = in_function(self.CHARGE_ALL, self.MU_ALL, self.NU_ALL, self.EPSILON_ALL, self.SIGMA_ALL)   
 
 
 

@@ -8,7 +8,7 @@ values : Garrett M. Ginell & Alex S. Holehouse
 import numpy as np
 import math
 
-from .data.forcefield_dependencies import precomputed_forcefield_dependent_values, get_null_interaction_baseline, get_charge_prefactor
+from .data.forcefield_dependencies import  get_null_interaction_baseline, get_charge_prefactor
 
 from .parsing_aminoacid_sequences import get_charge_weighted_mask, get_charge_weighted_FD_mask
 from .parsing_aminoacid_sequences import get_aliphatic_weighted_mask
@@ -49,7 +49,7 @@ class Interaction_Matrix_Constructor:
             IMC = Interaction_Matrix_Constructor(parameters = mPiPi_GGv1_params)
 
         The Interaction_Matrix_Constructor object IMC then provides functionality 
-        for calculating inter-residue interactions using the energetcics in the 
+        for calculating inter-residue interactions using the energetics in the 
         underlying model. Moreover, the IMC object can also then be updated in a
         variety of ways.
 
@@ -102,15 +102,6 @@ class Interaction_Matrix_Constructor:
             charge_prefactor is a scalar which in effect scales the strength this 
             scaling has, and typically needs to be tuned on a per forcefield basis.
 
-            NOTE -  charge_prefactor is specific to the parameter version. Charge 
-                    weighing of the the matrix will not work. Precomputed 
-                    charge_prefactor values can be added to the following location:
-
-                        data.forcefield_dependencies.precomputed_forcefield_dependent_values 
-                
-                    To compute a new charge_prefactor, see:
-
-                        data.forcefield_dependencies.get_charge_prefactor
 
         null_interaction_baseline : float  
             Model specific threshold to differentiate between attractive and repulsive
@@ -122,12 +113,12 @@ class Interaction_Matrix_Constructor:
             NOTE -  null_interaction_baseline is specific to the parameter version. 
                     The null_interaction_baseline is the value used to split matrix. 
                     This has been built such that this value recapitulates PolyGS for                    
-                    the specific input model being used. Precomputed charge_prefactor 
-                    values can be added to the following location: 
+                    the specific input model being used. Precomputed null_interaction 
+                    baseline canbe found in the CONFIGS dictionary of the parameters
+                    object.
 
-                        data.forcefield_dependencies.precomputed_forcefield_dependent_values 
-                
-                    To compute a new charge_prefactor see:
+                    To compute a new null_interaction_baseline for a new forcefield
+                    see:
 
                         data.forcefield_dependencies.get_null_interaction_baseline
 
@@ -171,13 +162,10 @@ class Interaction_Matrix_Constructor:
         # this is the main function which sets up the self.lookup table and ensures self.parameters maps to
         # a valid object
         self._update_parameters(parameters)
-
         
         # check null_interaction_baseline
         if self.null_interaction_baseline == None: 
             try:
-                # old
-                #self.null_interaction_baseline = precomputed_forcefield_dependent_values['null_interaction_baseline'][parameters.version]
                 self.null_interaction_baseline = self.parameters.CONFIGS['null_interaction_baseline']
             except Exception as e: 
                 if compute_forcefield_dependencies: 
@@ -191,8 +179,7 @@ class Interaction_Matrix_Constructor:
 
         # charge charge_prefactor 
         if self.charge_prefactor == None: 
-            try:
-                #self.charge_prefactor = precomputed_forcefield_dependent_values['charge_prefactor'][parameters.version]
+            try:                
                 self.charge_prefactor = self.parameters.CONFIGS['charge_prefactor']
             except Exception as e: 
                 if compute_forcefield_dependencies:
