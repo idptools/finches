@@ -193,7 +193,9 @@ class mPiPi_model:
 
         # intu
         self.dielectric = dielectric 
-        self.salt = salt 
+        self.salt = salt
+
+        self.ALL_RESIDUES_TYPES = [['M', 'G', 'K', 'T', 'Y', 'A', 'D', 'E', 'V', 'L', 'Q', 'W', 'R', 'F', 'S', 'H', 'N', 'P', 'C', 'I'],['U']]
 
         # name the identity of the conditions we've assigned
         self.conditions = ['salt', 'dielectric']
