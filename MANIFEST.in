@@ -1,3 +1,6 @@
 include CODE_OF_CONDUCT.md
 
+# include all .pyx files wherever they may be
+recursive-include * *.pyx
+
 global-exclude *.py[cod] __pycache__ *.so
