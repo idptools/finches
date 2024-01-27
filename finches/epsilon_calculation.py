@@ -15,6 +15,8 @@ from .parsing_aminoacid_sequences import get_aliphatic_weighted_mask
 
 from .PDB_structure_tools import build_column_mask_based_on_xyz
 
+from .utils import matrix_manipulation
+
 # -------------------------------------------------------------------------------------------------
 class Interaction_Matrix_Constructor:
     
@@ -509,7 +511,7 @@ class Interaction_Matrix_Constructor:
         
     ## ------------------------------------------------------------------------------
     ## 
-    def calculate_pairwise_heterotypic_matrix(self, sequence1, sequence2, convert_to_custom=True):
+    def calculate_pairwise_heterotypic_matrix(self, sequence1, sequence2, convert_to_custom=True, use_cython=True):
         
         """
         Interaction_Matrix_Constructor.calculate_pairwise_heterotypic_matrix
@@ -521,6 +523,9 @@ class Interaction_Matrix_Constructor:
         at the start and then look 'em up, but this code below does the
         dynamic non-redudant on-the-fly calculation of unique pairwise
         residues.
+
+        Note we default to using a cython implementation which is 3.5x faster
+        than the pure python implementation.
 
         Parameters
         ---------------
@@ -545,15 +550,20 @@ class Interaction_Matrix_Constructor:
             self._check_sequence(sequence1)
             self._check_sequence(sequence2)
 
-        matrix = []
-        for r1 in sequence1:
-            tmp = []
+
+        if use_cython:
+            return matrix_manipulation.dict2matrix(sequence1, sequence2, self.lookup)
             
-            for r2 in sequence2:                
-                tmp.append(self.lookup[r1][r2])
-            matrix.append(tmp)
+        else:                
+            matrix = []
+            for r1 in sequence1:
+                tmp = []
             
-        return np.array(matrix)
+                for r2 in sequence2:                
+                    tmp.append(self.lookup[r1][r2])
+                matrix.append(tmp)
+            
+            return np.array(matrix)
 
 
     
@@ -745,7 +755,8 @@ class Interaction_Matrix_Constructor:
                                   sequence2,
                                   window_size=31,
                                   CHARGE=True,
-                                  ALIPHATICS=True):
+                                  ALIPHATICS=True,
+                                  use_cython=True):
         """
         Function that returns the sliding epsilon value associated with a
         pair of sequences, as calculated using this object.
@@ -805,6 +816,11 @@ class Interaction_Matrix_Constructor:
             Flag to select whether weight the matrix by local patches of
             aliphatic residues
 
+        use_cython : bool
+            Flag to select whether to use the cythonized version of the code
+            or the python version. The cythonized version is reduces the time
+            to about 5-10% of the python version. 
+
         Returns
         ---------------
         tuple
@@ -858,6 +874,12 @@ class Interaction_Matrix_Constructor:
                                                            sequence2,
                                                            CHARGE=CHARGE,
                                                            ALIPHATICS=ALIPHATICS)
+                                                           
+
+        # default to cython version, which is MUCH faster
+        if use_cython:
+            return  matrix_manipulation.matrix_scan(w_matrix, window_size, self.null_interaction_baseline)
+                                                        
 
         # get dimensions of matrix
         l1 = w_matrix.shape[0]
@@ -877,6 +899,8 @@ class Interaction_Matrix_Constructor:
 
             everything.append(tmp)
 
+        everything = np.array(everything)
+            
         # finally, determine indices for sequence1 
         start = int((window_size-1)/2)
         end   = l1 - start
@@ -886,9 +910,8 @@ class Interaction_Matrix_Constructor:
         start = int((window_size-1)/2)
         end   = l2 - start
         seq2_indices = np.arange(start,end)
-        
-
-        return (np.array(everything), seq2_indices, seq1_indices)
+                
+        return (everything, seq2_indices, seq1_indices)
 
 
     
