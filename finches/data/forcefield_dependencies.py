@@ -89,8 +89,8 @@ def get_null_interaction_baseline(X_model, min_len=10, max_len=500):
         # not charge prefactor can be set to 0 here because the null_interaction_baseline
         # generation does not depend on any sequences containing charge residues 
 
-        GS_ref_dict = {i:finches.epsilon_calculation.get_sequence_epsilon_value(a, a, null_interaction_baseline=ibl, prefactor=0, X=X_model, CHARGE=False, ALIPHATICS=False) for i,a in GS_refseq.items()}
-        SG_ref_dict = {i:finches.epsilon_calculation.get_sequence_epsilon_value(a, a, null_interaction_baseline=ibl, prefactor=0, X=X_model, CHARGE=False, ALIPHATICS=False) for i,a in SG_refseq.items()}
+        GS_ref_dict = {i:finches.epsilon_calculation.get_sequence_epsilon_value(a, a, null_interaction_baseline=ibl, prefactor=0, X=X_model, use_charge_weighting=False, use_aliphatic_weighting=False) for i,a in GS_refseq.items()}
+        SG_ref_dict = {i:finches.epsilon_calculation.get_sequence_epsilon_value(a, a, null_interaction_baseline=ibl, prefactor=0, X=X_model, use_charge_weighting=False, use_aliphatic_weighting=False) for i,a in SG_refseq.items()}
 
         GS_avg_reference_dic = {i: (GS_ref_dict[i] + SG_ref_dict[i])/2 for i in SG_refseq}
 
@@ -169,7 +169,7 @@ def get_charge_prefactor(X_model, reference_data='DAS_KAPPA_RG_MPIPI', prefactor
     # iterate possible prefactors
     for prf in prefactors:
 
-        seq_ref_list = [finches.epsilon_calculation.get_sequence_epsilon_value(s, s, null_interaction_baseline=ibl, prefactor=prf, X=X_model, CHARGE=True, ALIPHATICS=False) for s in refseqs]
+        seq_ref_list = [finches.epsilon_calculation.get_sequence_epsilon_value(s, s, null_interaction_baseline=ibl, prefactor=prf, X=X_model, use_charge_weighting=True, use_aliphatic_weighting=False) for s in refseqs]
         
         # get slope for this specific prefactor
         slope_of_fit = linregress(x=ref_X, y=seq_ref_list).slope

@@ -532,6 +532,17 @@ class Interaction_Matrix_Constructor:
         sequence : str
             Amino acid sequence of interest
 
+        sequence2: str
+            Second amino acid sequence of interest
+        
+
+
+        use_cython : bool
+            Flag to select whether to use the cythonized version of the code
+            or the python version. The cythonized version is reduces the time
+            to about 5-10% of the python version. 
+
+
         Returns
         ------------------
         np.array
@@ -574,8 +585,9 @@ class Interaction_Matrix_Constructor:
                                            sequence2,
                                            convert_to_custom=True, 
                                            charge_prefactor=None,
-                                           CHARGE=True,
-                                           ALIPHATICS=True):
+                                           use_charge_weighting=True,
+                                           use_aliphatic_weighting=True,
+                                           use_cython=True):
         
         """
         Interaction_Matrix_Constructor.calculate_pairwise_heterotypic_matrix
@@ -595,12 +607,17 @@ class Interaction_Matrix_Constructor:
             Model specific value to plug into the local charge weighting of 
             the matrix 
 
-        CHARGE : bool
+        use_charge_weighting : bool
             Flag to select whether weight the matrix by local sequence charge 
 
-        ALIPHATICS : bool
+        use_aliphatic_weighting : bool
             Flag to select whether weight the matrix by local patches of aliphatic 
             residues
+
+        use_cython : bool
+            Flag to select whether to use the cythonized version of the code
+            or the python version. The cythonized version is reduces the time
+            to about 5-10% of the python version. 
 
         Returns
         ------------------
@@ -613,10 +630,10 @@ class Interaction_Matrix_Constructor:
         """
         
         # compute matrix - note if s1 and s2 are the same that's fine
-        matrix = self.calculate_pairwise_heterotypic_matrix(sequence1, sequence2, convert_to_custom=True)
+        matrix = self.calculate_pairwise_heterotypic_matrix(sequence1, sequence2, convert_to_custom=True, use_cython=use_cython)
 
         # weight the matrix by local sequence charge
-        if CHARGE:
+        if use_charge_weighting:
 
             if charge_prefactor == None:
                 charge_prefactor = self.charge_prefactor 
@@ -642,7 +659,7 @@ class Interaction_Matrix_Constructor:
             w_matrix = matrix
 
         # weight the matrix by local patches of aliphatic residues
-        if ALIPHATICS:
+        if use_aliphatic_weighting:
             w_ali_mask = get_aliphatic_weighted_mask(sequence1, sequence2)
             w_matrix = w_matrix*w_ali_mask
 
@@ -662,8 +679,8 @@ class Interaction_Matrix_Constructor:
     def calculate_epsilon_vectors(self,
                             sequence1,
                             sequence2,
-                            CHARGE=True,
-                            ALIPHATICS=True):
+                            use_charge_weighting=True,
+                            use_aliphatic_weighting=True):
         """
         Function that returns the attractive and repulsive epsilon vectors for
         the two sequences passed.
@@ -678,10 +695,10 @@ class Interaction_Matrix_Constructor:
         sequence2 : str
             Second sequence to compare
 
-        CHARGE : bool
+        use_charge_weighting : bool
             Flag to select whether weight the matrix by local sequence charge 
 
-        ALIPHATICS : bool
+        use_aliphatic_weighting : bool
             Flag to select whether weight the matrix by local patches of 
             aliphatic residues
 
@@ -700,16 +717,16 @@ class Interaction_Matrix_Constructor:
         return get_sequence_epsilon_vectors(sequence1,
                                             sequence2,
                                             self,
-                                            CHARGE=CHARGE,
-                                            ALIPHATICS=ALIPHATICS)
+                                            use_charge_weighting=use_charge_weighting,
+                                            use_aliphatic_weighting=use_aliphatic_weighting)
 
     ## ------------------------------------------------------------------------------
     ## 
     def calculate_epsilon_value(self,
                           sequence1,
                           sequence2,
-                          CHARGE=True,
-                          ALIPHATICS=True):
+                          use_charge_weighting=True,
+                          use_aliphatic_weighting=True):
 
         """
         Function that returns the overall epsilon value associated with a 
@@ -724,10 +741,10 @@ class Interaction_Matrix_Constructor:
         sequence2 : str
             Second sequence to compare
 
-        CHARGE : bool
+        use_charge_weighting : bool
             Flag to select whether weight the matrix by local sequence charge 
 
-        ALIPHATICS : bool
+        use_aliphatic_weighting : bool
             Flag to select whether weight the matrix by local patches of 
             aliphatic residues
 
@@ -745,8 +762,8 @@ class Interaction_Matrix_Constructor:
         return get_sequence_epsilon_value(sequence1,
                                           sequence2,
                                           self,
-                                          CHARGE=CHARGE,
-                                          ALIPHATICS=ALIPHATICS)
+                                          use_charge_weighting=use_charge_weighting,
+                                          use_aliphatic_weighting=use_aliphatic_weighting)
 
     ## ------------------------------------------------------------------------------
     ## 
@@ -754,8 +771,8 @@ class Interaction_Matrix_Constructor:
                                   sequence1,
                                   sequence2,
                                   window_size=31,
-                                  CHARGE=True,
-                                  ALIPHATICS=True,
+                                  use_charge_weighting=True,
+                                  use_aliphatic_weighting=True,
                                   use_cython=True):
         """
         Function that returns the sliding epsilon value associated with a
@@ -809,10 +826,10 @@ class Interaction_Matrix_Constructor:
             number, and if it's not it will be rounded up to the next odd number.
 
 
-        CHARGE : bool
+        use_charge_weighting : bool
             Flag to select whether weight the matrix by local sequence charge
 
-        ALIPHATICS : bool
+        use_aliphatic_weighting : bool
             Flag to select whether weight the matrix by local patches of
             aliphatic residues
 
@@ -872,9 +889,10 @@ class Interaction_Matrix_Constructor:
         # calculate weight pairwise matrix
         w_matrix = self.calculate_weighted_pairwise_matrix(sequence1,
                                                            sequence2,
-                                                           CHARGE=CHARGE,
-                                                           ALIPHATICS=ALIPHATICS)
-                                                           
+                                                           use_charge_weighting=use_charge_weighting,
+                                                           use_aliphatic_weighting=use_aliphatic_weighting)
+
+
 
         # default to cython version, which is MUCH faster
         if use_cython:
@@ -1036,8 +1054,8 @@ def get_sequence_epsilon_vectors(sequence1,
                                  X,
                                  charge_prefactor=None,
                                  null_interaction_baseline=None,
-                                 CHARGE=True,
-                                 ALIPHATICS=True):
+                                 use_charge_weighting=True,
+                                 use_aliphatic_weighting=True):
     """
     Function to epsilon vectors between a pair of passed sequences
     returned vectors are relative to sequence1 such that len(sequence1) equals 
@@ -1068,10 +1086,10 @@ def get_sequence_epsilon_vectors(sequence1,
         Model specific value to plug into the local charge weighting of 
         the matrix
 
-    CHARGE : bool
+    use_charge_weighting : bool
         Flag to select whether weight the matrix by local sequence charge 
 
-    ALIPHATICS : bool
+    use_aliphatic_weighting : bool
         Flag to select whether weight the matrix by local patches of aliphatic 
         residues
     
@@ -1094,8 +1112,8 @@ def get_sequence_epsilon_vectors(sequence1,
                                                     sequence2,
                                                     convert_to_custom=True, 
                                                     charge_prefactor=charge_prefactor,
-                                                    CHARGE=CHARGE,
-                                                    ALIPHATICS=ALIPHATICS)
+                                                    use_charge_weighting=use_charge_weighting,
+                                                    use_aliphatic_weighting=use_aliphatic_weighting)
     
     # get attractive and repulsive matrix
     attractive_matrix, repulsive_matrix = get_attractive_repulsive_matrixes(w_matrix, null_interaction_baseline)
@@ -1118,8 +1136,8 @@ def get_sequence_epsilon_value(sequence1,
                                X,
                                charge_prefactor=None,
                                null_interaction_baseline=None,
-                               CHARGE=True,
-                               ALIPHATICS=True):
+                               use_charge_weighting=True,
+                               use_aliphatic_weighting=True):
     """
     Function to epsilon value between a pair of passed sequences
 
@@ -1147,10 +1165,10 @@ def get_sequence_epsilon_value(sequence1,
         Model specific value to plug into the local charge weighting of 
         the matrix
 
-    CHARGE : bool
+    use_charge_weighting : bool
         Flag to select whether weight the matrix by local sequence charge 
 
-    ALIPHATICS : bool
+    use_aliphatic_weighting : bool
         Flag to select whether weight the matrix by local patches of aliphatic 
         residues
     
@@ -1167,8 +1185,8 @@ def get_sequence_epsilon_value(sequence1,
                                                                        X,
                                                                        charge_prefactor=charge_prefactor,
                                                                        null_interaction_baseline=null_interaction_baseline,
-                                                                       CHARGE=CHARGE,
-                                                                       ALIPHATICS=ALIPHATICS)
+                                                                       use_charge_weighting=use_charge_weighting,
+                                                                       use_aliphatic_weighting=use_aliphatic_weighting)
     
     # sum vectors to get attractive and repulsive values
     attractive_value = np.sum(attractive_vector)
@@ -1186,7 +1204,7 @@ def get_interdomain_epsilon_vectors(sequence1,
                                     SAFD_cords,
                                     charge_prefactor=None,
                                     null_interaction_baseline=None,
-                                    CHARGE=True,
+                                    use_charge_weighting=True,
                                     IDR_positon=['Cterm','Nterm','CUSTOM'],
                                     origin_index=None, 
                                     sequence_of_ref='sequence1'):
@@ -1252,7 +1270,7 @@ def get_interdomain_epsilon_vectors(sequence1,
         Model specific value to plug into the local charge weighting of 
         the matrix
 
-    CHARGE : bool
+    use_charge_weighting : bool
         Flag to select whether weight the matrix by local sequence charge 
 
         NOTE - NO weighting of aliphatics is conducted here because aliphatic weighting is 
@@ -1304,7 +1322,7 @@ def get_interdomain_epsilon_vectors(sequence1,
     w_xyz_mask = build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=IDR_positon, origin_index=origin_index)
 
     # NOTE - NO weighting of aliphatics is conducted here because aliphatic weighting is 
-    #   only performed between groups of local aliphatic residues, and no groups are caluculated 
+    #   only performed between groups of local aliphatic residues, and no groups are calculated 
     #   on the surface of folded domains, therefor all aliphatics who still be treated as if they 
     #   they are in isolation.  
 
@@ -1340,7 +1358,7 @@ def get_interdomain_epsilon_value(sequence1,
                                   SAFD_cords,
                                   charge_prefactor=None,
                                   null_interaction_baseline=None,
-                                  CHARGE=True,
+                                  use_charge_weighting=True,
                                   IDR_positon=['Cterm','Nterm', 'CUSTOM'],
                                   origin_index=None,
                                   sequence_of_ref='sequence1'):
@@ -1406,7 +1424,7 @@ def get_interdomain_epsilon_value(sequence1,
         Model specific value to plug into the local charge weighting of 
         the matrix
 
-    CHARGE : bool
+    use_charge_weighting : bool
         Flag to select whether weight the matrix by local sequence charge 
 
         NOTE - NO weighting of aliphatics is conducted here because aliphatic weighting is 
@@ -1428,7 +1446,7 @@ def get_interdomain_epsilon_value(sequence1,
                                                                           charge_prefactor=charge_prefactor,
                                                                           origin_index=origin_index,
                                                                           null_interaction_baseline=null_interaction_baseline,
-                                                                          CHARGE=CHARGE,
+                                                                          use_charge_weighting=use_charge_weighting,
                                                                           IDR_positon=IDR_positon, 
                                                                           sequence_of_ref=sequence_of_ref)
 

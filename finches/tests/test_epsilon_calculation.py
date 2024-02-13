@@ -1,5 +1,5 @@
-import pytests 
-import un
+import pytest
+#import un
 
 import pandas as pd
 
@@ -9,11 +9,13 @@ from finches.forcefields.mPiPi import mPiPi_model
 from finches.forcefields.calvados import calvados_model
 from finches import epsilon_calculation
 
-from ..test_data.test_sequences import test_sequences, t0
+from .test_data.test_sequences import test_sequences, t0
 
 # test are done in the context with the mPiPi_GGv1 model
 L_model = mPiPi_model('mPiPi_GGv1')
 X_local = epsilon_calculation.Interaction_Matrix_Constructor(L_model)
+
+import numpy as np
 
 ############################################################################################
 ##                                                                                        ##
@@ -33,9 +35,9 @@ def test_Interaction_Matrix_Constructor():
 #
 #
 def test_calculate_pairwise_homotypic_matrix():
-    TRUE_matrixes = np.load('../test_data/test_mPiPi_GGv1_homotypic_matrix.npz', allow_pickle=True)
+    TRUE_matrixes = np.load('test_data/test_mPiPi_GGv1_homotypic_matrix.npz', allow_pickle=True)
 
-    for i, t in test_sequences:
+    for i, t in enumerate(test_sequences):
         test_array = X_local.calculate_pairwise_homotypic_matrix(t)
 
         # expect this file to match precomputed homotypic matrix
@@ -45,7 +47,7 @@ def test_calculate_pairwise_homotypic_matrix():
 #
 #
 def test_calculate_pairwise_heterotypic_matrix():
-    TRUE_matrixes = np.load('../test_data/test_mPiPi_GGv1_heterotypic_matrix.npz', allow_pickle=True)
+    TRUE_matrixes = np.load('test_data/test_mPiPi_GGv1_heterotypic_matrix.npz', allow_pickle=True)
 
     for i, t in test_sequences:
         test_array = X_local.calculate_pairwise_heterotypic_matrix(t,t0)
@@ -57,7 +59,7 @@ def test_calculate_pairwise_heterotypic_matrix():
 #
 #
 def test_calculate_weighted_pairwise_matrix():
-    TRUE_matrixes = np.load('../test_data/test_mPiPi_GGv1_weighted_matrix.npz', allow_pickle=True)
+    TRUE_matrixes = np.load('test_data/test_mPiPi_GGv1_weighted_matrix.npz', allow_pickle=True)
 
     for i, t in test_sequences:
 
@@ -66,11 +68,11 @@ def test_calculate_weighted_pairwise_matrix():
         assert np.allclose(test_array, TRUE_matrixes['DEFAULT'][i])
 
         # test NO CHARGE weighting
-        test_array = X_local.calculate_weighted_pairwise_matrix(t,t0, CHARGE=False)
+        test_array = X_local.calculate_weighted_pairwise_matrix(t,t0, use_charge_weighting=False)
         assert np.allclose(test_array, TRUE_matrixes['NOCHARGE'][i])
 
         # test NO ALIPHATICS weighting
-        test_array = X_local.calculate_weighted_pairwise_matrix(t,t0, ALIPHATICS=False)
+        test_array = X_local.calculate_weighted_pairwise_matrix(t,t0, use_aliphatic_weighting=False)
         assert np.allclose(test_array, TRUE_matrixes['NOALIPHATICS'][i])
 
 
@@ -86,7 +88,7 @@ def test_calculate_weighted_pairwise_matrix():
 #
 #
 def test_get_attractive_repulsive_matrixes():
-    TRUE_matrixes = np.load('../test_data/test_matrix_manipulation.npz', allow_pickle=True)
+    TRUE_matrixes = np.load('test_data/test_matrix_manipulation.npz', allow_pickle=True)
 
     # compare the heterotypic DEFAULT matrix of test1:t0
     test_matrix = TRUE_matrixes['test_matrix'] 
@@ -102,7 +104,7 @@ def test_get_attractive_repulsive_matrixes():
 #
 #
 def test_mask_matrix():
-    TRUE_matrixes = np.load('../test_data/test_matrix_manipulation.npz', allow_pickle=True)
+    TRUE_matrixes = np.load('test_data/test_matrix_manipulation.npz', allow_pickle=True)
 
     # compare the heterotypic DEFAULT matrix of test1:t0
     test_matrix = TRUE_matrixes['test_matrix'] 
@@ -121,7 +123,7 @@ def test_mask_matrix():
 #
 #
 def test_flatten_matrix_to_vector():
-    TRUE_matrixes = np.load('../test_data/test_matrix_manipulation.npz', allow_pickle=True)
+    TRUE_matrixes = np.load('test_data/test_matrix_manipulation.npz', allow_pickle=True)
 
     # compare vectors to truth
     test_matrix = TRUE_matrixes['test_matrix'] 
@@ -146,7 +148,7 @@ def test_flatten_matrix_to_vector():
 #
 #
 def test_get_sequence_epsilon_vectors():
-    TRUE_matrixes = np.load('../test_data/mPiPi_GGv1_seq_epsilon_and_vectors.npz', allow_pickle=True)
+    TRUE_matrixes = np.load('test_data/mPiPi_GGv1_seq_epsilon_and_vectors.npz', allow_pickle=True)
 
     # test t0 with test1 and t0 
     names = ['t', 't0']
@@ -172,8 +174,8 @@ def test_get_sequence_epsilon_vectors():
         # compare vectors instance with no weighting
         [attractive_vector, repulsive_vector] = all_manipulated[f'{n}_t0_NOWEIGHTING']
         TESTattractive_vector, TESTrepulsive_vector = epsilon_calculation.get_sequence_epsilon_vectors(t,t0,X_local,
-                                                                            CHARGE=False,
-                                                                            ALIPHATICS=False)
+                                                                            use_charge_weighting=False,
+                                                                            use_aliphatic_weighting=False)
         assert np.allclose(TESTattractive_vector, attractive_vector) 
         assert np.allclose(TESTrepulsive_vector, repulsive_vector)
 

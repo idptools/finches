@@ -184,6 +184,7 @@ def get_aliphatic_weighted_mask(sequence1, sequence2):
                             '2_2':1.5, '2_3':1.5, '3_2':1.5, 
                             '3_3':3}
 
+    
     ali_mask1 = get_aliphatic_groups(sequence1)
     ali_mask2 = get_aliphatic_groups(sequence2)
     n2 = len(sequence2)

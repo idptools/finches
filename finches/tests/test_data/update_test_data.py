@@ -68,17 +68,17 @@ def write_test_weighted_matrix(filepath, model, model_name):
         
     otl1 = []
     for t in test_sequences:
-        ot = X_local.calculate_weighted_pairwise_matrix(t, t0, CHARGE=False)
+        ot = X_local.calculate_weighted_pairwise_matrix(t, t0, use_charge_weighting=False)
         otl1.append(ot)
         print(ot.shape)
 
     otl2 = []
     for t in test_sequences:
-        ot = X_local.calculate_weighted_pairwise_matrix(t, t0, ALIPHATICS=False)
+        ot = X_local.calculate_weighted_pairwise_matrix(t, t0, use_aliphatic_weighting=False)
         otl2.append(ot)
         print(ot.shape)
         
-    np.savez(data_file, DEFAULT=otl, NOCHARGE=otl1,  NOALIPHATICS=otl2)
+    np.savez(data_file, DEFAULT=otl, NOCHARGE=otl1,  NOuse_aliphatic_weighting=otl2)
 
 #..........................................................................................
 #
@@ -136,8 +136,8 @@ def write_test_seq_epsilon_and_vectors(filepath, model, model_name):
                                                                          X_local,
                                                                          prefactor=None,
                                                                          null_interaction_baseline=None,
-                                                                         CHARGE=True,
-                                                                         ALIPHATICS=True)
+                                                                         use_charge_weighting=True,
+                                                                         use_aliphatic_weighting=True)
 
         all_manipulated[f'{n}_t0_DEFAULT'] = [attractive_vector, repulsive_vector]
 
@@ -147,8 +147,8 @@ def write_test_seq_epsilon_and_vectors(filepath, model, model_name):
                                                                          X_local,
                                                                          prefactor=0.25,
                                                                          null_interaction_baseline=-0.15,
-                                                                         CHARGE=True,
-                                                                         ALIPHATICS=True)
+                                                                         use_charge_weighting=True,
+                                                                         use_aliphatic_weighting=True)
 
         all_manipulated[f'{n}_t0_prefactor_baseline'] = [attractive_vector, repulsive_vector]
 
@@ -157,8 +157,8 @@ def write_test_seq_epsilon_and_vectors(filepath, model, model_name):
         attractive_vector, repulsive_vector = epsilon_calculation.get_sequence_epsilon_vectors(t,
                                                                          t0,
                                                                          X_local,
-                                                                         CHARGE=False,
-                                                                         ALIPHATICS=False)
+                                                                         use_charge_weighting=False,
+                                                                         use_aliphatic_weighting=False)
 
         all_manipulated[f'{n}_t0_NOWEIGHTING'] = [attractive_vector, repulsive_vector]
 

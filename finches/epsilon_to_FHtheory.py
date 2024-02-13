@@ -30,8 +30,11 @@ from .analytical_fh import floryhuggins
 
 ## ---------------------------------------------------------------------------
 ##
-def build_DIELECTRIC_dependent_phase_diagrams(seq, X_class, condition_list,
-                                                 prefactor=None, null_interaction_baseline=None):
+def build_DIELECTRIC_dependent_phase_diagrams(seq,
+                                              X_class,
+                                              condition_list,
+                                              prefactor=None,
+                                              null_interaction_baseline=None):
     """
     Fuction that iterativly calls return_phase_diagram base on a list 
     of passed conditions for dielectric that re-intialize the input parameter_model
@@ -95,7 +98,7 @@ def build_DIELECTRIC_dependent_phase_diagrams(seq, X_class, condition_list,
         out_diagrams[i] = return_phase_diagram(seq, X_class)
         out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor, 
                                                         null_interaction_baseline=null_interaction_baseline, 
-                                                        CHARGE=True, ALIPHATICS=True)
+                                                        use_charge_weighting=True, use_aliphatic_weighting=True)
 
     # reset parameters to base_value 
     X_class.parameters.salt = base_value
@@ -107,8 +110,11 @@ def build_DIELECTRIC_dependent_phase_diagrams(seq, X_class, condition_list,
 
 ## ---------------------------------------------------------------------------
 ##
-def build_PH_dependent_phase_diagrams(seq, X_class, condition_list,
-                                        prefactor=None, null_interaction_baseline=None):
+def build_PH_dependent_phase_diagrams(seq,
+                                      X_class,
+                                      condition_list,
+                                      prefactor=None,
+                                      null_interaction_baseline=None):
     """
     Fuction that iterativly calls return_phase_diagram base on a list 
     of passed conditions for ph that re-intialize the input parameter_model
@@ -172,7 +178,7 @@ def build_PH_dependent_phase_diagrams(seq, X_class, condition_list,
         out_diagrams[i] = return_phase_diagram(seq, X_class)
         out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor, 
                                                         null_interaction_baseline=null_interaction_baseline, 
-                                                        CHARGE=True, ALIPHATICS=True)
+                                                        use_charge_weighting=True, use_aliphatic_weighting=True)
 
     # reset parameters to base_value 
     X_class.parameters.salt = base_value
@@ -185,8 +191,11 @@ def build_PH_dependent_phase_diagrams(seq, X_class, condition_list,
 
 ## ---------------------------------------------------------------------------
 ##
-def build_SALT_dependent_phase_diagrams(seq, X_class, condition_list,
-                                            prefactor=None, null_interaction_baseline=None):
+def build_SALT_dependent_phase_diagrams(seq,
+                                        X_class,
+                                        condition_list,
+                                        prefactor=None,
+                                        null_interaction_baseline=None):
     """
     Fuction that iterativly calls return_phase_diagram base on a list 
     of passed conditions for salt that re-intialize the input parameter_model
@@ -251,7 +260,7 @@ def build_SALT_dependent_phase_diagrams(seq, X_class, condition_list,
         out_diagrams[i] = return_phase_diagram(seq, X_class)
         out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor, 
                                                         null_interaction_baseline=null_interaction_baseline, 
-                                                        CHARGE=True, ALIPHATICS=True)
+                                                        use_charge_weighting=True, use_aliphatic_weighting=True)
 
     # reset parameters to base_value 
     X_class.parameters.salt = base_value
@@ -264,7 +273,10 @@ def build_SALT_dependent_phase_diagrams(seq, X_class, condition_list,
 
 ## ---------------------------------------------------------------------------
 ##
-def return_phase_diagram(seq, X_class, prefactor=None, null_interaction_baseline=None):
+def return_phase_diagram(seq,
+                         X_class,
+                         prefactor=None,
+                         null_interaction_baseline=None):
     """
     Wrapper function that takes in a sequence and builds a phase diagram using the Analytical approximation 
     of FH theory to build a phase diagram. This works by computing a phase diagram in terms of chi vs. T, and then
@@ -319,8 +331,13 @@ def return_phase_diagram(seq, X_class, prefactor=None, null_interaction_baseline
     
     
     # calculate the 
-    eps_real = get_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor, null_interaction_baseline=null_interaction_baseline, 
-                                          CHARGE=True, ALIPHATICS=True)
+    eps_real = get_sequence_epsilon_value(seq,
+                                          seq,
+                                          X_class,
+                                          prefactor=prefactor,
+                                          null_interaction_baseline=null_interaction_baseline, 
+                                          use_charge_weighting=True,
+                                          use_aliphatic_weighting=True)
     
     # if we have a positive (i.e. repulsive) epsilon set this to -0.01, which means super 
     # weakly attractive. We do this because otherwise a positive epsilon value leads to a

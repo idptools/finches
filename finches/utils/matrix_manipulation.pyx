@@ -16,7 +16,7 @@ def dict2matrix(str seq1, str seq2, dict lookup):
     cdef int r1, r2, l1, l2
 
     l1 = len(seq1)
-    l2 = len(seq1)
+    l2 = len(seq2)
 
     # preallocate the matrix
     cdef cnp.ndarray[cnp.float_t, ndim=2] matrix = np.empty((l1, l2), dtype=float)
@@ -78,10 +78,10 @@ def matrix_scan(double[:,:] w_matrix, int window_size, double null_interaction_b
 
 
     # preallocate the various matrices being used
-    cdef cnp.ndarray[cnp.float64_t, ndim=2] everything = np.empty( [(l2-window_size)+1,(l2-window_size)+1], dtype=np.float64)    
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] everything = np.empty( [(l1-window_size)+1,(l2-window_size)+1], dtype=np.float64)    
     cdef cnp.ndarray[double, ndim=2] attractive_matrix = np.empty([window_size, window_size], dtype=np.double)    
     cdef cnp.ndarray[double, ndim=2] repulsive_matrix = np.empty([window_size, window_size], dtype=np.double)
-    cdef cnp.ndarray[double, ndim=2] sub = np.empty([window_size, window_size], dtype=np.double)    
+    cdef cnp.ndarray[double, ndim=2] sub = np.empty([window_size, window_size], dtype=np.double)
     
     
     # calculate sliding epsilon for all possible intermolecular windows. 

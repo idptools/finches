@@ -16,5 +16,5 @@ test_PH_conditions = [3, 7, 9]
 test_DIELECTRIC_conditions = [20, 80, 100]
 
 test_condition_dict = {'test_SALT':test_SALT_conditions,
-					   'test_PH':test_PH_conditions,
-					   'test_DIELECTRIC':,test_DIELECTRIC_conditions}
+		       'test_PH':test_PH_conditions,
+		       'test_DIELECTRIC':test_DIELECTRIC_conditions}
