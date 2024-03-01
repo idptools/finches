@@ -6,6 +6,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+# initialize an Mpipi forcefield opbject
+mPiPi_GGv1_model = mPiPi_model('mPiPi_GGv1')
+
+# build an interaction matrix constructor object
+IMC_object = epsilon_calculation.Interaction_Matrix_Constructor(mPiPi_GGv1_model)
+
+
+
 def build_intermolecular_idr_matrix(seq1,
                                     seq2,
                                     window_size=31,
@@ -46,12 +54,6 @@ def build_intermolecular_idr_matrix(seq1,
 
     """
     
-    # initialize an Mpipi forcefield opbject
-    mPiPi_GGv1_model = mPiPi_model('mPiPi_GGv1')
-
-    # build an interaction matrix constructor object
-    IMC_object = epsilon_calculation.Interaction_Matrix_Constructor(mPiPi_GGv1_model)
-
     B = IMC_object.calculate_sliding_epsilon(seq1, seq2, window_size=window_size, use_cython=use_cython, use_aliphatic_weighting=use_aliphatic_weighting, use_charge_weighting=use_charge_weighting)
                                              
 
@@ -65,6 +67,34 @@ def build_intermolecular_idr_matrix(seq1,
     assert B[0].shape[1] == len(disorder_2)
 
     return (B, disorder_1, disorder_2)
+
+
+def get_epsilon(seq1, seq2,  use_cython=True, use_aliphatic_weighting=True, use_charge_weighting=True):
+    """
+    Function to calculate the interaction matrix between two sequences.
+
+    Parameters
+    --------------
+    seq1 : str
+        Input sequence 1 
+
+    seq2 : str
+        Input sequence 2
+
+    use_aliphatic_weighting : bool
+        Whether to use the aliphatic weighting scheme for the interaction matrix
+        calculation. This weights local aliphatic residues based on the number of
+        aliphatic residues adjacent to them. Default is True.
+
+    use_charge_weighting : bool
+        Whether to use the charge weighting scheme for the interaction matrix
+
+    """
+    
+    eps = IMC_object.calculate_epsilon_value(seq1, seq2, use_aliphatic_weighting=use_aliphatic_weighting, use_charge_weighting=use_charge_weighting)
+    
+    return eps
+    
 
 
 def generate_interaction_figure(seq1,
