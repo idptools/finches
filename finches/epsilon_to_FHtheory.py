@@ -193,9 +193,7 @@ def build_PH_dependent_phase_diagrams(seq,
 ##
 def build_SALT_dependent_phase_diagrams(seq,
                                         X_class,
-                                        condition_list,
-                                        prefactor=None,
-                                        null_interaction_baseline=None):
+                                        condition_list):
     """
     Fuction that iterativly calls return_phase_diagram base on a list 
     of passed conditions for salt that re-intialize the input parameter_model
@@ -244,39 +242,38 @@ def build_SALT_dependent_phase_diagrams(seq,
                             {vars(X_class.parameters).keys()}''')
         
 
-    base_params = X_class.parameters
+    null_interaction_baseline = X_class.null_interaction_baseline
+    charge_preactor = X_class.charge_prefactor
+    
 
     # itterate conditions to get epsilon values at different conditions
     for i in condition_list:
 
-        # get local parameters 
-        l_param = X_class.parameters
-        l_param.salt = i
+        # set local parameters salt
+        X_class.parameters.salt = i
 
         # update constructor with for new parameters
         X_class._update_lookup_dict()
 
         # get phase diagram for condition
         out_diagrams[i] = return_phase_diagram(seq, X_class)
-        out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor, 
+        out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, charge_prefactor=X_class.charge_prefactor, 
                                                         null_interaction_baseline=null_interaction_baseline, 
                                                         use_charge_weighting=True, use_aliphatic_weighting=True)
 
     # reset parameters to base_value 
     X_class.parameters.salt = base_value
 
-    # update base parameters 
-    X_class._update_parameters(base_params)
+    # update base parameters
+    X_class._update_lookup_dict()
 
     return [condition_list, out_diagrams, out_epsilons]
 
 
 ## ---------------------------------------------------------------------------
 ##
-def return_phase_diagram(seq,
-                         X_class,
-                         prefactor=None,
-                         null_interaction_baseline=None):
+def return_phase_diagram(seq, X_class):
+                         
     """
     Wrapper function that takes in a sequence and builds a phase diagram using the Analytical approximation 
     of FH theory to build a phase diagram. This works by computing a phase diagram in terms of chi vs. T, and then
@@ -328,13 +325,16 @@ def return_phase_diagram(seq,
         [6] - List with [0]: critical T and [1]: Critical phi  for spinodal
         [7] - List of temperatures that match with the dense and dilute phase concentrations for spinodal
     """
+
+    charge_prefactor = X_class.charge_prefactor
+    null_interaction_baseline = X_class.null_interaction_baseline
     
     
     # calculate the 
     eps_real = get_sequence_epsilon_value(seq,
                                           seq,
                                           X_class,
-                                          prefactor=prefactor,
+                                          charge_prefactor=charge_prefactor,
                                           null_interaction_baseline=null_interaction_baseline, 
                                           use_charge_weighting=True,
                                           use_aliphatic_weighting=True)
