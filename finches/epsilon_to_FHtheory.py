@@ -275,35 +275,42 @@ def build_SALT_dependent_phase_diagrams(seq,
 def return_phase_diagram(seq, X_class):
                          
     """
-    Wrapper function that takes in a sequence and builds a phase diagram using the Analytical approximation 
-    of FH theory to build a phase diagram. This works by computing a phase diagram in terms of chi vs. T, and then
-    recast chi in terms of T given that.
+    Wrapper function that takes in a sequence and builds a phase diagram using the 
+    Analytical approximation of FH theory to build a phase diagram. This works by 
+    computing a phase diagram in terms of chi vs. T, and then converting this to 
+    chi vs. phi.
+
+    We can recast chi in terms of T given that.
     
-    chi = delta_eps / (kB * T)
+        chi = delta_eps / (kB * T)
     
-    where delta_eps here is the site-to-site contact energy, i.e. a larger (positive) value means more attractive. This 
+    where delta_eps here is the site-to-site contact energy, i.e. a larger (positive) 
+    value means more attractive. 
+       
+    If kB=1 the delta_eps is in terms of kB, therefore
     
-    if kB=1 the delta_eps is in terms of kB, therefore
-    
-    chi = delta_eps / (T)
+        chi = delta_eps / (T)
     
     and therefore
     
-    T = delta_eps/chi
+        T = delta_eps/chi
     
     The code below does a few things:
     
-    1. Using the get_weighted_sequence_epsilon_value() to calculate the mean-field interaction parameter (epsilon)
+    1. Uses get_sequence_epsilon_value() to calculate the mean-field 
+       interaction parameter (epsilon)
     
     2. Using sequence length calculates the phi vs. chi phase diagram 
     
-    3. Converts epsilon so a positive (repulsive) epsilon becomes mildly attractive but not enough to 
-       cause phase separation. We do this as a hack otherwise the math breaks down...
-       
-    4. Converts the chi array into T by converting in terms of delta_eps * 1/chi
-    
-    
-    This approach is repeated to also calculate the spinodal, although we don't plot that here
+    3. Converts epsilon so a positive (repulsive) epsilon becomes mildly 
+       attractive but not enough to cause phase separation. We do this 
+       as a hack otherwise the math breaks down...
+              
+    4. Converts the chi array into T by converting in terms of 
+       delta_eps * 1/chi
+        
+    This approach is repeated to also calculate the spinodal, which is also 
+    then returned. 
     
     Parameters
     ---------------
@@ -312,8 +319,7 @@ def return_phase_diagram(seq, X_class):
         
     Returns
     ---------------
-    list
-    
+    list    
         The function returns a list with the following elements
         
         [0] - Dilute phase concentrations (array of len=N) in Phi
@@ -324,13 +330,14 @@ def return_phase_diagram(seq, X_class):
         [5] - Dense phase concentrations (array of len=N) in Phi for spinodal
         [6] - List with [0]: critical T and [1]: Critical phi  for spinodal
         [7] - List of temperatures that match with the dense and dilute phase concentrations for spinodal
+
     """
 
     charge_prefactor = X_class.charge_prefactor
     null_interaction_baseline = X_class.null_interaction_baseline
     
     
-    # calculate the 
+    # calculate the epilson value for the sequence
     eps_real = get_sequence_epsilon_value(seq,
                                           seq,
                                           X_class,
@@ -338,24 +345,72 @@ def return_phase_diagram(seq, X_class):
                                           null_interaction_baseline=null_interaction_baseline, 
                                           use_charge_weighting=True,
                                           use_aliphatic_weighting=True)
+
+    # get phase diagram
+    return epsilon_to_phase_diagram(seq, eps_real)
+    
+    
+
+## ---------------------------------------------------------------------------
+##
+def epsilon_to_phase_diagram(seq, epsilon):
+    """
+    Function that uses input sequence (only for length) and epsilon value to
+    calculate the phase diagram.
+
+    Specifically this does the following:
+
+    1. Using sequence length calculates the phi vs. chi phase diagram 
+    
+    2. Converts epsilon so a positive (repulsive) epsilon becomes mildly 
+       attractive but not enough to cause phase separation. We do this 
+       as a hack otherwise the math breaks down...
+              
+    3. Converts the chi array into T by converting in terms of 
+       delta_eps * 1/chi
+        
+    This approach is repeated to also calculate the spinodal, which is also 
+    then returned. 
+    
+    Parameters
+    ---------------
+    seq : str
+        Input sequence
+        
+    Returns
+    ---------------
+    list    
+        The function returns a list with the following elements
+        
+        [0] - Dilute phase concentrations (array of len=N) in Phi
+        [1] - Dense phase concentrations (array of len=N) in Phi
+        [2] - List with [0]: critical T and [1]: Critical phi
+        [3] - List of temperatures that match with the dense and dilute phase concentrations
+        [4] - Dilute phase concentrations (array of len=N) in Phi for spinodal
+        [5] - Dense phase concentrations (array of len=N) in Phi for spinodal
+        [6] - List with [0]: critical T and [1]: Critical phi  for spinodal
+        [7] - List of temperatures that match with the dense and dilute phase concentrations for spinodal
+
+    """
+
     
     # if we have a positive (i.e. repulsive) epsilon set this to -0.01, which means super 
     # weakly attractive. We do this because otherwise a positive epsilon value leads to a
     # negative kB_eps which means we get 'inverse' phase diagrams, because we're converting chi
     # to T in a universe where delta-epsilon is a measure of site-specific interaction that 
     # CANNOT be repulsive (worset case 0). We have to set it to a small attractive value because if 
-    # its 0 you get a divide by 
-    if eps_real > 0:
-        eps_real = -0.01
+    # its 0 you get a divide by 0 error
+    if epsilon > 0:
+        epsilon = -0.01
     
     # note we have to 
     # 1. reverse the sign (i.e. negative eps = positive flory chi)
-    # 2. Divide eps_real by seq(len) because delta_eps is a site-specific energy whereas 
-    #    eps_real is in terms of the overall chain, but the impact of length is already taken
+    # 2. Divide epsilon by seq(len) because delta_eps is a site-specific energy whereas 
+    #    epsilon is in terms of the overall chain, but the impact of length is already taken
     #    into account in the calculate_binodal, so we need to divide epsilon by length to get the
     #    average per-residue contribution.
     #
-    delta_eps = -eps_real/len(seq) 
+    delta_eps = -epsilon/len(seq) 
     
     # use standard binodal from the floryhuggins module 
     out = floryhuggins.calculate_binodal(len(seq),'analytic_binodal',n_points=50000, chi_max=0.8)
@@ -390,4 +445,3 @@ def return_phase_diagram(seq, X_class):
 
             
     return [dilute, dense, [crit_phi, crit_T], Ts_in_Kelvin, S_dilute, S_dense, [S_crit_phi, S_crit_T], S_Ts_in_Kelvin]
-    

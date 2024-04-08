@@ -64,16 +64,16 @@ CALVADOS_CONFIGS['CALVADOS1'] = {}
 CALVADOS_CONFIGS['CALVADOS2'] = {}
 
 CALVADOS_CONFIGS['CALVADOS1']['charge_prefactor'] = np.nan # not computed yet
-CALVADOS_CONFIGS['CALVADOS2']['charge_prefactor'] = 1.442590
+CALVADOS_CONFIGS['CALVADOS2']['charge_prefactor'] = 0.7  #1.442590
 
 CALVADOS_CONFIGS['CALVADOS1']['null_interaction_baseline'] = np.nan # not computed yet
-CALVADOS_CONFIGS['CALVADOS2']['null_interaction_baseline'] = -0.047859
+CALVADOS_CONFIGS['CALVADOS2']['null_interaction_baseline'] = -0.045
 
 
 
 class calvados_model:
 
-    def __init__(self, version, salt=0.2, pH=7.4, temp=278, input_directory='default'):
+    def __init__(self, version, salt=0.150, pH=7.4, temp=288, input_directory='default'):
         """
         The calvados_model class defines an calvados_model Object which lets you calculate 
         and return both individual components of the calvados forcefield potential 
@@ -83,7 +83,7 @@ class calvados_model:
         input_directory : str
             Defines the directory where the input parameter files are found. 
 
-            If defult, the data is pulled from the finches.data.calvados
+            If default, the data is pulled from the finches.data.calvados
 
             Each of these dictionaries contains a 20x20 dictionary keyed by the 20 
             amino acids, (or NxN dictionary keyed by the 20 residues in the model)
@@ -103,10 +103,10 @@ class calvados_model:
 
         salt : float
             Defines the general salt concentration build the reference model.
-            this salt values tune the electrostatic interactions 
+            this salt values tune the electrostatic interactions. Default is 0.15 M
 
         pH : float 
-            Defines the general pH to build the reference model.
+            Defines the general pH to build the reference model. Default is 7.4
 
         temp : int
             Defines the tempurature at which the the focefield model is computed 
@@ -141,7 +141,7 @@ class calvados_model:
         self.version = version
 
         r = pd.read_pickle(f'{data_prefix}/calvados_residues.pickle').set_index('three')
-        
+            
         # Added Check to ensure passed version is acceptable 
         try:
             r.lambdas = r[f'{self.version}'] 
@@ -159,13 +159,16 @@ class calvados_model:
         self.temp = temp
         self.CONFIGS = CALVADOS_CONFIGS[self.version]
 
-        # calculate other parameters based off of defults in the CALVADOS model
-        # line 65 single_chain/simulate.py & (line 138 of direct_coexistence/analyse.py and also toonable in prot obj)
+        # calculate other parameters based off of defaults in the CALVADOS model
+        # line 65 single_chain/simulate.py & (line 138 of direct_coexistence/analyse.py and also tunable in prot obj)
         self.eps_factor = 0.2
+
         # line 65 single_chain/simulate.py & line 
         self.lj_eps = 4.184 * self.eps_factor 
+
         # line 29 of direct_coexistence/submit.py
-        self.cutoff = 2.0 
+        self.cutoff = 2.0
+        
         # line 105 - single_chain/simulate.py & line 104 direct_coexistence/simulate.py
         self.yukawa_r_cut = 4.0 
 
@@ -206,6 +209,8 @@ class calvados_model:
         RT = 8.3145*self.temp*1e-3
         
         # Set the charge on HIS based on the pH of the protein solution? Not needed if pH=7.4
+        # NOTE this throws a wanring but seems to work okay - basically this is calculating
+        # the charge (q) for residue 'H' at the given pH using 1/1(1+10^(pH-6))
         r.loc['H','q'] = 1. / ( 1 + 10**(self.pH-6) )
         
         fepsw = lambda T : 5321/T+233.76-0.9297*T+0.1417*1e-2*T*T-0.8292*1e-6*T**3
@@ -215,7 +220,8 @@ class calvados_model:
         # Calculate the inverse of the Debye length
         yukawa_kappa = np.sqrt(8*np.pi*lB*self.ionic*6.022/10)
         
-        # Calculate the prefactor for the Yukawa potential
+        # Calculate the prefactor for the Yukawa potential - specifically, this line is computing
+        # the cross product of the charge values for each residue.
         qq = pd.DataFrame(r.q.values*r.q.values.reshape(-1,1),index=r.q.index,columns=r.q.index)
         yukawa_eps = qq*lB*RT
         

@@ -8,10 +8,8 @@ values : Garrett M. Ginell & Alex S. Holehouse
 import numpy as np
 import math
 
-from .data.forcefield_dependencies import  get_null_interaction_baseline, get_charge_prefactor
-
-from .parsing_aminoacid_sequences import get_charge_weighted_mask, get_charge_weighted_FD_mask
-from .parsing_aminoacid_sequences import get_aliphatic_weighted_mask
+from .data import forcefield_dependencies
+from . import parsing_aminoacid_sequences
 
 from .PDB_structure_tools import build_column_mask_based_on_xyz
 
@@ -333,7 +331,7 @@ class Interaction_Matrix_Constructor:
             print(f'Recomputing the null_interaction_baseline for {self.parameters.version}...')
 
         # return the theretical baseline (ibl) where the slope of epsilon vs polyGS(n) == 0 
-        null_interaction_baseline = get_null_interaction_baseline(self, min_len=min_len, max_len=max_len)
+        null_interaction_baseline = forcefield_dependencies.get_null_interaction_baseline(self, min_len=min_len, max_len=max_len)
 
         if verbose:
             # remind user that the null_interaction_baseline is being updated
@@ -382,7 +380,7 @@ class Interaction_Matrix_Constructor:
 
         # return the charge_prefactor where the slope of:
         #    epsilon vs reference_data(x) == reference_data(y) vs reference_data(x) 
-        charge_prefactor = get_charge_prefactor(self, reference_data=reference_data, prefactor_range=prefactor_range)
+        charge_prefactor = forcefield_dependencies.get_charge_prefactor(self, reference_data=reference_data, prefactor_range=prefactor_range)
 
         if verbose:
             # remind user that the charge_prefactor is being updated
@@ -592,8 +590,7 @@ class Interaction_Matrix_Constructor:
         """
         Interaction_Matrix_Constructor.calculate_pairwise_heterotypic_matrix
 
-
-        Calculate heterotypic matrix and weight the matrix.
+        Calculate heterotypic matrix and then weight the matrix based on 
 
         Parameters
         ---------------
@@ -638,19 +635,30 @@ class Interaction_Matrix_Constructor:
             if charge_prefactor == None:
                 charge_prefactor = self.charge_prefactor 
 
-            # the w_mask adds a weighting factor for cross-residues where
-            # both residues are of the same type (and surrounded by residues
-            # of the same type) it means those repulsive interactions are
-            # supressed
-            w_mask = get_charge_weighted_mask(sequence1, sequence2)
+            # calculate attractive and repulsive masks. Note as of 2024-04-07 we ONLY populate the repulsive mask, so the
+            # attractive matrix (first element here) is returned to _ so we just ignore i.
+            (_, repulsive_mask) = parsing_aminoacid_sequences.get_charge_weighted_mask(sequence1, sequence2)
+                  
             try:
 
                 # for the matrix*w_mask calculation, MOST elements in that w_mask array
                 # are zero, so most values get zeroed out other than charge residues. Then
                 # multiplying by the charge_prefactor which is a scalar gives you a forcefield
-                # sepecific weighting factor for charge residues which gets subtracted off
+                # specific weighting factor for charge residues which gets added/subtracted off
                 # the actual matrix to give you a weighted matrix
-                w_matrix = matrix - (matrix*w_mask*charge_prefactor)
+
+                # we ADD the attractive matrix, so negative values become more negative
+                
+                # NOTE that one implementation split the charge weighting into attractive
+                # and repulsive components but this turned out to be suboptimal for charge,
+                # however we're leaving the code here for other types of weighting in the
+                # future...
+                # w_matrix = matrix   + (matrix*attractive_mask*charge_prefactor)
+
+                # we SUBSTRACT the repulsive matrix, so positive numbers become smaller
+                # (but still positive if charge_prefactor is < 1)
+                w_matrix = matrix - (matrix*repulsive_mask*charge_prefactor)
+                
             except Exception as e:
                 print(e)
                 raise Exception('Possible issue: INVALID charge_prefactor, check to ensure self.charge_prefactor is defined.')
@@ -660,7 +668,7 @@ class Interaction_Matrix_Constructor:
 
         # weight the matrix by local patches of aliphatic residues
         if use_aliphatic_weighting:
-            w_ali_mask = get_aliphatic_weighted_mask(sequence1, sequence2)
+            w_ali_mask = parsing_aminoacid_sequences.get_aliphatic_weighted_mask(sequence1, sequence2)
             w_matrix = w_matrix*w_ali_mask
 
         # note that additional weights or corrections could be added here as needed
@@ -871,7 +879,7 @@ class Interaction_Matrix_Constructor:
                 Epsilon value for the matrix
 
             """
-            attractive_matrix, repulsive_matrix = get_attractive_repulsive_matrixes(in_matrix, self.null_interaction_baseline)
+            attractive_matrix, repulsive_matrix = get_attractive_repulsive_matrices(in_matrix, self.null_interaction_baseline)
 
             attractive_matrix = attractive_matrix - self.null_interaction_baseline
             repulsive_matrix  = repulsive_matrix  - self.null_interaction_baseline
@@ -891,8 +899,6 @@ class Interaction_Matrix_Constructor:
                                                            sequence2,
                                                            use_charge_weighting=use_charge_weighting,
                                                            use_aliphatic_weighting=use_aliphatic_weighting)
-
-
 
         # default to cython version, which is MUCH faster
         if use_cython:
@@ -944,7 +950,7 @@ class Interaction_Matrix_Constructor:
 
 ## ---------------------------------------------------------------------------
 ##
-def get_attractive_repulsive_matrixes(matrix, null_interaction_baseline):
+def get_attractive_repulsive_matrices(matrix, null_interaction_baseline):
     """
     Take interaction array, descritize it by above or below interaction baseline,
     Return two shaped matched matrixes for attractive and repulsive values
@@ -1116,8 +1122,8 @@ def get_sequence_epsilon_vectors(sequence1,
                                                     use_aliphatic_weighting=use_aliphatic_weighting)
     
     # get attractive and repulsive matrix
-    attractive_matrix, repulsive_matrix = get_attractive_repulsive_matrixes(w_matrix, null_interaction_baseline)
-    
+    attractive_matrix, repulsive_matrix = get_attractive_repulsive_matrices(w_matrix, null_interaction_baseline)
+
     attractive_matrix = attractive_matrix - null_interaction_baseline
     repulsive_matrix = repulsive_matrix - null_interaction_baseline
 
@@ -1187,7 +1193,7 @@ def get_sequence_epsilon_value(sequence1,
                                                                        null_interaction_baseline=null_interaction_baseline,
                                                                        use_charge_weighting=use_charge_weighting,
                                                                        use_aliphatic_weighting=use_aliphatic_weighting)
-    
+
     # sum vectors to get attractive and repulsive values
     attractive_value = np.sum(attractive_vector)
     repulsive_value = np.sum(repulsive_vector)
@@ -1220,7 +1226,7 @@ def get_interdomain_epsilon_vectors(sequence1,
     Parameters
     -----------
     sequence1 : str
-        the first sequence (FOLDED DOMAIN) and only SAFD residues.
+w        the first sequence (FOLDED DOMAIN) and only SAFD residues.
         everyresidue in this sequence should be SA and in FD. 
         
         To generate this from a PDB see:
@@ -1327,11 +1333,11 @@ def get_interdomain_epsilon_vectors(sequence1,
     #   they are in isolation.  
 
     #  only occurs between on surface residue and IDR window.
-    w_mask = get_charge_weighted_FD_mask(sequence1, sequence2) 
+    w_mask = parsing_aminoacid_sequences.get_charge_weighted_FD_mask(sequence1, sequence2) 
     w_matrix = matrix - (matrix*w_mask*charge_prefactor)
 
     # get attractive and repulsive matrix
-    attractive_matrix, repulsive_matrix = get_attractive_repulsive_matrixes(w_matrix, null_interaction_baseline)
+    attractive_matrix, repulsive_matrix = get_attractive_repulsive_matrices(w_matrix, null_interaction_baseline)
 
     # NOTE - filtering the matrix is done after the matrix is split give filtering just multiplys 
     #        by 0 and null_interaction_baseline may fluctuate and is likly not zero 

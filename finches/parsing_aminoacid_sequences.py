@@ -17,7 +17,7 @@ import numpy as np
 
 # NB from Alex; underscored functions should not be exported from a model so should rename _get_neighbors_3
 # _get_neighbors_3 replaced with get_neighbors_window_of3
-from .sequence_tools import MASK_n_closest_nearest_neighbors, mask_sequence, get_neighbors_window_of3, calculate_FCR_and_NCPR
+from .sequence_tools import MASK_n_closest_nearest_neighbors, mask_sequence, get_neighbors_window_of3, calculate_FCR_and_NCPR, calculate_NCPR
 
 # new charecters for PIMMS aliphatic groups 
 aliphatic_group1 = {'A':'a', 'L':'l', 'M':'m', 'I':'i', 'V':'v'}
@@ -31,7 +31,7 @@ def get_charge_weighted_mask(sequence1, sequence2):
     matrix.
 
     Specifically, this function loops over all cross-interacting residues from
-    the two sequences (i.e. every pair of r1-r2 (where r1 is from seq1 and r2 
+    the two sequences (i.e. every pair of r1:r2 (where r1 is from seq1 and r2 
     is from seq1) and if BOTH residues are charged then a 'charge weight' is
     calculated whereby the +/- 1 residues around that two residues are extracted
     and the |NCPR|/FCR of the resulting concatenated sequence is a weighting factor.
@@ -40,17 +40,42 @@ def get_charge_weighted_mask(sequence1, sequence2):
 
     If I have 2 fragements that are KKK and EEE then my charge weighting will be
 
-    |NCPR/FCR| = 0/1 = 0.0
+    |NCPR/FCR| = 0/1 = 0.0 - NO WEIGHT
 
     If I have 2 fragments that are EEE and EEE then my charge weighting will be
     
-    |NCPR/FCR| = |-1/1| = 1.0
+    |NCPR/FCR| = |-1/1| = 1.0 - MAX POSSIBLE WEIGH
 
-    In this way, clusters of like-charged residues are weighted up
+    In this way, clusters of like-charged residues are weighted up, and then
+    subtracted off the repulsive cross terms to weaken like-charge repulsion.
 
-    NOTE ADD MORE DETAIL HERE 
+    This means we ONLY generate a so-called repulsive matrix.
 
-    depends on: sequence_tools.get_neighbors_window_of3
+    BONUS CONTENT:
+
+    We ALSO tested a version where charge weight was done by determining if 
+    the local context of a charged residue is expected to enhance attractive 
+    interactions or supress     repulsive interactions compared to an unweighted 
+    value. Specifically, for each unique pari of residues in sequence 
+    1 and sequence 2 we ask:
+    
+    1. Are both residues charged? If yes continue.
+
+    2. In the +1/-1 window around the two residues, are any charged residues 
+       found the same sign as the central residue? If yes for both residues,
+       continue.
+
+    3. Charge weight is calculated as the product of the NCPR from the two
+       fragments. If these are the same sign this is a reulsive weight, whereas
+       if opposite sign this is an attractive weight.
+
+    Note that attractive weights make oppositely-attractive residues MORE 
+    attractive whereas repulsive weights make like-charged residues LESS 
+    repulsive. The result from this is two matrices which can be used to add 
+    or subtract values from the overall interaction matrix. HOWEVER, we found
+    this implmentation just worked less well across the board, so the final
+    implementation is the simpler |NCPR/FCR| weighting.
+
     
     Parameters
     --------------
@@ -62,23 +87,45 @@ def get_charge_weighted_mask(sequence1, sequence2):
 
     Returns
     ---------------
-    np.array 
-        returns a 2D mask the same shape of (len(sequence1), len(sequence2)) 
-        where at intersections of charged residues between the two sequences
-        we get a charge weighting factor calculated as |NCPR|/FCR 
+    Tuple 
 
-        
+        This returns a tuple of two np.arrays (matrices) that are weighted 
+        masks of the same  shape of (len(sequence1), len(sequence2)) where 
+        at intersections of charged residues between the two sequences we 
+        get a charge weighting factor. 
+    
+        Matrix 1 is the attractive matrix and matrix 2 is the repulsive 
+        matrix. NOTE that we currently do not actually use the attractive 
+        matrix here, but this function does return
     """
+
+    # nb - hardcoded for now but could and probably should be altered to enable
+    # pH-dependent effects in the future
     charges = ['R','K','E','D']
 
-    matrix = []
+    attractive_matrix = []
+    repulsive_matrix = []
+    
     n2 = len(sequence2)
-    for i,r1 in enumerate(sequence1):
-        tmp = []
-        if r1 in charges:
-            for j,r2 in enumerate(sequence2):  
-                if r2 in charges: 
 
+    # cycle through each residues
+    for i,r1 in enumerate(sequence1):
+        tmp_attractive = []
+        tmp_repulsive = []
+
+        # if r1 is charged
+        if r1 in charges:
+
+            # cycle through each residue in sequence 2
+            for j,r2 in enumerate(sequence2):
+
+                # initialize
+                w_attractive = 0
+                w_repulsive = 0
+
+                # if the second residue is charged
+                if r2 in charges: 
+                                        
                     # this generates a string of max 6 residues (for terminal residues 5 or 4 residues)
                     # which is basically a concatenated fragment 
                     l_resis = get_neighbors_window_of3(i,sequence1) + get_neighbors_window_of3(j,sequence2)
@@ -86,20 +133,65 @@ def get_charge_weighted_mask(sequence1, sequence2):
                     # for that fragment, calculate the local fcr and ncpr
                     [local_fcr, local_ncpr] = calculate_FCR_and_NCPR(l_resis)
 
-                    # calculate the charge weight as |NCPR/FRC|
+                    # calculate the charge weight as |NCPR/FRC|. This means in one limit charg_weight goes
+                    # to 1 if the fragment is all the same type of charged residues, and goes to 0 if the
+                    # if the fragment is neutra, regardless of the fraction of charged residues.
                     chrg_weight = np.abs(local_ncpr / local_fcr)
 
-                    tmp.append(chrg_weight)
-                else:
-                    tmp.append(0)
+                    w_repulsive = chrg_weight
+
+                    
+                    # alternative implmentation - to move elsewhere at some point
+                    """
+
+                    frag1 = get_neighbors_window_of3(i, sequence1)
+                    frag2 = get_neighbors_window_of3(j, sequence2)
+
+                    [f1_fcr, f1_ncpr]  = calculate_FCR_and_NCPR(frag1)
+                    [f2_fcr, f2_ncpr]  = calculate_FCR_and_NCPR(frag2)
+
+                    # if both fragments contain only one type of charged residue
+                    if abs(f1_ncpr) == f1_fcr and abs(f2_ncpr) == f2_fcr:
+
+                        # calculate charge weight 
+                        q1q2 = f1_ncpr*f2_ncpr
+
+                        # opposite charge clusters
+                        if q1q2 < 0:
+
+                            # negative value (attractive) - max value = 1 (|q1| and |q2| <= 1)
+                            w_attractive = abs(q1q2)
+                                                        
+                        else:
+                        
+                            # positive value (repulsive) -  max value = 1 (|q1| and |q1| <= 1)
+                            w_repulsive = q1q2 
+                    """
+
+                # w_attractive and w_repulsive are 0 unless both fragements only possess the same
+                # type of charged residues
+                tmp_attractive.append(w_attractive)
+                tmp_repulsive.append(w_repulsive)
+            
+                    
         else:
 
             # if r1 was not charged create an empty vector
-            tmp = [0]*n2
+            tmp_attractive = [0]*n2
+            tmp_repulsive = [0]*n2
             
-        matrix.append(tmp)
+        attractive_matrix.append(tmp_attractive)
+        repulsive_matrix.append(tmp_repulsive)
 
-    return np.array(matrix)
+    # asset matrices are the right shape
+    attractive_matrix = np.array(attractive_matrix)
+    repulsive_matrix = np.array(repulsive_matrix)
+
+    assert attractive_matrix.shape == (len(sequence1), len(sequence2))
+    assert repulsive_matrix.shape == (len(sequence1), len(sequence2))
+
+    return attractive_matrix, repulsive_matrix
+
 
 ## ---------------------------------------------------------------------------
 ##

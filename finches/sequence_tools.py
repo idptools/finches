@@ -302,6 +302,8 @@ def get_neighbors_window_of3(i, sequence):
         s2= sequence[i-1:i+2]
     return s2
 
+
+
 ##------------------------------------------------------------------ 
 #
 def extract_fragments(mask, max_separation=1):

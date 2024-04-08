@@ -23,15 +23,14 @@ MPIPI_CONFIGS['mPiPi_default'] = {}
 MPIPI_CONFIGS['mPiPi_GGv1'] = {}
 MPIPI_CONFIGS['OLD_mPiPi_GGv1'] = {}
 
-MPIPI_CONFIGS['mPiPi_default']['charge_prefactor'] = 0.184890
+MPIPI_CONFIGS['mPiPi_default']['charge_prefactor'] = 0.20 # 0.184890
 MPIPI_CONFIGS['mPiPi_default']['null_interaction_baseline'] = -0.066265
 
-MPIPI_CONFIGS['mPiPi_GGv1']['charge_prefactor'] = 0.216145
-MPIPI_CONFIGS['mPiPi_GGv1']['null_interaction_baseline'] = -0.128539
+MPIPI_CONFIGS['mPiPi_GGv1']['charge_prefactor'] = 0.20 #0.216145
+MPIPI_CONFIGS['mPiPi_GGv1']['null_interaction_baseline'] = -0.128533
 
-
-MPIPI_CONFIGS['OLD_mPiPi_GGv1']['charge_prefactor'] = 0.216145
-MPIPI_CONFIGS['OLD_mPiPi_GGv1']['null_interaction_baseline'] = -0.128539
+MPIPI_CONFIGS['OLD_mPiPi_GGv1']['charge_prefactor'] = 0.20 #0.216145
+MPIPI_CONFIGS['OLD_mPiPi_GGv1']['null_interaction_baseline'] = -0.128533
 
 class mPiPi_model:
 
@@ -199,6 +198,8 @@ class mPiPi_model:
 
         # name the identity of the conditions we've assigned
         self.conditions = ['salt', 'dielectric']
+
+        
 
 
 

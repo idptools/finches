@@ -5,6 +5,8 @@ By : Garrett M. Ginell & Alex S. Holehouse
 2023-08-06
 """
 
+from scipy.optimize import root_scalar
+
 from scipy.stats import linregress
 import finches
 from .reference_sequence_info import DAS_KAPPA_RG_MPIPI
@@ -12,61 +14,28 @@ import numpy as np
 
 ## ------------------------------------------------------------------------------
 ##
-def _GS_length_generator(N, start_AA="G"):
+def get_null_interaction_baseline(X_model, lower_end=-10.0, upper_end=10.0, alternative_sequence=None):
     """
-    Takes in a number and generates "GS" string of the certain length
-    
-    Parameters
-    ---------------
-    N : int
-        int that defines the length of the returned polyGS sequence
+    Function that calibrates a null interaction baseline against a GS repeat,
+    which we assume to be correctly described as having an epsilon of 0.
 
-    start_AA : str ['G', 'S']
-        flag to note wheather to build the sequence starting with Gly or Ser 
+    NOTE this may not good be assumption to make, and for CALVADOS (for example)
+    we do actually have a small empyrical correction to make from the GS value.
 
-    Returns
-    ---------------
-    GS_string : str
-        sequence of polyGS 
-
-    """
-    AA_choices = {"G":["G","S"] , "S":["S","G"]}[start_AA]
-    seq=[]
-    c=0
-    while c < N:
-        for i in AA_choices:
-            seq.append(i)
-            c+=1
-    #if N is odd 
-    if N % 2 != 0:
-        seq= seq[:-1]
-    
-    if len(seq)!= N:
-        return 0
-        
-    return ''.join(seq)
-
-## ------------------------------------------------------------------------------
-##
-def get_null_interaction_baseline(X_model, min_len=10, max_len=500):
-    """
-    Function to arrive at null interaction baseline for specific passed model
-    This works by testing a bunch of different null_interaction_baselines and 
-    computing the sequence_epsilon_value for polyGS of lengths 10-500.
-
-    The null_interaction_baseline is then fit of fits. IE null_interaction_baseline
-    which results in a slope of 0 when epsilon vs polyGS(n) is plotted. 
-    
     Parameters
     ---------------
     X_model : obj
-        An instantiation of the Interaction_Matrix_Constructor class 
+        An instantiation of the Interaction_Matrix_Constructor class
 
-    min_len : int 
-        The minimum length of a polyGS sequence used 
+    lower_end : float
+        The lower end of the bracket to search for the null_interaction_baseline
 
-    max_len : int 
-        The minimum length of a polyGS sequence used
+    upper_end : float
+        The upper end of the bracket to search for the null_interaction_baseline
+
+    alternative_sequence : str
+        An alternative sequence to use for the calibration. If None, the default
+        400-residue GS sequence is used.
 
     Returns
     ---------------
@@ -77,32 +46,24 @@ def get_null_interaction_baseline(X_model, min_len=10, max_len=500):
 
     """
 
-    null_baseline_values_dict = {}
-    base_lines = np.arange(-0.2, 0, 0.01) # range may need to be updated
+    if alternative_sequence is not None:
+        seq = alternative_sequence
+    else:
+        seq='GS'*200
 
-    GS_refseq = {i: _GS_length_generator(i, start_AA="G") for i in range(min_len,max_len)}
-    SG_refseq = {i: _GS_length_generator(i, start_AA="S") for i in range(min_len,max_len)}
+    def f(null_interaction_baseline):        
+        return finches.epsilon_calculation.get_sequence_epsilon_value(seq,
+                                                                      seq,
+                                                                      null_interaction_baseline=null_interaction_baseline,
+                                                                      charge_prefactor=None,
+                                                                      X=X_model,
+                                                                      use_charge_weighting=False,                                                                      
+                                                                      use_aliphatic_weighting=False)
+    
+    # expect null to be between -10 and +10 but this could be adjusted if needed; solve for null_interaction_baseline
+    result = root_scalar(f, bracket=[lower_end, upper_end])
 
-    # iterate possible baselines
-    for ibl in base_lines:
-       
-        # not charge prefactor can be set to 0 here because the null_interaction_baseline
-        # generation does not depend on any sequences containing charge residues 
-
-        GS_ref_dict = {i:finches.epsilon_calculation.get_sequence_epsilon_value(a, a, null_interaction_baseline=ibl, prefactor=0, X=X_model, use_charge_weighting=False, use_aliphatic_weighting=False) for i,a in GS_refseq.items()}
-        SG_ref_dict = {i:finches.epsilon_calculation.get_sequence_epsilon_value(a, a, null_interaction_baseline=ibl, prefactor=0, X=X_model, use_charge_weighting=False, use_aliphatic_weighting=False) for i,a in SG_refseq.items()}
-
-        GS_avg_reference_dic = {i: (GS_ref_dict[i] + SG_ref_dict[i])/2 for i in SG_refseq}
-
-        # get slope for this specific baseline
-        slope_of_fit = linregress(x=list(GS_avg_reference_dic.keys()), y=list(GS_avg_reference_dic.values())).slope
-
-        null_baseline_values_dict[ibl] = slope_of_fit
-
-    # return the theretical baseline (ibl) where the slope of epsilon vs polyGS(n) == 0 
-    null_interaction_baseline = linregress(y=list(null_baseline_values_dict.keys()), x=list(null_baseline_values_dict.values())).intercept
-
-    return null_interaction_baseline
+    return result.root
 
 ## ------------------------------------------------------------------------------
 ##

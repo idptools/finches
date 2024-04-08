@@ -1,33 +1,61 @@
 from .frontend_base import FinchesFrontend
 
 # for model construction
-from finches.forcefields.mPiPi import mPiPi_model
+from finches.forcefields.calvados import calvados_model
 from finches import epsilon_calculation
 
 # other stuff
 import numpy as np
 
+# needed so we preserve docstrings after decorator is applied...
+from functools import wraps
 
-class Mpipi_frontend(FinchesFrontend):
-    def __init__(self, salt=0.150, dielectric=80.0):
+
+
+##
+## This is a decorator that checks for RNA in the input sequences and throws an
+## exception if it is found. NOTE the @wraps(func) decorator is needed to preserve
+## the docstring of the function being decorated.
+##
+def RNA_check(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+
+        # args[1] = seq1
+        # args[2] = seq2
+        if 'U' in args[1] or 'U' in args[2]:
+            raise ValueError("CALVADOS cannot handled RNA ('U')")
+        return func(*args, **kwargs)
+    return wrapper
+
+
+
+
+
+class CALVADOS_frontend(FinchesFrontend):
+
+
+    # ....................................................................................
+    #
+    #            
+    def __init__(self, salt=0.150, pH=7.4, temp=288):
 
         # call superclass constructor 
         super().__init__()
 
-        # initialize an Mpipi forcefield opbject
-        self.model = mPiPi_model('mPiPi_GGv1', salt=salt, dielectric=dielectric)
-        
+        # initialize the CALVADOS forcefield opbject
+        self.model = calvados_model('CALVADOS2', salt=salt, pH=pH, temp=temp)
 
         # build an interaction matrix constructor object
         self.IMC_object = epsilon_calculation.Interaction_Matrix_Constructor(self.model)
 
 
-    # functions defined in superclass listed below for clarity
-    # epslion() define in super exclusively
-    # per_residue_attractive_vector() defined in super exclusively
+    # decorator checks for RNA in CALVADOS input
 
-        
-        
+    # ....................................................................................
+    #
+    #        
+    @RNA_check
     def intermolecular_idr_matrix(self,
                                   seq1,
                                   seq2,
@@ -43,9 +71,6 @@ class Mpipi_frontend(FinchesFrontend):
         Note that we don't pad the sequence here, so the edges of the matrix start
         and end at indices that depend on the window size. To avoid confusion, the
         function also returns the indices for sequence1 and sequence2.
-
-        If sequence 1 or sequence 2 contain 'U', then the disorder profile is not generated for
-        that sequence. 
 
         Parameters
         --------------
@@ -98,17 +123,6 @@ class Mpipi_frontend(FinchesFrontend):
         """
         
 
-        # Mpipi can accomdate RNA as polyU only
-        if seq1.find('U') == -1:
-            disorder_1 = True
-        else:
-            disorder_1 = False
-
-        if seq2.find('U') == -1:
-            disorder_2 = True
-        else:
-            disorder_2 = False
-            
         
         # call the superclass function
         return super().intermolecular_idr_matrix(seq1,
@@ -117,10 +131,60 @@ class Mpipi_frontend(FinchesFrontend):
                                                  use_cython=use_cython,
                                                  use_aliphatic_weighting=use_aliphatic_weighting,
                                                  use_charge_weighting=use_charge_weighting,
-                                                 disorder_1=disorder_1,
-                                                 disorder_2=disorder_2)
+                                                 disorder_1=True,
+                                                 disorder_2=True)
+
+    
+    # ....................................................................................
+    #
+    #        
+    @RNA_check
+    def epsilon(self,
+                seq1,
+                seq2,
+                use_aliphatic_weighting=True,
+                use_charge_weighting=True):
+
+        """
+        Returns the epilson value associated with the two sequences. Note that CALVADOS
+        does not currently support RNA.
+
+        Parameters
+        --------------
+        seq1 : str
+            Input sequence 1
+
+        seq2 : str
+            Input sequence 2
+
+        use_aliphatic_weighting : bool
+            Whether to use the aliphatic weighting scheme for the interaction matrix
+            calculation. This weights local aliphatic residues based on the number of
+            aliphatic residues adjacent to them. Default is True.
+
+        use_charge_weighting : bool
+            Whether to use the charge weighting scheme for the interaction matrix. This
+            weights local charged residues based on the number of charged residues adjacent
+            to them. Default is True.
+
+        Returns
+        --------------
+        float
+            The epsilon value for the two sequences.
+
+        """
+        
+        return self.IMC_object.calculate_epsilon_value(seq1,
+                                                       seq2,
+                                                       use_aliphatic_weighting=use_aliphatic_weighting,
+                                                       use_charge_weighting=use_charge_weighting)
 
 
+    
+    # ....................................................................................
+    #
+    #        
+    @RNA_check
     def interaction_figure(self,
                            seq1,
                            seq2,
@@ -131,8 +195,8 @@ class Mpipi_frontend(FinchesFrontend):
                            tic_frequency=100,
                            seq1_domains=[],
                            seq2_domains=[],
-                           vmin=-3,
-                           vmax=3,
+                           vmin=-0.75,
+                           vmax=0.75,
                            cmap='PRGn',
                            fname=None):
 
@@ -140,9 +204,6 @@ class Mpipi_frontend(FinchesFrontend):
         Function to generate an interaction matrix figure between two sequences. This does
         all the calculation on the backend and formats a figure with parallel disorder tracks 
         alongside the interaction matrix.
-
-        If sequence 1 or sequence 2 contain 'U', then the disorder profile is not generated for
-        that sequence. 
         
         Parameters
         --------------
@@ -183,10 +244,10 @@ class Mpipi_frontend(FinchesFrontend):
             sequence 2. Means these can be easily higlighted in the plot.
 
         vmin : float
-            Minimum value for the interaction matrix color scale. Default is -3.
+            Minimum value for the interaction matrix color scale. Default is -0.75.
 
         vmax : float
-            Maximum value for the interaction matrix color scale. Default is 3.
+            Maximum value for the interaction matrix color scale. Default is 0.75.
         
         cmap : str
             Colormap to use for the interaction matrix. Default is 'PRGn'.
@@ -221,19 +282,6 @@ class Mpipi_frontend(FinchesFrontend):
 
         """
         
-
-
-        # Mpipi can accomdate RNA as polyU only
-        if seq1.find('U') == -1:
-            disorder_1 = True
-        else:
-            disorder_1 = False
-
-        if seq2.find('U') == -1:
-            disorder_2 = True
-        else:
-            disorder_2 = False
-
         # call the superclass function
         return super().interaction_figure(seq1,
                                           seq2,
@@ -248,16 +296,17 @@ class Mpipi_frontend(FinchesFrontend):
                                           vmax=vmax,
                                           cmap=cmap,
                                           fname=fname,
-                                          disorder_1=disorder_1,
-                                          disorder_2=disorder_2)
+                                          disorder_1=True,
+                                          disorder_2=True)
+    
 
-                                          
-                                        
-
-
-
-        
-        
-
-
-
+    
+    # ....................................................................................
+    #
+    #        
+    def protein_nucleic_vector(seq, fragsize=31, smoothing_window=30, poly_order=3):
+        """
+        Stub function to calculate the protein-nucleic acid interaction vector. CALVADOS
+        does not currently support RNA.
+        """
+        raise Exception('CALVADOS cannot currently handle RNA')
