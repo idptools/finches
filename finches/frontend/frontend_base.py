@@ -813,10 +813,11 @@ class FinchesFrontend:
 
             all_phase_diagrams.append(B)
 
-        if tc_ref == 1:
-            plt.ylabel(r'$T/T_c$', fontsize=7)
+        if np.isclose(tc_ref,1):
+            plt.ylabel(r'$T (AU)$', fontsize=7)            
         else:
-            plt.ylabel(r'$T (AU)$', fontsize=7)
+            plt.ylabel(r'$T/T_c$', fontsize=7)
+            
             
             
         plt.xlabel(r'$\rm\phi$', fontsize=7)
