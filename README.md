@@ -4,7 +4,7 @@ finches
 [![GitHub Actions Build Status](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/finches/workflows/CI/badge.svg)](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/finches/actions?query=workflow%3ACI)
 [![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/finches/branch/main/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/finches/branch/main)
 
-![Finches logi](finches_logo_v1.png)
+![Finches Logo](finches_logo_v1.png)
 
 
 Epsilon implementation for intermolecular interactions!
