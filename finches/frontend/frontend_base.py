@@ -378,6 +378,9 @@ class FinchesFrontend:
                                       seq1,
                                       seq2,
                                       window_size=31,
+                                      use_cython=True,
+                                      use_aliphatic_weighting=True,
+                                      use_charge_weighting=True,                                      
                                       return_total=False,
                                       attractive_threshold=0,
                                       smoothing_window=20,
@@ -410,6 +413,16 @@ class FinchesFrontend:
 
         window_size : int
             The window size for the intermolecular matrix. Default is 31.
+
+        use_cython : bool
+            Whether to use the cython implementation of the intermolecular matrix
+            calculation. Default is True.
+
+        use_aliphatic_weighting : bool
+            Whether to use the aliphatic weighting scheme. Default is True.
+
+        use_charge_weighting : bool
+            Whether to use the charge weighting scheme. Default is True.
    
         return_total : bool
             If True, return the total sum of attractive interactions between 
@@ -445,7 +458,7 @@ class FinchesFrontend:
 
         # do the thing; note this class from the derived class so model-specific
         # sanity checking is handled implictly here
-        B = self.intermolecular_idr_matrix(seq1, seq2, window_size=window_size)[0]
+        B = self.intermolecular_idr_matrix(seq1, seq2, window_size=window_size, use_cython=use_cython, use_aliphatic_weighting=use_aliphatic_weighting, use_charge_weighting=use_charge_weighting)[0]
 
         # extract the raw matrix
         raw_matrix = B[0]
