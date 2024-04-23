@@ -198,7 +198,8 @@ class CALVADOS_frontend(FinchesFrontend):
                            vmin=-0.75,
                            vmax=0.75,
                            cmap='PRGn',
-                           fname=None):
+                           fname=None,
+                           zero_folded=False):
 
         """
         Function to generate an interaction matrix figure between two sequences. This does
@@ -296,6 +297,7 @@ class CALVADOS_frontend(FinchesFrontend):
                                           vmax=vmax,
                                           cmap=cmap,
                                           fname=fname,
+                                          zero_folded=zero_folded,
                                           disorder_1=True,
                                           disorder_2=True)
     

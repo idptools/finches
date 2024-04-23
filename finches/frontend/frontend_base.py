@@ -202,6 +202,7 @@ class FinchesFrontend:
                            vmax=3,
                            cmap='PRGn',
                            fname=None,
+                           zero_folded=True,
                            disorder_1=True,
                            disorder_2=True):
                            
@@ -261,6 +262,10 @@ class FinchesFrontend:
         fname : str
             Filename to save the figure to. If None, the figure will be displayed
 
+        zero_folded : bool
+            Whether to zero out the interaction matrix for folded residues. Default is 
+            True.
+
         disorder_1 : bool
             Whether to include the disorder profile for sequence 1. Default is True.
 
@@ -297,6 +302,41 @@ class FinchesFrontend:
                                                                    use_cython=use_cython,
                                                                    use_aliphatic_weighting=use_aliphatic_weighting,
                                                                    use_charge_weighting=use_charge_weighting)
+
+
+        if zero_folded:        
+            try:
+                folded_1 = meta.predict_disorder_domains(seq1).folded_domain_boundaries
+                folded_2 = meta.predict_disorder_domains(seq2).folded_domain_boundaries
+
+                
+
+            except Exception as e:
+                folded_1 = []
+                folded_2 = []
+
+
+        else:
+            folded_1 = []
+            folded_2 = []
+
+        B1_start = B[1][0]
+        B2_start = B[2][0]
+
+            
+        for i in range(B[1][0]-1, B[1][-1]-1):
+            for j in range(B[2][0]-1, B[2][-1]-1):
+
+                
+                for fd in folded_1:
+                    if i >= fd[0] and i <= fd[1]:
+                        
+                        B[0][i - B1_start, j - B2_start ] = 0
+
+                for fd in folded_2:
+                    if j >= fd[0] and j <= fd[1]:
+                        B[0][i - B1_start, j - B2_start ] = 0
+
 
         # extract out the interaction matrix
         matrix = B[0]

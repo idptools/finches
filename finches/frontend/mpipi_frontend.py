@@ -133,8 +133,9 @@ class Mpipi_frontend(FinchesFrontend):
                            seq2_domains=[],
                            vmin=-3,
                            vmax=3,
-                           cmap='PRGn',
-                           fname=None):
+                           cmap='PRGn',                           
+                           fname=None,
+                           zero_folded=True):
 
         """
         Function to generate an interaction matrix figure between two sequences. This does
@@ -248,6 +249,7 @@ class Mpipi_frontend(FinchesFrontend):
                                           vmax=vmax,
                                           cmap=cmap,
                                           fname=fname,
+                                          zero_folded=zero_folded,
                                           disorder_1=disorder_1,
                                           disorder_2=disorder_2)
 
