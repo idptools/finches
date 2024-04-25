@@ -546,7 +546,7 @@ class FinchesFrontend:
     # ....................................................................................
     #
     #
-    def protein_nucleic_vector(self, seq, fragsize=31, smoothing_window=30, poly_order=3):
+    def protein_nucleic_vector(self, seq, fragsize=21, smoothing_window=30, poly_order=3):
         """
         Function to calculate the per-residue attractive vector for a given protein
         sequence. This is calculated as the sliding-window average of a fragsize
@@ -623,6 +623,120 @@ class FinchesFrontend:
             return [idx, return_vector]
         else:
             return [idx, savgol_filter(return_vector, smoothing_window, poly_order)]
+
+
+    # ....................................................................................
+    #
+    #
+    def plot_protein_nucleic_vector(self,
+                                    seq,
+                                    fragsize = 21,
+                                    smoothing_window = 30,
+                                    poly_order = 3,
+                                    domains = [],
+                                    vmin = -0.8,
+                                    vmax = 0.8,
+                                    cmap='PRGn',
+                                    fname=None,
+                                    zero_folded=True,
+                                    ylim = [-1.2,1.2]):
+                                    
+        """
+        Function to plot the per-residue attractive vector for a given protein
+        sequence. This is calculated as the sliding-window average of a fragsize
+        region of the protein with a fragsize region of poly-U RNA. 
+
+        Parameters
+        ----------
+        seq : str
+            The protein sequence
+
+        fragsize : int
+            The size of the sliding window. Must be an odd number. Default is 21.
+
+        smoothing_window : int
+            The window size for the Savgol filter. This is used to smooth the
+            per-residue attractive vector. If set to False no smoothing is applied.
+
+        poly_order : int
+            The polynomial order for the Savgol filter. This is used to smooth the
+            per-residue attractive vector. If set to False no smoothing is applied.
+
+        domains : list of tuples
+            A list of tuples containing the start and end indices of folded domains
+            in the protein sequence. These will be shaded in the plot.
+
+        vmin : float
+            The minimum value for the color scale. Default is -0.8.
+
+        vmax : float
+            The maximum value for the color scale. Default is 0.8.
+
+        cmap : str
+            The colormap to use for the plot. Default is 'PRGn'.
+
+        fname : str
+            The filename to save the plot to. If set to None, the plot will be displayed
+            in the console. Default is None.
+
+        zero_folded : bool
+            If True, the folded domains will be shaded in the plot. Default is True.
+
+        ylim : list
+            The y-axis limits for the plot. Default is [-1.2,1.2].
+
+        Returns
+        -------
+        fig, ax : matplotlib figure and axis objects. If fname is set to None, the plot
+                    will be displayed in the console. If fname is set to a filename, the
+                    plot will be saved to that file.
+
+        """
+
+        # get the per-residue attractive vector
+        X = self.protein_nucleic_vector(seq, fragsize=fragsize, smoothing_window=smoothing_window, poly_order=poly_order)
+
+        fig = plt.figure(figsize=(4., 1.5), dpi=450)
+        ax = plt.gca()
+
+        plt.scatter(X[0], X[1], c=X[1], s=3, vmin=vmin, vmax=vmax, cmap=cmap)
+        plt.plot(X[0], X[1], 'k-',lw=0.3)
+
+        if zero_folded:
+            for d in meta.predict_disorder_domains(seq).folded_domain_boundaries:
+                ax.axvspan(d[0],d[1],linewidth=0, zorder=10, color='w', alpha=0.5)
+                ax.axvspan(d[0],d[1],linewidth=0, zorder=12, color='grey',alpha=0.2)
+
+        for d in domains:
+            ax.axvspan(d[0],d[1],linewidth=0, zorder=-20, color='yellow', alpha=0.5)
+                        
+            
+        plt.xlim([1,len(seq)+1])
+        ax.axhline(0, color='k',lw=0.5,ls='--')
+
+   
+        # ensure axis are on top
+        for spine in ax.spines.values():
+
+            # zorder = order in which objects in a plot appear in "z" (axis coming out of the screen)
+            spine.set_zorder(30)
+
+        plt.ylabel('NA\ninteraction',fontsize=6)
+        plt.yticks(fontsize=6)
+        plt.ylim(ylim)
+
+        plt.xticks(fontsize=6)
+        plt.xlabel('Residue',fontsize=6)
+        plt.tight_layout()
+
+        # finally save the figure
+        if fname is not None:
+            plt.savefig(fname, dpi=350)
+
+        return fig, ax
+        
+        
+    
 
 
     # ....................................................................................
