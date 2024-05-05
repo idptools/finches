@@ -195,11 +195,11 @@ class CALVADOS_frontend(FinchesFrontend):
                            tic_frequency=100,
                            seq1_domains=[],
                            seq2_domains=[],
-                           vmin=-0.75,
-                           vmax=0.75,
+                           vmin=-7.5,
+                           vmax=7.5,
                            cmap='PRGn',
                            fname=None,
-                           zero_folded=False):
+                           zero_folded=True):
 
         """
         Function to generate an interaction matrix figure between two sequences. This does

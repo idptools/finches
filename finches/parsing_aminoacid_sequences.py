@@ -338,7 +338,7 @@ def get_aliphaticgroup_sequence(chain):
     """
     Function to get sequence that is re-assigned aliphatics with 
     beads for the grouped aliphatics in used in grouping of aliphatics. 
-    The bead assignments are those that are used in the mPiPi forcfeild.
+    The bead assignments are those that are used in the Mpipi forcfeild.
     
     Takes a passed sequence and get PIMMS ready sequence of aliphatics 
         aliphatic_group1 = {'A':'A', 'L':'L', 'M':'M','I':'I','V':'V'}
@@ -356,7 +356,7 @@ def get_aliphaticgroup_sequence(chain):
     ---------------
     str 
         sequence where aliphatic residues are grouped and re-assigned 
-        symbols based on the bead assignments used in the mPiPi forcfeild.
+        symbols based on the bead assignments used in the Mpipi forcfeild.
 
     """
     

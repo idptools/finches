@@ -98,7 +98,7 @@ class custom_model:
             This allows the user to define a base 'SALT' condition for their inputed 
             parameters. The condition_dependence_function then takes in all the inputed 
             conditions and defines how the parameters will be tuned as a funtion of the
-            passed specific conditions. As an exapmle in the mPiPi forcefield, the condition
+            passed specific conditions. As an example in the Mpipi forcefield, the condition
             dictionay would include the following keys ['dielectric', 'salt']. In the example
             above, an example condition_dictionary is below, the key is set as a propery of 
             the class with tha value as the value. 

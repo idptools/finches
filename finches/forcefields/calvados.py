@@ -67,7 +67,7 @@ CALVADOS_CONFIGS['CALVADOS1']['charge_prefactor'] = np.nan # not computed yet
 CALVADOS_CONFIGS['CALVADOS2']['charge_prefactor'] = 0.7  #1.442590
 
 CALVADOS_CONFIGS['CALVADOS1']['null_interaction_baseline'] = np.nan # not computed yet
-CALVADOS_CONFIGS['CALVADOS2']['null_interaction_baseline'] = -0.045
+CALVADOS_CONFIGS['CALVADOS2']['null_interaction_baseline'] = -0.45 # note we bump this slightly from -0.478
 
 
 
@@ -89,7 +89,7 @@ class calvados_model:
             amino acids, (or NxN dictionary keyed by the 20 residues in the model)
             that defines the pairwise parameter for each of the five 
             parameters named here. In this way, you could in principle define
-            and save arbitrary parameters and then feed these into the mPiPi_object
+            and save arbitrary parameters and then feed these into the calvados_object
             via the input_directory keyword. Alternatively a series of update  
             commands exist so you can update parameters on the fly.
         
@@ -110,7 +110,8 @@ class calvados_model:
 
         temp : int
             Defines the tempurature at which the the focefield model is computed 
-            functionally this really just modulates the streghts of the interactions. 
+            functionally this really just modulates the streghts of the Yukawa 
+            potentials - the Ashbaugh-Hatch potentials are not temperature dependent.
 
         Returns
         -------------
@@ -172,7 +173,6 @@ class calvados_model:
         # line 105 - single_chain/simulate.py & line 104 direct_coexistence/simulate.py
         self.yukawa_r_cut = 4.0 
 
-
         # generate ionic, pH, temp specific to initialize calvados object 
         yukawa_kappa, yukawa_eps, residues = self._genParams(self.residue_df)
         self.yukawa_kappa = yukawa_kappa
@@ -197,19 +197,40 @@ class calvados_model:
         #   found in multible sublist and error will be thrown
         self.ALL_RESIDUES_TYPES = [['M', 'G', 'K', 'T', 'Y', 'A', 'D', 'E', 'V', 'L', 'Q', 'W', 'R', 'F', 'S', 'H', 'N', 'P', 'C', 'I'],
                                     ]
-
         self.conditions = ['salt', 'pH', 'temp']
 
     # ----------------------------------------------------------
     #
     def _genParams(self, r):
         """
+        Function to generate the temperature/pH-dependent parameters for the calvados calculations - 
+        specifically the kappa and epsilon values for the yukawa potential, and the residues dataframe
+        with the Histidine updated based on the pH of the solution.
+
+        Parameters
+        ----------
+        r : pd.DataFrame
+            The residues dataframe from the calvados_residues.pickle file
+        
+        Returns
+        -------
+        yukawa_kappa : float
+            The kappa value for the yukawa potential
+
+        yukawa_eps : float
+            The epsilon value for the yukawa potential
+
+        residues : pd.DataFrame
+            The residues dataframe with the Histidine charge updated based on the pH 
+            of the solution
+
         Function directly pulled from line 18 of calvados/single_chain/simulate.py
         """
         RT = 8.3145*self.temp*1e-3
+
         
         # Set the charge on HIS based on the pH of the protein solution? Not needed if pH=7.4
-        # NOTE this throws a wanring but seems to work okay - basically this is calculating
+        # NOTE this throws a warning but seems to work okay - basically this is calculating
         # the charge (q) for residue 'H' at the given pH using 1/1(1+10^(pH-6))
         r.loc['H','q'] = 1. / ( 1 + 10**(self.pH-6) )
         
@@ -231,17 +252,70 @@ class calvados_model:
 
     # ----------------------------------------------------------
     #
-    def compute_full_calvados(self, p1, p2, r_range):
-        
-        s = self.sigmamap[p1][p2] # sigma 
-        l = self.lambdamap[p1][p2] # lambda 
-        q = self.yukawa_eps[p1][p2] # q or yukawa_eps
-        
-        e_out = []
-        for r in r_range:
-            e_out.append(compute_calvados_energy(r,s,l,q,self.yukawa_kappa, cutoff=self.cutoff, lj_eps=self.lj_eps, yukawa_r_cut=self.yukawa_r_cut))
+    def compute_full_calvados(self, residue_1, residue_2, r):
+        """
+        Function that returns the values in kJ/mol for the full calvados
+        potential associated with the pairwise interaction of the two
+        passed residues. 
+
+        Takes two residues and an input distance, which can be a single 
+        value or a np.array.
+
+        Parameters
+        ----------
+        residue_1 : str
+            Must be one of the 20 valid amino acid one-letter codes
+
+        residue_2 : str
+            Must be one of the 20 valid amino acid one-letter codes
+
+        r : int, float, or list/array like
+            Array of distances in Angstroms at which to compute the
+            calvados potential. Can be a single value or an array.
+
+        Returns
+        -------
+        float or np.array 
+            Returns energy in J/mol that corresponds to the distance provided 
+            from r.
+
+        """
+
+        # excise out parameters
+        s = self.sigmamap[residue_1][residue_2]    # sigma 
+        l = self.lambdamap[residue_1][residue_2]   # lambda 
+        q = self.yukawa_eps[residue_1][residue_2]  # q or yukawa_eps
+
+        # if a single value was passed, we can just compute the energy
+        if isinstance(r, (int, float)):
+
+            # note we convert to r i
+            return compute_calvados_energy(r*0.1,
+                                           s,
+                                           l,
+                                           q,
+                                           self.yukawa_kappa,
+                                           cutoff=self.cutoff,
+                                           lj_eps=self.lj_eps,
+                                           yukawa_r_cut=self.yukawa_r_cut)
+        else:
+            e_out = []
+            for r_val in r:
+
+                # get r in nanometers
+                r_val_nm = r_val * 0.1
+
+                # compute calvados energy expects distance in nanometers
+                e_out.append(compute_calvados_energy(r_val_nm,
+                                                     s,
+                                                     l,
+                                                     q,
+                                                     self.yukawa_kappa,
+                                                     cutoff=self.cutoff,
+                                                     lj_eps=self.lj_eps,
+                                                     yukawa_r_cut=self.yukawa_r_cut))
             
-        return e_out
+            return np.array(e_out)
 
     # ----------------------------------------------------------
     #
@@ -258,8 +332,10 @@ class calvados_model:
         --------------
         residue_1 : str
             Must be one of the 20 valid amino acid one-letter codes
+
         residue_2 : str
             Must be one of the 20 valid amino acid one-letter codes
+
         r : array-like
             Actual distance (in Angstroms) between the beads. Can be a single 
             number or a numpy array. If not provided uses 0.1 to 30 in 
@@ -270,44 +346,94 @@ class calvados_model:
         -----------
         tuple
             Returns a tuple with several values:
-            [0] - float -  interaction parameter (sum of integral)
+            [0] - float -  interaction parameter (integral under sigma to 3*sigma)
             [1] - np.array - full pairwise potential energy vs. distance profile
-            [2] - int - index for one sigma
-            [3] - int - index for 3 sigma
-            [4] - np.array - distance array
+            [2] - int - index for one sigma (in Angstroms)
+            [3] - int - index for 3 sigma (in Angstroms)
+            [4] - np.array - distance array (in Angstroms)
         
         """
 
         if r is None:
             r = np.arange(0.01,3,0.001)
         else:
-            # convert Angstroms to nM
-            r = r * 10
+            # convert Angstroms to nm
+            r = r * 0.1
 
-        # determine 
+        # convert to Angstroms for compute_full_calvados()
+        r_angstroms = r*10
+
+        # determine (note this is in nm because calvados parameters are in nm)
         sig1 = self.sigmamap[residue_1][residue_2]
         sig3 = self.sigmamap[residue_1][residue_2]*3
-            
-        # get index in distance-dependent energy that matches 1 sigma
+        
+        # get index in distance-dependent energy that matches 1 sigma 
+        # (note both r and sig in nm)
         s1 = np.argmin(abs(sig1 - np.array(r)))
 
         # get index of 3*sigma
+        # (note both r and sig in nm)
         s3 = np.argmin(abs(sig3 - np.array(r)))
 
-        # calculate the combined energy vector of the rage 
-        combo = self.compute_full_calvados(residue_1, residue_2, r)
+        # calculate the combined energy vector of the range 
+        combo = self.compute_full_calvados(residue_1, residue_2, r_angstroms)
 
         # take the numerical finite integral between 1 and 3 sigma to calculate
         # an interacion parameter
-        interaction_param = np.trapz(combo[s1:s3], x=r[s1:s3])
+        interaction_param = np.trapz(combo[s1:s3], x=r_angstroms[s1:s3])
 
-        return (interaction_param, combo, s1, s3, r)
+        # note we need to *10 to convert back to Angstroms
+        return (interaction_param, combo, s1*10, s3*10, r*10)
 
 
 
 # ----------------------------------------------------------
 #
 def compute_calvados_energy(r,s,l,q,yukawa_kappa, cutoff=2.0, lj_eps=4.184*0.2, yukawa_r_cut=4.0):
+    """
+    Compute the full calvados potential energy between two residues at a given distance. NOTE - to 
+    ensure we can use the native CALVADOS parameters and implementation, distance here (r) must be
+    in nanometers as opposed to Angstroms. We use Angstroms for consistency with finches everywhere
+    else, but the forcefield code that in principle is "internal" operates in whatever units the
+    native forcefield uses.
+
+    Note this combines an Ashbaugh-Hatch potential with a Yukawa potential. The Ashbaugh-Hatch potential
+    is a Lennard-Jones potential with a shifted cutoff, and the Yukawa potential is a screened Coulombic
+    potential. We refer to the Ashbaugh-Hatch potential as the Lennard-Jones potential in the code.
+
+    Parameters
+    --------------
+    r : float
+        Distance in nanometers between two residues
+
+    s : float
+        Sigma parameter for the LJ potential
+
+    l : float
+        Lambda parameter for the LJ potential
+
+    q : float
+        Charge parameter for the Yukawa potential
+
+    yukawa_kappa : float
+        Kappa parameter for the Yukawa potential
+
+    cutoff : float
+        Cutoff distance for the LJ potential
+
+    lj_eps : float
+        Epsilon parameter for the LJ potential
+
+    yukawa_r_cut : float
+        Cutoff distance for the Yukawa potential
+
+    Returns
+    -----------
+    float
+        The total potential energy between the two residues at 
+        the given distance.
+
+    """
      
 
     unit_nanometer = 1 

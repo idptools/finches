@@ -4,9 +4,12 @@
 
 import os
 
-from .evolve_sequences import *
 
 from ._version import __version__
+
+# front-end imports here
+from finches.frontend.calvados_frontend import CALVADOS_frontend
+from finches.frontend.mpipi_frontend import Mpipi_frontend
 
 
 # code that allows access to the data directory

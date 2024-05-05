@@ -1,7 +1,7 @@
 from .frontend_base import FinchesFrontend
 
 # for model construction
-from finches.forcefields.mPiPi import mPiPi_model
+from finches.forcefields.mpipi import Mpipi_model
 from finches import epsilon_calculation
 
 # other stuff
@@ -15,7 +15,7 @@ class Mpipi_frontend(FinchesFrontend):
         super().__init__()
 
         # initialize an Mpipi forcefield opbject
-        self.model = mPiPi_model('mPiPi_GGv1', salt=salt, dielectric=dielectric)
+        self.model = Mpipi_model('Mpipi_GGv1', salt=salt, dielectric=dielectric)
         
 
         # build an interaction matrix constructor object

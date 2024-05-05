@@ -3,7 +3,7 @@ import numpy as np
 import finches
 from os.path import exists
 
-## Code that implements the key forcefield functions in the mPiPi model. For more details on this see
+## Code that implements the key forcefield functions in the Mpipi model. For more details on this see
 #     Joseph, J. A., Reinhardt, A., Aguirre, A., Chew, P. Y., Russell, K. O., Espinosa, J. R., Garaizar, A., 
 #     & Collepardo-Guevara, R. (2021). Physics-driven coarse-grained model for biomolecular phase separation 
 #     with near-quantitative accuracy. Nature Computational Science, 1(11), 732–743.
@@ -19,25 +19,25 @@ VALID_RNA=['U']
 MPIPI_CONFIGS = {}
 
 # different versions can have different parameters
-MPIPI_CONFIGS['mPiPi_default'] = {}
-MPIPI_CONFIGS['mPiPi_GGv1'] = {}
-MPIPI_CONFIGS['OLD_mPiPi_GGv1'] = {}
+MPIPI_CONFIGS['Mpipi_original'] = {}
+MPIPI_CONFIGS['Mpipi_GGv1'] = {}
+MPIPI_CONFIGS['OLD_Mpipi_GGv1'] = {}
 
-MPIPI_CONFIGS['mPiPi_default']['charge_prefactor'] = 0.20 # 0.184890
-MPIPI_CONFIGS['mPiPi_default']['null_interaction_baseline'] = -0.066265
+MPIPI_CONFIGS['Mpipi_original']['charge_prefactor'] = 0.20 # 0.184890
+MPIPI_CONFIGS['Mpipi_original']['null_interaction_baseline'] = -0.066265
 
-MPIPI_CONFIGS['mPiPi_GGv1']['charge_prefactor'] = 0.20 #0.216145
-MPIPI_CONFIGS['mPiPi_GGv1']['null_interaction_baseline'] = -0.128533
+MPIPI_CONFIGS['Mpipi_GGv1']['charge_prefactor'] = 0.20 #0.216145
+MPIPI_CONFIGS['Mpipi_GGv1']['null_interaction_baseline'] = -0.128533
 
-MPIPI_CONFIGS['OLD_mPiPi_GGv1']['charge_prefactor'] = 0.20 #0.216145
-MPIPI_CONFIGS['OLD_mPiPi_GGv1']['null_interaction_baseline'] = -0.128533
+MPIPI_CONFIGS['OLD_Mpipi_GGv1']['charge_prefactor'] = 0.20 #0.216145
+MPIPI_CONFIGS['OLD_Mpipi_GGv1']['null_interaction_baseline'] = -0.128533
 
-class mPiPi_model:
+class Mpipi_model:
 
-    def __init__(self, version='mPiPi_default', input_directory='default', dielectric=80.0, salt=0.150):
+    def __init__(self, version='Mpipi_GGv1', input_directory='default', dielectric=80.0, salt=0.150):
         """
-        The mPiPi_model class defines an mPiPi_model Object which lets you calculate 
-        and return both individual components of the mPiPi forcefield potential 
+        The Mpipi_model class defines an Mpipi_model Object which lets you calculate 
+        and return both individual components of the Mpipi forcefield potential 
         alongside an 'interaction parameter' that reflects 
 
 
@@ -49,18 +49,16 @@ class mPiPi_model:
             list of tuples where: 
                 x = (class_function update_XY, [list of input functions to pass x[0]])     
         
-            CURRENT OPTIONS : ['mPiPi_default', 'mPiPi_GGv1']
+            CURRENT OPTIONS : ['Mpipi_original', 'Mpipi_GGv1']
 
-            mPiPi_GGv1 calls: 
-                finches.data.mPiPi.mPiPi_GGv1_modification_fxns import update_to_mPiPi_GGv1 
         
         input_directory : str
-            Defines the directory where the input parameter files are found. The mPiPi 
+            Defines the directory where the input parameter files are found. The Mpipi 
             forcefield depends on a set of per-residue (and per-pairwise residue) 
             parameters. These parameters should be stored in a Python dictionary and 
-            will be loaded into the mPiPi_model object for manipulation.
+            will be loaded into the Mpipi_model object for manipulation.
 
-            By default, mPiPi_model uses the original parameters defined by Joseph et 
+            By default, Mpipi_model uses the original parameters defined by Joseph et 
             al. 2021, and you can use the default directory ('default') to load these. 
 
             However, if you wanted to load your own pre-computed parameters, you can 
@@ -85,7 +83,7 @@ class mPiPi_model:
             Each of these dictionaries contains a 20x20 dictionary keyed by the 20 
             amino acids that defines the pairwise parameter for each of the five 
             parameters named here. In this way, you could in principle define
-            and save arbitrary parameters and then feed these into the mPiPi_object
+            and save arbitrary parameters and then feed these into the Mpipi_object
             via the input_directory keyword. Alternatively a series of update  
             commands exist so you can update parameters on the fly.
         
@@ -99,7 +97,7 @@ class mPiPi_model:
 
         Returns
         -------------
-        finches.methods.forcefields.mPiPi object
+        finches.methods.forcefields.Mpipi object
 
         """
 
@@ -108,13 +106,13 @@ class mPiPi_model:
         # to include an additional directory
         if input_directory == 'default':
             # initialize the prarameters from a pickle file
-            data_prefix = finches.get_data('mPiPi')
+            data_prefix = finches.get_data('Mpipi')
 
         else:
             data_prefix = input_directory
 
 
-        if version == 'mPiPi_default':
+        if version == 'Mpipi_original':
 
             # check files are present    
             for n in ['sigma.pickle', 'epsilon.pickle', 'nu.pickle', 'mu.pickle', 'charge.pickle']:                
@@ -136,7 +134,7 @@ class mPiPi_model:
                 with open(f'{data_prefix}/charge.pickle', 'rb') as fh:
                     self.CHARGE_ALL = pickle.load(fh)
                     
-        elif version == 'mPiPi_GGv1':
+        elif version == 'Mpipi_GGv1':
             
             # check files are present    
             for n in ['sigma_ggv1.pickle', 'epsilon_ggv1.pickle', 'nu_ggv1.pickle', 'mu_ggv1.pickle', 'charge_ggv1.pickle']:                
@@ -159,9 +157,13 @@ class mPiPi_model:
                     self.CHARGE_ALL = pickle.load(fh)
 
 
-        elif version == 'OLD_mPiPi_GGv1':
+        elif version == 'OLD_Mpipi_GGv1':
             
-            # check files are present    
+            # check files are present. NOTE - these should note be used but are basically identical to Mpipi_GGv1; essentially these params
+            # are the values that in earlier versions of finches were dynamically re-computed on initialization every time. We then changed
+            # the code to precompute these values and store them in a pickle file to save time, and there were some extremely minor differences
+            # due to a couple of small changes in the code, so we kept these as a 'snapshot' of the old values, but they should not be used (although
+            # will give basically the same results as the Mpipi_GGv1 values)
             for n in ['old_sigma_ggv1.pickle', 'old_epsilon_ggv1.pickle', 'old_nu_ggv1.pickle', 'old_mu_ggv1.pickle', 'old_charge_ggv1.pickle']:                
                 if not exists(f'{data_prefix}/{n}'):
                     raise Exception(f'Using [{data_prefix}] as our data directory but no {n} file found')
@@ -182,7 +184,7 @@ class mPiPi_model:
                     self.CHARGE_ALL = pickle.load(fh)
                     
         else:
-            raise Exception(f"Unrecognized version [{version}] passed to mPiPi_model. Must be one of 'mPiPi_default' or 'mPiPi_GGv1'")
+            raise Exception(f"Unrecognized version [{version}] passed to Mpipi_model. Must be one of 'Mpipi_original' or 'Mpipi_GGv1'")
 
         # set precomputed forcfield parameters
         self.CONFIGS = MPIPI_CONFIGS[version]
@@ -199,7 +201,6 @@ class mPiPi_model:
         # name the identity of the conditions we've assigned
         self.conditions = ['salt', 'dielectric']
 
-        
 
 
 
@@ -285,12 +286,13 @@ class mPiPi_model:
 
     # .....................................................................................
     #        
-    def compute_full_mPiPi(self, residue_1,  residue_2, r, dielectric=None, salt=None):
+    def compute_full_Mpipi(self, residue_1,  residue_2, r, dielectric=None, salt=None):
 
         """
-        Function that returns the values in kJ/mol for the full Wang-Frenkel 
-        potential associated with the pairwise interaction of the two
-        passed residues. 
+        Function that returns the values in kJ/mol for the full Mpipi potential,
+        with a sum from the Wang-Frenkel and Coulombic potentials. Returns the
+        instantaneous energy of the two residues at a given distance or set of 
+        distances.
 
         Takes two residues and an input distance, which can be a single 
         value or a np.array.
@@ -398,7 +400,7 @@ class mPiPi_model:
         s3 = np.argmin(abs(sig3 - np.array(r)))
 
         # calculate the combined energy vector of the rage 
-        combo = self.compute_full_mPiPi(residue_1, residue_2, r, dielectric=dielectric, salt=salt)
+        combo = self.compute_full_Mpipi(residue_1, residue_2, r, dielectric=dielectric, salt=salt)
 
         # take the numerical finite integral between 1 and 3 sigma to calculate
         # an interacion parameter
@@ -417,7 +419,7 @@ class mPiPi_model:
 #
 def harmonic(r, mode='protein', k=8.03, ideal_length=None):
     """
-    Standard harmonic potential. Equation (2) from mPiPi paper.
+    Standard harmonic potential. Equation (2) from Mpipi paper.
     
     Parameters
     -------------
@@ -430,7 +432,7 @@ def harmonic(r, mode='protein', k=8.03, ideal_length=None):
         
     k : float
         If provided allows you to change the spring constant. Default
-        in the mPiPi paper is 8.03 J mol-1 pm-2.
+        in the Mpipi paper is 8.03 J mol-1 pm-2.
         
     ideal_length : float or None
         IF provided over-rides the standard ideal_length distances which are
@@ -477,7 +479,7 @@ def coulomb(qi, qj, rij, dielectric=80.0, salt=0.150):
     returns the distance dependent energy.
 
     Note that this is a stand-alone Coloumbic potential with Debye screening and
-    actually does not use any of the mPiPi parameters.
+    actually does not use any of the Mpipi parameters.
     
     Parameters
     -------------
@@ -549,7 +551,7 @@ def wang_frenkel(r, sigma_ij, epsilon_ij, mu_ij=2, nu_ij=1):
     potential energy in kj/mol.
 
     Note that this is a stand-alone Wang-Frenkel potential and
-    actually does not use any of the mPiPi parameters.
+    actually does not use any of the Mpipi parameters.
     
     Parameters
     -------------

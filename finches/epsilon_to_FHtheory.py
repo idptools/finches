@@ -24,7 +24,7 @@ By : Garrett M. Ginell & Alex S. Holehouse
 
 import numpy as np
 
-from .epsilon_calculation import get_sequence_epsilon_value
+from .epsilon_stateless import get_sequence_epsilon_value
 from .analytical_fh import floryhuggins
 
 

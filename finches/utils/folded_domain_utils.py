@@ -56,7 +56,14 @@ class FoldeDomain:
     # ................................................................................
     #
     #
-    def __init__(self, pdbfilename, start=None, end=None, probe_radius=1.4, residue_overide_mapping={}, surface_thresh=0.10, ignore_warnings=False):
+    def __init__(self,
+                 pdbfilename,
+                 start=None,
+                 end=None,
+                 probe_radius=1.4,
+                 residue_overide_mapping={},
+                 surface_thresh=0.10,
+                 ignore_warnings=False):
         """
         Class to handle folded domains and perform folded domain structure 
         analysis related to epsilon-associated interacions.
@@ -176,6 +183,13 @@ class FoldeDomain:
 
             #print(f"{idx} => {len(atom_indices)}")
             self.surface_positions[idx] = md.compute_center_of_mass(p.atom_slice(atom_indices))[0]
+
+        # initialize this as empty strings, which are populated in the
+        # calculate_surface_sequences() function when needed
+        self._surface_seq = {}
+        for idx in self.surface_indices:
+            self._surface_seq[idx] = ""
+            
 
         # initialize expensive things to None - these will be calculated
         # at execution time via the property functions below
@@ -423,10 +437,25 @@ class FoldeDomain:
     def calculate_surface_epsilon(self, input_sequence, IMCObject):
         """
         This function calculates the surface epsilon values for each residue in the
-        protein. The surface epsilon is a measure of the hydrophobicity of the local
-        environment of a residue. The function will calculate the surface epsilon
-        for each residue in the protein and store the results in the self.surface_eps
+        protein. The function will calculate the surface epsilon
+        for each residue in the protein and return this in a surface_epsilon
         dictionary.
+
+        Parameters
+        ----------
+        input_sequence: str
+            Amino acid sequence of the input sequence
+
+        IMCObject: IMCObject
+            IMCObject that contains the epsilon calculate, this
+            can obtained as a object variable from an Mpipi_frontend
+            or CALAVDOS_frontend object.
+
+        Returns
+        -------
+        Dict
+            Dictionary that maps between residue index and surface epsilon value.
+
         """
 
 
@@ -438,31 +467,37 @@ class FoldeDomain:
         
         for idx in self.surface_indices:
 
-            center_resid = self.sequence[idx]
+            if self._surface_seq[idx] == '':
 
-            # get indices of all residues neighbourin this residue, excluding itself
-            neighbor_resid = [i[0] for i in self.surface_neighbours[idx]]
+                center_resid = self.sequence[idx]
 
-            # build a local sequence list
-            local_seq = [self.sequence[n] for n in neighbor_resid]
-            og_seq = "".join(local_seq)
-            reordered_seq = ''
+                # get indices of all residues neighbourin this residue, excluding itself
+                neighbor_resid = [i[0] for i in self.surface_neighbours[idx]]
 
-            # if center res is hydrophobe 
-            if center_resid in hydrophobes:
-                local_seq, removed = self.__extract_residues(local_seq, hydrophobes)
-                reordered_seq = ''.join(removed) + ''.join(local_seq)
-            elif center_resid in negative:
-                local_seq, removed = self.__extract_residues(local_seq, negative)
-                reordered_seq = ''.join(removed) + ''.join(local_seq)
-            elif center_resid in positive:
-                local_seq, removed = self.__extract_residues(local_seq, positive)
-                reordered_seq = ''.join(removed) + ''.join(local_seq)
+                # build a local sequence list
+                local_seq = [self.sequence[n] for n in neighbor_resid]
+                og_seq = "".join(local_seq)
+                reordered_seq = ''
+
+                # if center res is hydrophobe 
+                if center_resid in hydrophobes:
+                    local_seq, removed = self.__extract_residues(local_seq, hydrophobes)
+                    reordered_seq = ''.join(removed) + ''.join(local_seq)
+                elif center_resid in negative:
+                    local_seq, removed = self.__extract_residues(local_seq, negative)
+                    reordered_seq = ''.join(removed) + ''.join(local_seq)
+                elif center_resid in positive:
+                    local_seq, removed = self.__extract_residues(local_seq, positive)
+                    reordered_seq = ''.join(removed) + ''.join(local_seq)
+                else:
+                    reordered_seq = ''.join(local_seq)
+
             else:
-                reordered_seq = ''.join(local_seq)
-
+                reordered_seq = self._surface_seq[idx]
+                
             # initial value 
             tmp = IMCObject.calculate_epsilon_value(reordered_seq, input_sequence)/len(reordered_seq)
+            
 
             surface_eps[idx] = [center_resid, reordered_seq, tmp]
             

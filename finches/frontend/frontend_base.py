@@ -1,5 +1,5 @@
 import metapredict as meta
-from finches.forcefields.mPiPi import mPiPi_model
+from finches.forcefields.mpipi import Mpipi_model
 from finches import epsilon_to_FHtheory
 from finches import epsilon_calculation
 
@@ -352,6 +352,7 @@ class FinchesFrontend:
     
         # edt here to change tickmarks;  note again the tic_frequency, this again
         # probably can be edited manually depending on the system
+
         ax_main.set_xticks(np.arange(B[1][0],B[1][-1], tic_frequency))
         ax_main.set_yticks(np.arange(B[2][0],B[2][-1], tic_frequency))
         ax_main.tick_params(axis='x', rotation=45)  # Rotates the x-tick labels by 45 degrees
@@ -767,11 +768,11 @@ class FinchesFrontend:
 
             [0] - Dilute phase concentrations (array of len=N) in Phi
             [1] - Dense phase concentrations (array of len=N) in Phi
-            [2] - List with [0]: critical T and [1]: Critical phi
+            [2] - List with [0]: critical Phi and [1]: Critical T
             [3] - List of temperatures that match with the dense and dilute phase concentrations
             [4] - Dilute phase concentrations (array of len=N) in Phi for spinodal
             [5] - Dense phase concentrations (array of len=N) in Phi for spinodal
-            [6] - List with [0]: critical T and [1]: Critical phi  for spinodal
+            [6] - List with [0]: critical Phi and [1]: Critical T for spinodal
             [7] - List of temperatures that match with the dense and dilute phase concentrations for spinodal
 
         This seems somewhat overwhelming, but to plot the resulting binodal we just need to do:
@@ -804,8 +805,8 @@ class FinchesFrontend:
                            xlim=None,
                            ylim=None,
                            xlog=False,
-                           width=1.2,
-                           height=2.2,
+                           width=2.2,
+                           height=1.2,
                            filename=None):
         """
         Function to plot the phase diagram for a given sequence. This is done by
@@ -909,7 +910,7 @@ class FinchesFrontend:
         ----------
         seq_dict : dict
             Dictionary where keys are sequence names and values are a 2-position list, 
-            where the first element is the sequence and the second element the line
+            where the first element is the sequence and the second element the color
             to plot. 
 
         use_aliphatic_weighting : bool
