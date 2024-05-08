@@ -45,7 +45,7 @@ def build_DIELECTRIC_dependent_phase_diagrams(seq,
         Input sequence
 
     X_model : object
-        instantiation of the Interaction_Matrix_Constructor object for which gets
+        instantiation of the InteractionMatrixConstructor object for which gets
          re-initialized for each condition in the condition dict
 
     prefactor : object
@@ -125,7 +125,7 @@ def build_PH_dependent_phase_diagrams(seq,
         Input sequence
 
     X_model : object
-        instantiation of the Interaction_Matrix_Constructor object for which gets
+        instantiation of the InteractionMatrixConstructor object for which gets
          re-initialized for each condition in the condition dict
 
     prefactor : object
@@ -204,7 +204,7 @@ def build_SALT_dependent_phase_diagrams(seq,
         Input sequence
 
     X_model : object
-        instantiation of the Interaction_Matrix_Constructor object for which gets
+        instantiation of the InteractionMatrixConstructor object for which gets
          re-initialized for each condition in the condition dict
 
     prefactor : object

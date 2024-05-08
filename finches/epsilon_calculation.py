@@ -17,7 +17,7 @@ from .utils import matrix_manipulation
 from . import epsilon_stateless
 
 # -------------------------------------------------------------------------------------------------
-class Interaction_Matrix_Constructor:
+class InteractionMatrixConstructor:
     
     def __init__(self,
                  parameters,
@@ -27,95 +27,98 @@ class Interaction_Matrix_Constructor:
                  compute_forcefield_dependencies=False):
         
         """
-        The Interaction_Matrix_Constructor is a class which houses user-facing
-        functions for calculating inter-residue interactions. 
+        The InteractionMatrixConstructor is a class which houses user-facing
+        functions for calculating inter-residue interactions. This is appropriate
+        if you want more fine-grained control over epsilon-associated calculations.
+        Alternatively, using one of the finches.frontend modules may be an easier 
+        route if you're just doing "standard" types of analysis.
 
-        Philosophically speaking, the goal here here is to separate 
-        the biophysical model used to determine interaction parameters into 
-        a set of classes housed in finches.forcefields, and then the class        
-        Interaction_Matrix_Constructor takes one of those models in as initializing
-        input and provides a standardized way to calculate the same types of 
-        interaction properties derived from many different biophysical models.
+        Philosophically speaking, the goal here is to separate the biophysical
+        model used to determine interaction parameters into a set of classes 
+        housed in finches.forcefields, and then the class InteractionMatrixConstructor       
+        takes one of those models in as initializing input and provides a 
+        standardized way to calculate the same types of interaction properties 
+        derived from many different biophysical models. In software engineering, this
+        is known as an "interface" design pattern.
 
         For example, using Mpipi_GGv1, one might do:
 
             # import key modules
             from finches.forcefields.mpipi import Mpipi_model
-            from finches.epsilon_calculation import Interaction_Matrix_Constructor
+            from finches.epsilon_calculation import InteractionMatrixConstructor
             
             # Initialize a finches.forcefields.Mpipi.Mpipi_model object
             Mpipi_GGv1_params = Mpipi_model(version = 'Mpipi_GGv1')
 
-            # initialize an Interaction_Matrix_Constructor
-            IMC = Interaction_Matrix_Constructor(parameters = Mpipi_GGv1_params)
+            # initialize an InteractionMatrixConstructor
+            IMC = InteractionMatrixConstructor(parameters = Mpipi_GGv1_params)
 
-        The Interaction_Matrix_Constructor object IMC then provides functionality 
+        The InteractionMatrixConstructor object (aka IMC) then provides functionality 
         for calculating inter-residue interactions using the energetics in the 
         underlying model. Moreover, the IMC object can also then be updated in a
         variety of ways.
-
         
         Parameters
         -----------
         parameters : finches.forcefield.<model>.<model_object>
             Instance of one of the forcefield objects found in finches.forcefields 
             module. This object contains all of the parameters for the model, such
-            that the Interaction_Matrix_Constructor calls on a series of functions
+            that the InteractionMatrixConstructor calls on a series of functions
             that a model presents to calculate the associated interactions in
             a consistent way.
 
             In this way, different interaction models can be distributed but the 
-            same analysis code (suing an Interaction_Matrix_Constructor) can always
+            same analysis code (using an InteractionMatrixConstructor) can always
             be used.
 
             This parameters object has two key functions that are required to be
             implemented.
 
-            * parameters.ALL_RESIDUES_TYPES : list of lists which defines residues
-              which are allowed to occur in the same type of sequence; e.g. we expect
+            * parameters.ALL_RESIDUES_TYPES : list of lists which define residues
+              which are allowed to occur in the same type of sequence; e.g., we expect
               a protein list, an RNA list, a DNA list etc. Note that EVERY residue in
               all lists must have a pair-wise interaction parameter calculatable via
-              the compute_interaction_parameter() function [described be
+              the compute_interaction_parameter() function (described below)
                         
             * parameters.compute_interaction_parameter(r1,r2) : function which takes
               two valid residues (i.e. any pair from the residues defined in 
               ALL_RESIDUES_TYPES) and returns a value that reports on the relative
               preferential interaction between those residues.
 
-            * parameters.CONFIGS : dictionary with some general default 
+            * parameters.CONFIGS: dictionary with some general default 
               precomputed values for the forcefield, including: 'charge_prefactor' 
-              and , 'null_interaction_baseline', which will get used if these are
+              and, 'null_interaction_baseline', which will be used if these are
               not explicitly passed into this constructor.
                       
         sequence_converter : function 
             A function that takes in a sequence and converts the sequence to 
-            alternative  sequnence that matches the acceptable residue types of the 
-            parameters object. If no function is provided a default function that 
-            simply returns the input sequences is provided. This can be useful if 
+            an alternative sequnence that matches the acceptable residue types of the 
+            parameters object. If no function is provided, a default function that 
+            returns the input sequences is provided. This can be useful if 
             we need to mask sequences in a certain way.
 
         charge_prefactor : float 
-            Model specific value that defines how the charge weighting is scaled. 
-            Charge weighting is implememnted in a way that runs of oppositely 
+            Model-specific value that defines how the charge weighting is scaled. 
+            Charge weighting is implemented in a way that runs oppositely 
             charged residues are less repulsive for one another than they might 
             otherwise be, mimicking the fact that charged sidechains can point away 
             from one another and/or be influenced by pKa shifts. The 
-            charge_prefactor is a scalar which in effect scales the strength this 
-            scaling has, and typically needs to be tuned on a per forcefield basis.
-
+            charge_prefactor is a scalar which in effect, scales the strength of this 
+            scaling has and typically needs to be tuned on a per forcefield basis. 
+            Note that this value must be between 0 and 1.
 
         null_interaction_baseline : float  
-            Model specific threshold to differentiate between attractive and repulsive
-            interactions By default, this baseline is parameterized based on the attractive/
+            Model-specific threshold to differentiate between attractive and repulsive
+            interactions. By default, this baseline is parameterized based on the attractive/
             repulsive interaction associated with a poly(GS) sequence, which we expect
-            to behave as a Gaussian chain. 
+            to behave as a Gaussian chain, however, we can over-ride the default value. 
             
 
             NOTE -  null_interaction_baseline is specific to the parameter version. 
                     The null_interaction_baseline is the value used to split matrix. 
                     This has been built such that this value recapitulates PolyGS for                    
                     the specific input model being used. Precomputed null_interaction 
-                    baseline canbe found in the CONFIGS dictionary of the parameters
+                    baseline can be found in the CONFIGS dictionary of the parameters
                     object.
 
                     To compute a new null_interaction_baseline for a new forcefield
@@ -124,7 +127,7 @@ class Interaction_Matrix_Constructor:
                         data.forcefield_dependencies.get_null_interaction_baseline
 
         compute_forcefield_dependencies : bool 
-            Flag to specify whether to recompute the model specific 
+            Flag to specify whether to recompute the model-specific 
             charge_prefactor and null_interaction_baseline used when computing epsilon if
             these are not available at runtime. 
 
@@ -140,8 +143,7 @@ class Interaction_Matrix_Constructor:
 
         
         # initialize core class variables; we do this here mainly for convenince in the
-        # code, so all the class variables are clearly defined in one place
-        
+        # code, so all the class variables are clearly defined in one place        
         self.parameters                = None # finches.forcefield.<forcefield_module>.<forcefield_class> object
         self.sequence_converter        = None # function converts a sequence automatically
         self.charge_prefactor          = None # prefactor that scales how much charge weighting matters
@@ -160,7 +162,7 @@ class Interaction_Matrix_Constructor:
         self.charge_prefactor = charge_prefactor
         self.null_interaction_baseline = null_interaction_baseline
 
-        # this is the main function which sets up the self.lookup table and ensures self.parameters maps to
+        # This is the main function that sets up the self.lookup table and ensures self.parameters maps to
         # a valid object
         self._update_parameters(parameters)
         
@@ -273,7 +275,7 @@ class Interaction_Matrix_Constructor:
         new_parameters : finches.forcefield.<model>.<model_object>
             Instance of one of the forcefield objects found in finches.forcefields 
             module. This object contains all of the parameters for the model, such
-            that the Interaction_Matrix_Constructor calls on a series of functions
+            that the InteractionMatrixConstructor calls on a series of functions
             that a model presents to calculate the associated interactions in
             a consistent way. See the constructor for a more complete description.
 
@@ -396,11 +398,15 @@ class Interaction_Matrix_Constructor:
     def calculate_pairwise_homotypic_matrix(self, sequence, convert_to_custom=True):
         
         """
-        Interaction_Matrix_Constructor.calculate_pairwise_homotypic_matrix
-
-        Note in reality you should just do all pairwise-residues ONCE 
+        Function that calculates the homotypic matrix WITHOUT any weighting factors.
+        
+        Note - the matrix here is the raw unsliding-windowed matrix so will be
+        len(seq) by len(seq) long. For visualizing local regions of inter-residue
+        interaction use the calculate_sliding_epsilon() function.
+        
+        In reality, you should just do all pairwise-residues ONCE 
         at the start and then look 'em up, but this code below does the
-        dynamic non-redudant on-the-fly calculation of unique pairwise
+        dynamic non-redundant on-the-fly calculation of unique pairwise
         residues.
 
         Parameters
@@ -422,18 +428,21 @@ class Interaction_Matrix_Constructor:
     def calculate_pairwise_heterotypic_matrix(self, sequence1, sequence2, convert_to_custom=True, use_cython=True):
         
         """
-        Interaction_Matrix_Constructor.calculate_pairwise_heterotypic_matrix
-
         This function takes two sequences and returns a sequence1 x sequence2
-        2D np.array
+        2D np.array.
+        Note - the matrix here is the raw unsliding-windowed matrix so will be
+        len(seq) by len(seq) long. For visualizing local regions of inter-residue
+        interaction use the calculate_sliding_epsilon() function.
 
-        Note in reality you should just do all pairwise-residues ONCE 
+        In reality, you should just do all pairwise-residues ONCE 
         at the start and then look 'em up, but this code below does the
-        dynamic non-redudant on-the-fly calculation of unique pairwise
+        dynamic non-redundant on-the-fly calculation of unique pairwise
         residues.
 
-        Note we default to using a cython implementation which is 3.5x faster
-        than the pure python implementation.
+        Note we default to using a Cython implementation which is 3.5x faster
+        than the pure Python implementation. For now we're leaving in the 
+        option to fall back to a Python implementation but that may be 
+        removed at some point...
 
         Parameters
         ---------------
@@ -442,14 +451,11 @@ class Interaction_Matrix_Constructor:
 
         sequence2: str
             Second amino acid sequence of interest
-        
-
 
         use_cython : bool
             Flag to select whether to use the cythonized version of the code
-            or the python version. The cythonized version is reduces the time
-            to about 5-10% of the python version. 
-
+            or the Python version. The cythonized version reduces the time
+            to about 5-10% of the Python version. 
 
         Returns
         ------------------
@@ -468,7 +474,6 @@ class Interaction_Matrix_Constructor:
         else:
             self._check_sequence(sequence1)
             self._check_sequence(sequence2)
-
 
         if use_cython:
             return matrix_manipulation.dict2matrix(sequence1, sequence2, self.lookup)
@@ -498,9 +503,8 @@ class Interaction_Matrix_Constructor:
                                            use_cython=True):
         
         """
-        Interaction_Matrix_Constructor.calculate_pairwise_heterotypic_matrix
-
-        Calculate heterotypic matrix and then weight the matrix based on 
+        Calculate heterotypic matrix and then weight the matrix based on
+        the various flags defined here.  
 
         Parameters
         ---------------
@@ -509,6 +513,7 @@ class Interaction_Matrix_Constructor:
 
         sequence2 : str
             Amino acid sequence of interest
+                                                                                     
         
         prefactor : float 
             Model specific value to plug into the local charge weighting of 
@@ -537,7 +542,7 @@ class Interaction_Matrix_Constructor:
         """
         
         # compute matrix - note if s1 and s2 are the same that's fine
-        matrix = self.calculate_pairwise_heterotypic_matrix(sequence1, sequence2, convert_to_custom=True, use_cython=use_cython)
+        matrix = self.calculate_pairwise_heterotypic_matrix(sequence1, sequence2, convert_to_custom=convert_to_custom, use_cython=use_cython)
 
         # weight the matrix by local sequence charge
         if use_charge_weighting:
@@ -647,10 +652,10 @@ class Interaction_Matrix_Constructor:
         # as null which means the default values associated with this
         # object will be used
         return epsilon_stateless.get_sequence_epsilon_vectors(sequence1,
-                                            sequence2,
-                                            self,
-                                            use_charge_weighting=use_charge_weighting,
-                                            use_aliphatic_weighting=use_aliphatic_weighting)
+                                                              sequence2,
+                                                              self,
+                                                              use_charge_weighting=use_charge_weighting,
+                                                              use_aliphatic_weighting=use_aliphatic_weighting)
 
     ## ------------------------------------------------------------------------------
     ## 

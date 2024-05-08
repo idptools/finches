@@ -1,5 +1,5 @@
 """
-Module to support forcefields passed to the Interaction_Matrix_Constructor
+Module to support forcefields passed to the InteractionMatrixConstructor
 
 By : Garrett M. Ginell & Alex S. Holehouse 
 2023-08-06
@@ -25,7 +25,7 @@ def get_null_interaction_baseline(X_model, lower_end=-10.0, upper_end=10.0, alte
     Parameters
     ---------------
     X_model : obj
-        An instantiation of the Interaction_Matrix_Constructor class
+        An instantiation of the InteractionMatrixConstructor class
 
     lower_end : float
         The lower end of the bracket to search for the null_interaction_baseline

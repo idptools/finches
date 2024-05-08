@@ -27,7 +27,7 @@ def get_attractive_repulsive_matrices(matrix, null_interaction_baseline):
     Parameters
     ---------------
     matrix : np.array
-        array returned by a function in the Interaction_Matrix_Constructor class
+        array returned by a function in the InteractionMatrixConstructor class
 
     null_interaction_baseline : float
         Value to specify where to split the matrix for attractive vs repulsive interactions
@@ -143,7 +143,7 @@ def get_sequence_epsilon_vectors(sequence1,
         The second sequence to compare 
 
     X : obj 
-        Instance of the Interaction_Matrix_Constructor class with intialized pairpwise interactions 
+        Instance of the InteractionMatrixConstructor class with initialized pairwise interactions 
         and modelspecific parameters 
 
     Optional Parameters
@@ -222,7 +222,7 @@ def get_sequence_epsilon_value(sequence1,
         The second sequence to compare 
 
     X : obj 
-        Instance of the Interaction_Matrix_Constructor class with intialized pairpwise interactions 
+        Instance of the InteractionMatrixConstructor class with initialized pairwise interactions 
         and modelspecific parameters 
 
     Optional Parameters
@@ -301,16 +301,16 @@ w        the first sequence (FOLDED DOMAIN) and only SAFD residues.
         The second sequence to compare (the IDR)
 
     X : obj 
-        Instance of the Interaction_Matrix_Constructor class with intialized pairpwise
-        interactions and modelspecific parameters 
+        An instance of the InteractionMatrixConstructor class with initialized pairwise
+        interactions and model-specific parameters 
 
     SAFD_cords : list 
-        Sequence mask of sequence1 containing the solvent accessable folded domain (SAFD)
-        residue cordinates where len(SAFD_cords) == len(sequence1) 
+        Sequence mask of sequence1 containing the solvent-accessible folded domain (SAFD)
+        residue coordinates where len(SAFD_cords) == len(sequence1) 
 
         This list should be organized such that: 
-          values that are NOT solvent accessable and NOT in a folded domain = 0 
-          values that are solvent accessable and NOT in a folded domain = [x, y, z]
+          values that are NOT solvent accessible and NOT in a folded domain = 0 
+          values that are solvent accessible and NOT in a folded domain = [x, y, z]
         
         This SAFD_cords can be returned by PDB_structure_tools.pdb_to_SDFDresidues_and_xyzs
 
@@ -318,14 +318,14 @@ w        the first sequence (FOLDED DOMAIN) and only SAFD residues.
 
     IDR_positon : str 
         Flag to denote whether the IDR sequence (sequence2) is directly 'C-terminal' or 'N-terminal'
-        of the inputed Folded Domain (sequence1). If 'CUSTOM' the origin_index flag must be set to 
+        of the input Folded Domain (sequence1). If 'CUSTOM', the origin_index flag must be set to 
         a specific index in SAFD_cords.
 
     origin_index : int 
-        Optional value formated like on of indexes in the SAFD_cords list that will be used as the 
-        point of origin for where the IDR is attached to the fold domain. Defult here is None.  
+        Optional value formatted like on of indexes in the SAFD_cords list that will be used as the 
+        point of origin for where the IDR is attached to the folded domain. Default here is None.  
 
-        NOTE - IF THIS IS PASSED IDR_positon must be set to CUSTOM)
+        NOTE - IF THIS IS PASSED, IDR_positon must be set to CUSTOM)
 
     sequence_of_ref : str 
         Flag to denote whether to build the interaction vectors relative to 'sequence1' or 'sequence2'
@@ -444,7 +444,7 @@ def get_interdomain_epsilon_value(sequence1,
     -----------
     sequence1 : str
         the first sequence (FOLDED DOMAIN) and only SAFD residues.
-        everyresidue in this sequence should be SA and in FD. 
+        Every residue in this sequence should be SA and FD. 
         
         To generate this from a PDB see:
             PDB_structure_tools.pdb_to_SDFDresidues_and_xyzs 
@@ -455,16 +455,16 @@ def get_interdomain_epsilon_value(sequence1,
         The second sequence to compare (the IDR)
 
     X : obj 
-        Instance of the Interaction_Matrix_Constructor class with intialized pairpwise
-        interactions and modelspecific parameters 
+        An instance of the InteractionMatrixConstructor class with initialized pairwise
+        interactions and model-specific parameters 
 
     SAFD_cords : list 
-        Sequence mask of sequence1 containing the solvent accessable folded domain (SAFD)
-        residue cordinates where len(SAFD_cords) == len(sequence1) 
+        Sequence mask of sequence1 containing the solvent-accessible folded domain (SAFD)
+        residue coordinates where len(SAFD_cords) == len(sequence1) 
 
         This list should be organized such that: 
-          values that are NOT solvent accessable and NOT in a folded domain = 0 
-          values that are solvent accessable and NOT in a folded domain = [x, y, z]
+          values that are NOT solvent accessible and NOT in a folded domain = 0 
+          values that are solvent accessible and NOT in a folded domain = [x, y, z]
         
         This SAFD_cords can be returned by PDB_structure_tools.pdb_to_SDFDresidues_and_xyzs
 
@@ -472,14 +472,14 @@ def get_interdomain_epsilon_value(sequence1,
 
     IDR_positon : str 
         Flag to denote whether the IDR sequence (sequence2) is directly 'C-terminal' or 'N-terminal'
-        of the inputed Folded Domain (sequence1). If 'CUSTOM' the origin_index flag must be set to 
+        of the input Folded Domain (sequence1). If 'CUSTOM', the origin_index flag must be set to 
         a specific index in SAFD_cords.
 
     origin_index : int 
-        Optional value formated like thes indexes in the SAFD_cords list that will be used as the 
-        point of origin for where the IDR is attached to the fold domain. Defult here is None. 
+        Optional value formatted like these indices in the SAFD_cords list that will be used as the 
+        point of origin for where the IDR is attached to the folded domain. The default here is None. 
 
-        NOTE - IF THIS IS PASSED IDR_positon must be set to CUSTOM
+        NOTE - IF THIS IS PASSED, IDR_positon must be set to CUSTOM
 
     sequence_of_ref : str 
         Flag to denote whether to build the interaction vectors relative to 'sequence1' or 'sequence2'
@@ -490,14 +490,14 @@ def get_interdomain_epsilon_value(sequence1,
         threshold to differentiate between attractive and repulsive interactions
 
     charge_prefactor : float 
-        Model specific value to plug into the local charge weighting of 
+        Model-specific value to plug into the local charge weighting of 
         the matrix
 
     use_charge_weighting : bool
-        Flag to select whether weight the matrix by local sequence charge 
+        Flag to select whether to weight the matrix by local sequence charge 
 
         NOTE - NO weighting of aliphatics is conducted here because aliphatic weighting is 
-        only performed between groups of local aliphatic residues, and no groups are caluculated 
+        only performed between groups of local aliphatic residues, and no groups are calculated 
         on the surface of folded domains, therefor all aliphatics who still be treated as if they 
         they are in isolation. 
     

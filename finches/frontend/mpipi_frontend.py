@@ -19,7 +19,7 @@ class Mpipi_frontend(FinchesFrontend):
         
 
         # build an interaction matrix constructor object
-        self.IMC_object = epsilon_calculation.Interaction_Matrix_Constructor(self.model)
+        self.IMC_object = epsilon_calculation.InteractionMatrixConstructor(self.model)
 
 
     # functions defined in superclass listed below for clarity

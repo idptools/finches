@@ -118,7 +118,7 @@ class calvados_model:
         
         model_object : obj 
             Returned is a finches.forcefields.calvados object that can then be passed to 
-            the Interaction_Matrix_Constructor class. 
+            the InteractionMatrixConstructor class. 
 
 
         """

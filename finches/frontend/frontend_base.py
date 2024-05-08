@@ -184,6 +184,47 @@ class FinchesFrontend:
                                                        use_aliphatic_weighting=use_aliphatic_weighting,
                                                        use_charge_weighting=use_charge_weighting)
 
+    # ....................................................................................
+    #
+    #            
+    def epsilon_vectors(self,
+                seq1,
+                seq2,
+                use_aliphatic_weighting=True,
+                use_charge_weighting=True):
+        """
+        Returns the attractive and repulsive vectors associated with the interaction 
+        between the two sequences.
+
+        Parameters
+        --------------
+        seq1 : str
+            Input sequence 1
+
+        seq2 : str
+            Input sequence 2
+
+        use_aliphatic_weighting : bool
+            Whether to use the aliphatic weighting scheme for the interaction matrix
+            calculation. This weights local aliphatic residues based on the number of
+            aliphatic residues adjacent to them. Default is True.
+
+        use_charge_weighting : bool
+            Whether to use the charge weighting scheme for the interaction matrix. This
+            weights local charged residues based on the number of charged residues adjacent
+            to them. Default is True.
+
+        Returns
+        --------------
+        float
+            The epsilon value for the two sequences.
+
+        """        
+        return self.IMC_object.calculate_epsilon_vectors(seq1,
+                                                         seq2,
+                                                         use_aliphatic_weighting=use_aliphatic_weighting,
+                                                         use_charge_weighting=use_charge_weighting)
+
     
     # ....................................................................................
     #
