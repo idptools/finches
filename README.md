@@ -84,6 +84,7 @@ Head on over to `demo/` directory for some jupyter notebooks showing the types o
 
 ### Changelog
 
+* **May 9th 2024** - fixed a stupid off-by-one bug in the indexing from the sliding window epsilon functions - basically invisible unless you're looking at matrices of ~10 residues or smaller, but even so...
 * **May 5th 2024** - major update and breaking changes; **PLEASE READ**. We realized that the CALVADOS integral for calculating interaction parameters was integrating over nanometers instead of over angstroms, meaning all the CALAVDOS residue-specific interaction parameters were (consistently) smaller than they should be by a d(distance)-factor of 10. This changes nothing about any scientific insights that have been gleaned but does change the absolute numerical values of CALVADOS-derived epsilon analysis. This has now been fixed, but in the process, we used this as an opportunity to update a range of additional things, listed below:
 	* As mentioned - CALVADOS epsilon parameters are now ~10x what they were before, which is more in-keeping with epsilon values. This will necessitate to any code that analyses or visualizes CALVADOS-associated epsilon values to update thresholds etc, but the actual rank order and relative epsilon values should all remain approximately the same (we had to make some very small changes to the baseline correction).
 	* We shifted to ensure module names are all lowercase (e.g., `finches.forcefields.mPiPi` -> `finches.forcefields.mpipi` to be consistent with Python best practices
