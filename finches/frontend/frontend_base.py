@@ -123,17 +123,21 @@ class FinchesFrontend:
 
 
         # compute disorder profile for sequence 1 assuming disorder_1 is set to True
-        if disorder_1:            
-            disorder_1 = meta.predict_disorder(seq1)[B[1][0]:B[1][-1]+1]
+        if disorder_1:
+            start_python_slice = B[1][0] - 1
+            end_python_slice   = B[1][-1] # no -1 because python slices are not inclusive
+            disorder_1 = meta.predict_disorder(seq1)[start_python_slice:end_python_slice]
         else:
             disorder_1 = np.array([1]*B[0].shape[0])
 
         # compute disorder profile for sequence 1 assuming disorder_2 is set to True
         if disorder_2:
-            disorder_2 = meta.predict_disorder(seq2)[B[2][0]:B[2][-1]+1]
+            start_python_slice = B[2][0] - 1 # -1 to move into python indexing
+            end_python_slice   = B[2][-1] # no -1 because python slices are not inclusive            
+            disorder_2 = meta.predict_disorder(seq2)[start_python_slice:end_python_slice]
         else:
             disorder_2 = np.array([1]*B[0].shape[1])
-            
+
         # this assertion clause just checks our x values match for matrix dimensions vs. disorder profile
         assert B[0].shape[0] == len(disorder_1)
 
@@ -246,6 +250,7 @@ class FinchesFrontend:
                            zero_folded=True,
                            disorder_1=True,
                            disorder_2=True):
+                           
                            
     
         """
@@ -389,15 +394,15 @@ class FinchesFrontend:
     
         # Main matrix plot; create axis and then plot using seismic so 0=white
         ax_main = plt.subplot2grid((4, 4), (1, 0), colspan=3, rowspan=3)
-        im = ax_main.imshow(matrix.T, extent=[B[1][0], B[1][-1], B[2][0], B[2][-1]], origin='lower', aspect='auto', vmax=vmax, vmin=vmin, cmap=cmap)
-    
-        # edt here to change tickmarks;  note again the tic_frequency, this again
-        # probably can be edited manually depending on the system
 
-        ax_main.set_xticks(np.arange(B[1][0],B[1][-1], tic_frequency))
-        ax_main.set_yticks(np.arange(B[2][0],B[2][-1], tic_frequency))
+        # note we need that +1
+        im = ax_main.imshow(matrix.T, extent=[B[1][0], B[1][-1]+1, B[2][0], B[2][-1]+1], origin='lower', aspect='auto', vmax=vmax, vmin=vmin, cmap=cmap)
+            
+        # edt here to change tickmarks;  note again the tic_frequency, this again
+        # probably can be edited manually depending on the system       
+        ax_main.set_xticks(np.arange(B[1][0] ,B[1][-1]+1, tic_frequency))
+        ax_main.set_yticks(np.arange(B[2][0],B[2][-1]+1, tic_frequency))
         ax_main.tick_params(axis='x', rotation=45)  # Rotates the x-tick labels by 45 degrees
-    
     
         ## .....................................................................
         # Bar plot for X protein 

@@ -779,7 +779,9 @@ class InteractionMatrixConstructor:
         tuple
             Returns a tuple of 3 elements. The first is the matrix of sliding
             epsilon values, and the second and 3rd are the indices that map
-            sequence position from sequence1 and sequence2 to the matrix
+            sequence position from sequence1 and sequence2 to the matrix. Note
+            that matrix positions index in protein space, so the first residue
+            is 1
 
         Raises
         ---------------
@@ -853,15 +855,21 @@ class InteractionMatrixConstructor:
 
         everything = np.array(everything)
             
-        # finally, determine indices for sequence1 
-        start = int((window_size-1)/2)
-        end   = l1 - start
-        seq1_indices = np.arange(start,end)
+        # finally, determine indices for sequence1 - add 1 to return indices
+        # in protein numbering instead of python numbering. 
+        start = int((window_size-1)/2) + 1
+        end   = (l1 - start) + 1
+        seq1_indices = np.arange(start,end+1)
 
         # and sequence2
-        start = int((window_size-1)/2)
-        end   = l2 - start
-        seq2_indices = np.arange(start,end)
+        start = int((window_size-1)/2) + 1
+        end   = (l2 - start) + 1
+        seq2_indices = np.arange(start,end+1)
+
+        # make sure everything is hunky dory...
+        assert len(seq1_indices) == everything.shape[0]
+        assert len(seq2_indices) == everything.shape[1]
+        
                 
         return (everything, seq2_indices, seq1_indices)
 

@@ -36,6 +36,8 @@ def matrix_scan(double[:,:] w_matrix, int window_size, double null_interaction_b
     This implementation takes about 8% of the time of our original Python implementation,
     making it a lot more feasible to use on large matrices.
 
+    Note this returns the indices in protein space, i.e. where the first residue is 1
+
     Parameters
     ------------
     w_matrix : array
@@ -56,10 +58,12 @@ def matrix_scan(double[:,:] w_matrix, int window_size, double null_interaction_b
 
     
     seq1_indices : array
-       Indices of the first sequence
-
+       Indices of the first sequence, starting from 1
+       (i.e. in protein space)
+ 
     seq2_indices : array
-         Indices of the second sequence
+         Indices of the second sequence, starting from 1
+        (i.e. in protein space)
 
     """
 
@@ -128,17 +132,21 @@ def matrix_scan(double[:,:] w_matrix, int window_size, double null_interaction_b
             everything[i,j] =     total_mean_sum
 
 
-    # finally, determine indices for sequence1 
-    start = int((window_size-1)/2)
-    end   = l1 - start
-    seq1_indices = np.arange(start,end)
+    # finally, determine indices for sequence1 - note need +1 for indexing to move from Python
+    # to protein space, and then these are inclusive values
+    start = int((window_size-1)/2) + 1
+    end   = (l1 - start) + 1
+    seq1_indices = np.arange(start, end+1)
 
     # and sequence2
-    start = int((window_size-1)/2)
-    end   = l2 - start
-    seq2_indices = np.arange(start,end)
-        
+    start = int((window_size-1)/2) + 1
+    end   = (l2 - start) + 1
+    seq2_indices = np.arange(start, end+1)
 
+    # finally check our matrix and indices make sense...
+    assert len(seq1_indices) == everything.shape[0]
+    assert len(seq2_indices) == everything.shape[1]
+        
     return (everything,  seq1_indices, seq2_indices)
 
 
