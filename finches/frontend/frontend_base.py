@@ -1,7 +1,7 @@
 import metapredict as meta
 from finches.forcefields.mpipi import Mpipi_model
 from finches import epsilon_to_FHtheory
-from finches import epsilon_calculation
+from finches import epsilon_stateless
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -641,7 +641,7 @@ class FinchesFrontend:
         # used with the fragsize and IMC_object variables is to avoid having to pass these
         # as arguments to the function
         def RNA_bind(seq):
-            return epsilon_calculation.get_sequence_epsilon_value(seq, len(seq)*'U', self.IMC_object)/fragsize
+            return epsilon_stateless.get_sequence_epsilon_value(seq, len(seq)*'U', self.IMC_object)/fragsize
 
         # initialize the return vector
         return_vector = []
