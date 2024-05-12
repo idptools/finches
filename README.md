@@ -9,7 +9,7 @@ FINCHES (First-principle Interactions via CHEmical Specificity) is a software pa
 
 **Direct prediction of intermolecular interactions driven by disordered regions**
 
-Garrett M. Ginell, Ryan. J Emenecker, Jeffery M. Lotthammer, Emery T. Usher, Alex S. Holehouse 
+Garrett M. Ginell, Ryan. J Emenecker, Jeffrey M. Lotthammer, Emery T. Usher, Alex S. Holehouse 
 
 ### Current status
 At this time, we recommend folks use the colab notebooks as their primary route to working with FINCHES. This is primarily because the are still some rough edges, various features are not fully tested, and finches lacks extensive documentation. This will be addressed in the coming weeks but for now our tentative recommendation is to focus on the [colab notebooks linked in the finches-colab repository](https://github.com/idptools/finches-colab).
