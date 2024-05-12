@@ -1,9 +1,5 @@
-finches
+FINCHES
 ==============================
-[//]: # (Badges)
-[![GitHub Actions Build Status](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/finches/workflows/CI/badge.svg)](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/finches/actions?query=workflow%3ACI)
-[![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/finches/branch/main/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/finches/branch/main)
-
 ![Finches Logo](finches_logo_v1.png)
 
 ### Current version: 0.1.0 (beta public)
@@ -17,8 +13,6 @@ Garrett M. Ginell, Ryan. J Emenecker, Jeffery M. Lotthammer, Emery T. Usher, Ale
 
 ### Current status
 At this time, we recommend folks use the colab notebooks as their primary route to working with FINCHES. This is primarily because the are still some rough edges, various features are not fully tested, and finches lacks extensive documentation. This will be addressed in the coming weeks but for now our tentative recommendation is to focus on the [colab notebooks linked in the finches-colab repository](https://github.com/idptools/finches-colab).
-
-
 
 ## Installation
 The installation below has been tested in a clean conda environment using Python 3.9; YMMV in other systems. This does not use anything different from our usual stack (`soursop`, `mdtraj`, `numpy`, `scipy` `cython` etc.) so *should* probably install easily into your "default" environment, although I did test on a totally clean conda environment to be safe!
@@ -96,7 +90,7 @@ To check this has worked, move back to your home directory:
 
 And then run
 
-	python -c  "from finches.frontend.mpipi_frontend import Mpipi_frontend; mf = Mpipi_frontend (); print('Success')"
+	python -c  "from finches.frontend.mpipi_frontend import Mpipi_frontend; mf = Mpipi_frontend(); print('Success')"
 	
 Note this may take a second to run the first time you launch it... 
 
