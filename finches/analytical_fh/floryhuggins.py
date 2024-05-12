@@ -41,12 +41,8 @@ def calculate_binodal(L, mode='analytic_binodal', chi_min=0.5, chi_max=2.0, n_po
     at depth in the paper are offered, although in reality
     sticking with the 'analytic_binodal' (which is the point
     of the paper) should for basically all cases be totally
-    fine. Some comments on different modes can be found on
-    GitLab under:
+    fine. 
 
-        resources/science/phase_separation/flory_huggins/flory_huggins_phase_diagrams.ipynb
-
-    
         
     Parameters
     ----------------
