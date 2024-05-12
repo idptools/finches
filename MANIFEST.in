@@ -2,5 +2,7 @@ include CODE_OF_CONDUCT.md
 
 # include all .pyx files wherever they may be
 recursive-include * *.pyx
+recursive-include * *.pickle
+recursive-include finches/data *
 
 global-exclude *.py[cod] __pycache__ *.so

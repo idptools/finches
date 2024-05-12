@@ -1,6 +1,6 @@
 """
-sparrow
-Next generation package for sequence parameter calculation
+FINCHES
+Package for computing chemical specificity between disordered regions.
 """
 from setuptools import setup
 from Cython.Build import cythonize
