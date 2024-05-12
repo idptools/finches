@@ -52,7 +52,7 @@ Next, install finches! This can be done in one of two ways:
 #### Install directly from GitHub
 The easiest install is to use pip to install directly from GitHub
 
-	pip install git@github.com:idptools/finches.git
+	pip install git+https://git@github.com/idptools/finches.git
 	
 We recommend this route unless you expect to make modifications to the code. This can be run anywhere as the installation will place the package in your conda environment's package store location.
 
