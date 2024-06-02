@@ -243,6 +243,9 @@ class FinchesFrontend:
                            tic_frequency=100,
                            seq1_domains=[],
                            seq2_domains=[],
+                           seq1_lines=[],
+                           seq2_lines=[],
+                           linewidth=1,
                            vmin=-3,
                            vmax=3,
                            cmap='PRGn',
@@ -290,12 +293,18 @@ class FinchesFrontend:
 
         seq1_domains : list
             List of tuples/lists containing the start and end positions of domains in 
-            sequence 1. Means these can be easily higlighted in the plot.
+            sequence 1. This means these can be easily highlighted in the plot.
 
         seq2_domains : list
             List of tuples/lists containing the start and end positions of domains in
-            sequence 2. Means these can be easily higlighted in the plot.
+            sequence 2. This means these can be easily highlighted in the plot.
 
+        seq1_lines : list
+            List of values that will draw lines onto the plot along sequence 1.
+
+        seq2_lines : list
+            List of values that will draw lines onto the plot along sequence 1.
+                           
         vmin : float
             Minimum value for the interaction matrix color scale. Default is -3.
 
@@ -370,9 +379,8 @@ class FinchesFrontend:
         B2_start = B[2][0]
 
             
-        for i in range(B[1][0]-1, B[1][-1]-1):
-            for j in range(B[2][0]-1, B[2][-1]-1):
-
+        for i in range(B[1][0]-1, B[1][-1]):
+            for j in range(B[2][0]-1, B[2][-1]):
                 
                 for fd in folded_1:
                     if i >= fd[0] and i <= fd[1]:
@@ -400,7 +408,7 @@ class FinchesFrontend:
             
         # edt here to change tickmarks;  note again the tic_frequency, this again
         # probably can be edited manually depending on the system       
-        ax_main.set_xticks(np.arange(B[1][0] ,B[1][-1]+1, tic_frequency))
+        ax_main.set_xticks(np.arange(B[1][0],B[1][-1]+1, tic_frequency))
         ax_main.set_yticks(np.arange(B[2][0],B[2][-1]+1, tic_frequency))
         ax_main.tick_params(axis='x', rotation=45)  # Rotates the x-tick labels by 45 degrees
     
@@ -416,7 +424,13 @@ class FinchesFrontend:
 
         # disorder goes 0 to 1
         ax_top.set_ylim(0,1.05)
+
+        # add lines for seq1
+        for line in seq1_lines:
+            ax_main.axvline(line, color='k', linewidth=linewidth)
         
+        for line in seq2_lines:
+            ax_main.axhline(line, color='k', linewidth=linewidth)
     
         # highlight some specific regions manually
         for r in seq1_domains:
@@ -641,7 +655,7 @@ class FinchesFrontend:
         # used with the fragsize and IMC_object variables is to avoid having to pass these
         # as arguments to the function
         def RNA_bind(seq):
-            return epsilon_stateless.get_sequence_epsilon_value(seq, len(seq)*'U', self.IMC_object)/fragsize
+            return epsilon_stateless.get_sequence_epsilon_value(seq, len(seq)*'U', self.IMC_object)/len(seq)
 
         # initialize the return vector
         return_vector = []
@@ -663,6 +677,7 @@ class FinchesFrontend:
             return_vector.append(RNA_bind(seq))
             idx = [int(len(seq)/2)]
 
+        
         return_vector = np.array(return_vector)
         idx = np.array(idx)
 
@@ -683,9 +698,11 @@ class FinchesFrontend:
                                     domains = [],
                                     vmin = -0.8,
                                     vmax = 0.8,
+                                    tic_frequency=100,
                                     cmap='PRGn',
                                     fname=None,
                                     zero_folded=True,
+                                    show_grid = False,
                                     ylim = [-1.2,1.2]):
                                     
         """
@@ -751,8 +768,8 @@ class FinchesFrontend:
 
         if zero_folded:
             for d in meta.predict_disorder_domains(seq).folded_domain_boundaries:
-                ax.axvspan(d[0],d[1],linewidth=0, zorder=10, color='w', alpha=0.5)
-                ax.axvspan(d[0],d[1],linewidth=0, zorder=12, color='grey',alpha=0.2)
+                #ax.axvspan(d[0],d[1],linewidth=0, zorder=-10, color='w', alpha=0.5)
+                ax.axvspan(d[0],d[1],linewidth=0, zorder=-12, color='grey',alpha=0.6)
 
         for d in domains:
             ax.axvspan(d[0],d[1],linewidth=0, zorder=-20, color='yellow', alpha=0.5)
@@ -771,9 +788,16 @@ class FinchesFrontend:
         plt.ylabel('NA\ninteraction',fontsize=6)
         plt.yticks(fontsize=6)
         plt.ylim(ylim)
-
-        plt.xticks(fontsize=6)
+         
+        xticks = [1]
+        xticks.extend(list(np.arange(tic_frequency, len(seq)+1, tic_frequency)))
+                  
+        plt.xticks(xticks, fontsize=6)
         plt.xlabel('Residue',fontsize=6)
+
+        if show_grid:
+            ax.xaxis.grid(True, which='both', linewidth=0.2)
+                  
         plt.tight_layout()
 
         # finally save the figure

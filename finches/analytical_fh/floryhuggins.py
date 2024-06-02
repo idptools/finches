@@ -34,7 +34,8 @@ def calculate_binodal(L, mode='analytic_binodal', chi_min=0.5, chi_max=2.0, n_po
 
     This means you can in principle convert a chi/phi diagram
     into T (like) vs. phi diagram by plotting 1/chi vs. phi,
-    in that 1/chi = T * (kB/eps).
+    in that 1/chi = T * (kB/eps), so
+    # T = eps/(chi*kB)
 
     The "mode" selector lets you choose how the binodal is
     calculated. For completeness, the three modes described

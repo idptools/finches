@@ -3,7 +3,8 @@ requires = ["setuptools>=61.0",
 	   "wheel",
 	   "versioningit~=2.0",
 	   "Cython",
-	   "numpy",]
+	   "numpy"]
+	 
 	   
 			
 
@@ -28,7 +29,7 @@ classifiers = [
 requires-python = ">=3.7"
 # Declare any run-time dependencies that should be installed with the package.
 dependencies = [
-    "numpy", "afrc>=0.3.4", "numpy", "scipy", "soursop>=0.2.4", "pandas", "metapredict"
+    "numpy", "afrc>=0.3.4", "scipy", "soursop>=0.2.4", "pandas", "metapredict", "ipython"
 ]
 
 # Update the urls once the hosting is set up.

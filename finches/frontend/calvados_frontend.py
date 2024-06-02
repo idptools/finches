@@ -195,6 +195,8 @@ class CALVADOS_frontend(FinchesFrontend):
                            tic_frequency=100,
                            seq1_domains=[],
                            seq2_domains=[],
+                           seq1_lines=[],
+                           seq2_lines=[],                           
                            vmin=-7.5,
                            vmax=7.5,
                            cmap='PRGn',
@@ -238,12 +240,18 @@ class CALVADOS_frontend(FinchesFrontend):
 
         seq1_domains : list
             List of tuples/lists containing the start and end positions of domains in 
-            sequence 1. Means these can be easily higlighted in the plot.
+            sequence 1. This means these can be easily highlighted in the plot.
 
         seq2_domains : list
             List of tuples/lists containing the start and end positions of domains in
-            sequence 2. Means these can be easily higlighted in the plot.
+            sequence 2. This means these can be easily highlighted in the plot.
 
+        seq1_lines : list
+            List of values that will draw lines onto the plot along sequence 1.
+
+        seq2_lines : list
+            List of values that will draw lines onto the plot along sequence 1.
+                                                      
         vmin : float
             Minimum value for the interaction matrix color scale. Default is -0.75.
 
@@ -293,6 +301,8 @@ class CALVADOS_frontend(FinchesFrontend):
                                           tic_frequency=tic_frequency,
                                           seq1_domains=seq1_domains,
                                           seq2_domains=seq2_domains,
+                                          seq1_lines=seq1_lines,
+                                          seq2_lines=seq2_lines,                                          
                                           vmin=vmin,
                                           vmax=vmax,
                                           cmap=cmap,

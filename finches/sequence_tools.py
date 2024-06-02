@@ -11,111 +11,6 @@ By : Garrett M. Ginell & Alex S. Holehouse
 from IPython.display import display # dependency for showing sequence
 from IPython.display import HTML  # dependency for showing sequence
 
-## ------------------------------------------------------------------ 
-##
-def calculate_NCPR(s):
-    """
-    Simple function which calculates the net charge per residue of a
-    protein sequence.
-
-    Parameters
-    --------------
-    s : str
-        Input amino acid sequence
-
-    Returns
-    ---------------
-    float
-        Returns the net charge per residue of the input sequence
-
-    """
-
-    # define charges
-    charges = {'R':1, 'K':1, 'E':-1, 'D':-1}
-
-    # set up counter
-    total_charge = 0
-
-    # iterate sequence and add up charges
-    for r in s:
-        if r not in charges:
-            pass
-        else:
-            total_charge += charges[r]
-
-    return total_charge / len(s)
-
-## ------------------------------------------------------------------ 
-##
-def calculate_FCR(s):
-    """
-    Simple function which calculates the fraction of charged residues
-
-    Parameters
-    --------------
-    s : str
-        Input amino acid sequence
-
-    Returns
-    ---------------
-    float
-        Returns the fraction of charged residues in the input sequence
-
-    """
-
-    # define charges
-    charges = {'R':1, 'K':1, 'E':1, 'D':1}
-
-    # set up counter
-    total_charge = 0
-
-    # iterate sequence and add up charges
-    for r in s:
-        if r not in charges:
-            pass
-        else:
-            total_charge += charges[r]
-
-    return total_charge / len(s)
-
-## ------------------------------------------------------------------ 
-##
-def calculate_FCR_and_NCPR(s):
-    """
-    Simple function which calculates the fraction of charged residues (FCR)
-    and net charge per residue (NCPR) of a protein sequence. 
-
-    Parameters
-    --------------
-    s : str
-        Input amino acid sequence
-
-    Returns
-    ---------------
-    list
-        Returns a list of the FCR and NCPR of the input sequence
-
-    ### TESTED AND FIX TO ENSURE FUNCTIONS ARE BEING CALLED ###
-
-    """
-    # define charges
-    pos = set(['R','K'])
-    neg = set(['E','D'])
-
-    # set up counter
-    total_pos = 0
-    total_neg = 0
-
-    # iterate sequence and add up charges
-    for r in s:
-        if r in pos:
-            total_pos = total_pos + 1
-        elif r in neg:
-            total_neg = total_neg + 1
-        else:
-            pass
-
-    return [(total_pos + total_neg)/len(s), (total_pos - total_neg)/len(s)]
 
 
 def calculate_NCPR(s):
@@ -181,6 +76,7 @@ def calculate_FCR(s):
             total_charge += charges[r]
             
     return total_charge / len(s)
+
 
 def calculate_FCR_and_NCPR(s):
     """
