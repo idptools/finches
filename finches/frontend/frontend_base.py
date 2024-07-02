@@ -252,7 +252,8 @@ class FinchesFrontend:
                            fname=None,
                            zero_folded=True,
                            disorder_1=True,
-                           disorder_2=True):
+                           disorder_2=True,
+                           no_disorder=False):
                            
                            
     
@@ -326,6 +327,9 @@ class FinchesFrontend:
 
         disorder_2 : bool
             Whether to include the disorder profile for sequence 2. Default is True.
+
+        no_disorder : bool
+            Whether to include the disorder profile for sequence 2. Default is False.
 
 
         Returns
@@ -411,57 +415,62 @@ class FinchesFrontend:
         ax_main.set_xticks(np.arange(B[1][0],B[1][-1]+1, tic_frequency))
         ax_main.set_yticks(np.arange(B[2][0],B[2][-1]+1, tic_frequency))
         ax_main.tick_params(axis='x', rotation=45)  # Rotates the x-tick labels by 45 degrees
-    
-        ## .....................................................................
-        # Bar plot for X protein 
-        ax_top = plt.subplot2grid((4, 4), (0, 0), colspan=3, sharex=ax_main)
-    
-        # plot disorder profile 
-        ax_top.bar(B[1], disorder_1, width=1, color='k', alpha=0.3)
-    
-        # if we wanted to plot mean per-residue inteaction value, uncomment
-        ax_top.set_xlim(B[1][0], B[1][-1])
 
-        # disorder goes 0 to 1
-        ax_top.set_ylim(0,1.05)
+        if no_disorder:
+            pass
+        else:
+            
+    
+            ## .....................................................................
+            # Bar plot for X protein 
+            ax_top = plt.subplot2grid((4, 4), (0, 0), colspan=3, sharex=ax_main)
+    
+            # plot disorder profile 
+            ax_top.bar(B[1], disorder_1, width=1, color='k', alpha=0.3)
+    
+            # if we wanted to plot mean per-residue inteaction value, uncomment
+            ax_top.set_xlim(B[1][0], B[1][-1])
 
-        # add lines for seq1
-        for line in seq1_lines:
-            ax_main.axvline(line, color='k', linewidth=linewidth)
+            # disorder goes 0 to 1
+            ax_top.set_ylim(0,1.05)
+
+            # add lines for seq1
+            for line in seq1_lines:
+                ax_main.axvline(line, color='k', linewidth=linewidth)
         
-        for line in seq2_lines:
-            ax_main.axhline(line, color='k', linewidth=linewidth)
+            for line in seq2_lines:
+                ax_main.axhline(line, color='k', linewidth=linewidth)
     
-        # highlight some specific regions manually
-        for r in seq1_domains:
-            region_start = r[0]
-            region_end   = r[1]
-            ax_top.axvspan(region_start,region_end, color='k', linewidth=0, alpha=0.7)
+            # highlight some specific regions manually
+            for r in seq1_domains:
+                region_start = r[0]
+                region_end   = r[1]
+                ax_top.axvspan(region_start,region_end, color='k', linewidth=0, alpha=0.7)
 
+                
+            ## .....................................................................
+            # Bar plot for Y protein
+            ax_right = plt.subplot2grid((4, 4), (1, 3), rowspan=3)
+            ax_right.barh(B[2], disorder_2, align='center', height=1, color='k', alpha=0.3)
+            
+            ax_right.set_yticks(ax_main.get_yticks())
+            ax_right.set_ylim(ax_main.get_ylim())
+            
+            # disorder goes 0 to 1
+            ax_right.set_xlim(0,1.05)
     
-        ## .....................................................................
-        # Bar plot for Y protein
-        ax_right = plt.subplot2grid((4, 4), (1, 3), rowspan=3)
-        ax_right.barh(B[2], disorder_2, align='center', height=1, color='k', alpha=0.3)
-    
-        ax_right.set_yticks(ax_main.get_yticks())
-        ax_right.set_ylim(ax_main.get_ylim())
-
-        # disorder goes 0 to 1
-        ax_right.set_xlim(0,1.05)
-    
-        # highlight some specific regions manually
+            # highlight some specific regions manually
     
     
-        for r in seq2_domains:
-            region_start = r[0]
-            region_end   = r[1]
-            ax_right.axhspan(region_start,region_end, color='k', linewidth=0, alpha=0.7)
+            for r in seq2_domains:
+                region_start = r[0]
+                region_end   = r[1]
+                ax_right.axhspan(region_start,region_end, color='k', linewidth=0, alpha=0.7)
     
-        ax_colorbar = plt.subplot2grid((4, 4), (0, 3))
-        cbar = fig.colorbar(im, cax=ax_colorbar, orientation='vertical')
-        ax_colorbar.yaxis.set_ticks_position('left')
-        ax_colorbar.yaxis.set_label_position('left')
+            ax_colorbar = plt.subplot2grid((4, 4), (0, 3))
+            cbar = fig.colorbar(im, cax=ax_colorbar, orientation='vertical')
+            ax_colorbar.yaxis.set_ticks_position('left')
+            ax_colorbar.yaxis.set_label_position('left')
 
         plt.tight_layout()
         
@@ -469,7 +478,10 @@ class FinchesFrontend:
         if fname is not None:
             plt.savefig(fname, dpi=350)
 
-        return fig, im, ax_main, ax_top, ax_right, ax_colorbar
+        if no_disorder:
+            return fig, im, ax_main
+        else:
+            return fig, im, ax_main, ax_top, ax_right, ax_colorbar
 
 
     # ....................................................................................
@@ -603,6 +615,138 @@ class FinchesFrontend:
 
         return idx, vals
 
+
+    # ....................................................................................
+    #
+    #
+    def per_residue_repulsive_vector(self,
+                                      seq1,
+                                      seq2,
+                                      window_size=31,
+                                      use_cython=True,
+                                      use_aliphatic_weighting=True,
+                                      use_charge_weighting=True,                                      
+                                      return_total=False,
+                                      repulsive_threshold=0,
+                                      smoothing_window=20,
+                                      poly_order=3):
+        
+        """
+        Function to calculate the per-residue  vector for a given pair 
+        of sequences. This is calculated as the sum of the repulsive interactions 
+        for each residue in the first sequence with all residues in the second 
+        sequence. Specifically, this is an average over all attractive values (i.e.
+        where value < 0) using the inter-sequence matrix.
+
+        If return_total is True, the function will return the total sum of attractive
+        interactions between the two sequences instead of the average.
+
+        This is (potentially) interesting inasmuch as if we just tak the AVERAGE of
+        a region it may be very attractive in some place but repulsive elsewhere, 
+        however, repulsive regions in an IDR can avoid each other while attractive
+        things attract, so this allows you to identify the putative 'sticker' regions
+        without confounding by repulsive regions. 
+
+
+        Parameters
+        ----------
+        seq1 : str
+            The first sequence
+
+        seq2 : str
+            The second sequence
+
+        window_size : int
+            The window size for the intermolecular matrix. Default is 31.
+
+        use_cython : bool
+            Whether to use the cython implementation of the intermolecular matrix
+            calculation. Default is True.
+
+        use_aliphatic_weighting : bool
+            Whether to use the aliphatic weighting scheme. Default is True.
+
+        use_charge_weighting : bool
+            Whether to use the charge weighting scheme. Default is True.
+   
+        return_total : bool
+            If True, return the total sum of attractive interactions between 
+            the two sequences. Sometimes you may want this.
+        
+        repulsive_threshold : float
+            The threshold for what is considered repulsive. Default is 0 (i.e. 
+            only positive values are considered repulsive). If changed, anything
+            above this value will be considered repulsive.
+
+        smoothing_window : int
+            The window size for the Savgol filter. This is used to
+            smooth the per-residue attractive vector. If set to False no
+            smoothing is applied. Default is 20.
+
+        poly_order : int
+            The polynomial order for the Savgol filter. This is used to
+            smooth the per-residue attractive vector. If set to False no
+            smoothing is applied. Default is 3.
+
+
+        Returns
+        -------
+        tuple of np.arrays
+
+            [0] : np.array
+                Indices of the residues in the first sequence
+
+            [1] : np.array
+                The per-residue attractive vector
+
+        """
+
+        # do the thing; note this class from the derived class so model-specific
+        # sanity checking is handled implictly here
+        B = self.intermolecular_idr_matrix(seq1, seq2, window_size=window_size, use_cython=use_cython, use_aliphatic_weighting=use_aliphatic_weighting, use_charge_weighting=use_charge_weighting)[0]
+
+        # extract the raw matrix
+        raw_matrix = B[0]
+
+        # get dem indices
+        idx = np.arange(B[1][0], B[1][-1]+1)
+
+        # create a mask for repulsive values
+        repulsive_mask = raw_matrix > repulsive_threshold
+
+        # sum repulsive values in each column
+        repulsive_sums = np.sum(raw_matrix * repulsive_mask, axis=1)
+
+        if len(repulsive_sums) != len(idx):
+            print(len(repulsive_sums), len(idx))
+            raise ValueError('Length of repulsive sums does not match length of indices; this is a bug.')
+
+        # count repulsive values in each column
+        repulsive_counts = np.sum(repulsive_mask, axis=1)
+
+        # Avoid division by zero for columns with no repulsive values
+        repulsive_counts[repulsive_counts == 0] = 1
+
+        # alculate the average of repulsive values in each column
+        if return_total:
+            vals = repulsive_sums
+        else:
+            vals = repulsive_sums / repulsive_counts
+
+        # if no smoothing is requested
+        if smoothing_window is False or poly_order is False:
+            pass
+        else:
+            try:
+                vals = savgol_filter(vals, smoothing_window, poly_order)
+            except Exception as e:
+                print('')
+                print('Error when trying to apply savgol filter; error message below')
+                raise(e)
+
+
+        return idx, vals
+    
 
     # ....................................................................................
     #
