@@ -1,5 +1,10 @@
 # Changelog
 
+### Version 0.1.1 (beta)
+* Added `no_disorder` flag to frontend objects, which means we generate intermaps without the disorder profiles. 
+* Added `per_residue_repulsive_vector()` function to frontend objects, enabling the repulsive vector to be returned.
+* Added mpipi and calvados fingerprint sequence
+
 ### Version 0.1 (beta)
 * Initial public release
 

@@ -2,14 +2,13 @@ FINCHES
 ==============================
 ![Finches Logo](finches_logo_v1.png)
 
-### Current version: 0.1.0 (beta public)
+### Current version: 0.1.1 (beta public)
 
 ## About
 FINCHES (First-principle Interactions via CHEmical Specificity) is a software package for computing IDR-associated chemical specificity. It is the accompanying implementation associated with the preprint:
 
-**Direct prediction of intermolecular interactions driven by disordered regions**
-
-Garrett M. Ginell, Ryan. J Emenecker, Jeffrey M. Lotthammer, Emery T. Usher, Alex S. Holehouse 
+**Holehouse, A. S. Direct prediction of intermolecular interactions driven by disordered regions**
+Ginell, G. M., Emenecker, R. J., Lotthammer, J. M., Usher, E. T. & . bioRxiv 2024.06.03.597104 (2024). [doi:10.1101/2024.06.03.597104](http://dx.doi.org/10.1101/2024.06.03.597104) (under review)
 
 ### Current status
 At this time, we recommend folks use the colab notebooks as their primary route to working with FINCHES. This is primarily because the are still some rough edges, various features are not fully tested, and finches lacks extensive documentation. This will be addressed in the coming weeks but for now our tentative recommendation is to focus on the [colab notebooks linked in the finches-colab repository](https://github.com/idptools/finches-colab).
