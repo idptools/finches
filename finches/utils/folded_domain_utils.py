@@ -477,9 +477,29 @@ class FoldeDomain:
     def calculate_surface_epsilon(self, input_sequence, IMCObject):
         """
         This function calculates the surface epsilon values for each residue in the
-        protein. The function will calculate the surface epsilon
-        for each residue in the protein and return this in a surface_epsilon
-        dictionary.
+        protein. The function will calculate the surface epsilon for each residue in 
+        the protein and return this in a surface_epsilon dictionary.
+
+        Briefly, this function works by doing the following:
+
+        (1) Takeing each solvent accessible residue
+
+        (2) Finding the neighbour residues near that residue. Note we can redefine
+            the distance threshold used to define neighbours by running 
+            get_nearest_neighbour_res() function.
+
+        (3) Re-organizing the sequence order of the neighbor string so (for example) 
+            charged residues of the same type are next to each other, which we do so 
+            local sequence context effects are taken into account when computing
+            epsilon.
+
+        (4) Calculating the mean epsilon score between the "neighbor string" and 
+            the passed input string.
+
+        Note this approach is probably ok if the input sequence is either quite 
+        short or a repetitive sequence, but effectively it calculates the mean-field
+        attraction/repulsion beteween each residue on the surface (using its local context
+        to define that interaction) and the ENTIRE input sequence. 
 
         Parameters
         ----------
@@ -494,7 +514,13 @@ class FoldeDomain:
         Returns
         -------
         Dict
-            Dictionary that maps between residue index and surface epsilon value.
+            Dictionary that maps between residue index and surface epsilon value. The
+            return dictionry has index position as key and then a list as values, where
+            each list has three positions:
+            [0] - the residue associated with that position
+            [1] - the neibouring residues, where neighbours are those residues within
+                  some distance threshold of the surface residue of interest
+            [2] - the surface epsilon value for that residue.
 
         """
 
