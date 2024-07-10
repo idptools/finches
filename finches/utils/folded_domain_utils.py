@@ -524,7 +524,6 @@ class FoldeDomain:
 
         """
 
-
         hydrophobes = ['I' , 'V', 'L', 'A', 'M']
         negative = ['D', 'E']
         positive = ['K', 'R']
@@ -577,8 +576,23 @@ class FoldeDomain:
         """
         This function calculates the mean surface epsilon for the protein. The mean
         surface epsilon is a measure of the average chemical specificity for a given
-        guest sequence, averaged across the entire protein
+        guest sequence, averaged across the entire protein. 
+
+        Parameters
+        ----------
+        input_sequence: str
+            Amino acid sequence of the input sequence
+
+        IMCObject: IMCObject
+            IMCObject that contains the epsilon calculate. The IMCObject is
+            typically obtained from an Mpipi_frontend or CALAVDOS_frontend object.
+
+        Returns
+        -------
+        float
+            Mean surface epsilon value for the protein.
         """
+        
 
         surface_eps = self.calculate_surface_epsilon(input_sequence, IMCObject)
 
