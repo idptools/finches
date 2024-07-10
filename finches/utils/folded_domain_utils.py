@@ -5,8 +5,15 @@ from scipy.spatial import distance
 import networkx as nx
 
 
-# sidechain/bacbkbone max SASA data
+# sidechain/backbone max SASA data
 
+# NB: note on approach for identifying surface residues
+#
+#
+
+# MAX_SASA_DATA calculated by running all-atom simulations of GXG tripeptides
+# with an excluded volume simulation (i.e. all attractive non-bonded interactions
+# turned off 
 MAX_SASA_DATA = {'A': [7.581871795654296875e+01, 7.607605743408203125e+01],
                  'C': [1.154064483642578125e+02, 6.787722015380859375e+01],
                  'D': [1.302558288574218750e+02, 7.182710266113281250e+01],
@@ -51,6 +58,9 @@ THREE_TO_ONE = {'ALA': 'A',
                 'TYR': 'Y'}
 
 
+
+
+
 class FoldeDomain:
 
     # ................................................................................
@@ -63,6 +73,7 @@ class FoldeDomain:
                  probe_radius=1.4,
                  residue_overide_mapping={},
                  surface_thresh=0.10,
+                 sasa_mode='v1',
                  ignore_warnings=False):
         """
         Class to handle folded domains and perform folded domain structure 
@@ -112,12 +123,28 @@ class FoldeDomain:
         surface_thresh: float
             threshold for surface residues (default 0.10)
 
+        sasa_mode: str
+            mode for SASA calculation (default 'v1'). Could be v1 or v2. Default is v1.
+
+            v1 means we calculate the SASA of the residue, but then compare ONLY to the
+            the sidechain SASA and define a residue as solvent exposed if the RESIDUE SASA
+            is above surface_thresh * max sidechain SASA. This means glycines are always solvent
+            exposed, unless they are fully hidden, in which case max sidechain SASA = 0 and 
+            residue SASA = 0 and 0 is not > 0. Not we focus on 
+
+            v2 means we calculate the SASA of the residue, but then compare to the summed max
+            SASA of the sidechain with the backbone. This is more stringent 
+
+        
+
         ignore_warnings: bool
             ignore warnings (default False)
 
         """
-        
 
+        if sasa_mode not in ['v1', 'v2']:
+            raise ValueError('sasa_mode must be v1 or v2')
+        
         # safety feature for now...
         if start is not None and end is not None:
             print("WARNING: Using non standard start and end residues has not been throughly tested and if this is super important to you please contact Alex and he'll make sure it's really working correctly. We recommended excising out a domain using the extract_and_write_domain() function and then using the full PDB file.")
@@ -161,7 +188,15 @@ class FoldeDomain:
         surface_vector = []
         surface_indices = []
         for i in range(len(self.sasa)):
-            if self.sasa[i] > surface_thresh*MAX_SASA_DATA[self.sequence[i]][0]:
+
+            if sasa_mode == 'v1':
+                solvent_accessible = self.sasa[i] > surface_thresh*MAX_SASA_DATA[self.sequence[i]][0]
+                
+            elif sasa_mode == 'v2':
+                solvent_accessible = self.sasa[i] > surface_thresh*(MAX_SASA_DATA[self.sequence[i]][0] + MAX_SASA_DATA[self.sequence[i]][1])
+                
+            
+            if solvent_accessible:
                 surface_vector.append(1)
                 surface_indices.append(i)
             else:
@@ -201,6 +236,11 @@ class FoldeDomain:
         self._surface_distance_surface = None
         self._surface_distance_straight_line = None
 
+    # ....................................................................
+    #
+    def __len__(self):
+        return len(self.sequence)
+        
     # ....................................................................
     #
     @property 
@@ -523,8 +563,36 @@ class FoldeDomain:
     #            
     def calculate_attractive_surface_epsilon(self, input_sequence, IMCObject, threshold=0):
         """
-        This function calculates the mean attractive surface epsilon for the protein, averaging
-        ONLY over attractive epsilon values
+        This function calculates the attractive surface epsilon values for each surface residue,
+        a list of values that are the residues which find themselves in an attractive environment
+        given the input sequence. The function calculates the surface epsilon for each residue in 
+        the protein, and then filters out those that are above the threshold value, leaving
+        only the attractive residues. 
+
+        NOTE if you want to relate these to residue position you should use the 
+        calculate_surface_epsilon() function instead.
+                
+        Parameters
+        ----------
+        input_sequence: str
+            Amino acid sequence of the input sequence
+
+        IMCObject: IMCObject
+            IMCObject that contains the epsilon calculate. The IMCObject is an initialized
+            FINCHES-derived object that enables epsilon calculations. It can be found in 
+            the Mpipi_frontend or CALAVDOS_frontend objects, as an IMC_object variable.
+
+        threshold: float
+            The threshold value for the attractive epsilon values. If the epsilon value is
+            below this threshold, it will be excluded from the calculation. By default
+            this is zero and in general can't imagine when you'd want to change this...
+
+        Returns
+        -------
+        list
+            List of attractive epsilon values for the protein, excluding those below 
+            the threshold.
+
         """
 
         surface_eps = self.calculate_surface_epsilon(input_sequence, IMCObject)
@@ -536,8 +604,36 @@ class FoldeDomain:
     #            
     def calculate_repulsive_surface_epsilon(self, input_sequence, IMCObject, threshold=0):
         """
-        This function calculates the mean attractive surface epsilon for the protein, averaging
-        ONLY over attractive epsilon values
+        This function calculates the repulsive surface epsilon values for each surface residue,
+        a list of values that are the residues which find themselves in an repulsive environment
+        given the input sequence. The function calculates the surface epsilon for each residue in 
+        the protein, and then filters out those that are below the threshold value, leaving
+        only the repulsive residues.
+
+        NOTE if you want to relate these to residue position you should use the 
+        calculate_surface_epsilon() function instead.
+
+        Parameters
+        ----------
+        input_sequence: str
+            Amino acid sequence of the input sequence
+
+        IMCObject: IMCObject
+            IMCObject that contains the epsilon calculate. The IMCObject is an initialized
+            FINCHES-derived object that enables epsilon calculations. It can be found in 
+            the Mpipi_frontend or CALAVDOS_frontend objects, as an IMC_object variable.
+
+        threshold: float
+            The threshold value for the repulsive epsilon values. If the epsilon value is
+            below this threshold, it will be excluded from the calculation. By default
+            this is zero and in general can't imagine when you'd want to change this...
+
+        Returns
+        -------
+        list
+            List of repulsive epsilon values for the protein, excluding those below 
+            the threshold.
+
         """
 
         surface_eps = self.calculate_surface_epsilon(input_sequence, IMCObject)
@@ -566,6 +662,8 @@ class FoldeDomain:
         null distribution of IWD values for the same number of residues
         over the same structure and compare the IWD value to this null.
         This happens if calculate_null is set to True.
+
+        NB this has not be super well tested yet...
 
         Parameters
         ----------
