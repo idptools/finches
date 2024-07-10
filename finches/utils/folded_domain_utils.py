@@ -488,13 +488,19 @@ class FoldeDomain:
             the distance threshold used to define neighbours by running 
             get_nearest_neighbour_res() function.
 
-        (3) Re-organizing the sequence order of the neighbor string so (for example) 
-            charged residues of the same type are next to each other, which we do so 
-            local sequence context effects are taken into account when computing
-            epsilon.
+        (3) Re-organizing the sequence order of the neighbor string depending on what
+            the center residue is. If the center residue is charged, re-order so all
+            charged residues of that type are next to it. If the center residue is a 
+            hydrophobe, reorder so the hydrophobes are next to it. We do this so we
+            take the local chemical environment into account for the epsilon 
+            calculation using the center residue to define what types(s) of local 
+            chemistry we care about.   
 
         (4) Calculating the mean epsilon score between the "neighbor string" and 
             the passed input string.
+
+        (5) Divide that epsilon score by the number of residues in the neighbor string
+            to get the average mean-field epsilon value for that residue.
 
         Note this approach is probably ok if the input sequence is either quite 
         short or a repetitive sequence, but effectively it calculates the mean-field
@@ -536,7 +542,7 @@ class FoldeDomain:
 
                 center_resid = self.sequence[idx]
 
-                # get indices of all residues neighbourin this residue, excluding itself
+                # get indices of all residues neighbouring this residue, excluding itself
                 neighbor_resid = [i[0] for i in self.surface_neighbours[idx]]
 
                 # build a local sequence list
@@ -563,7 +569,6 @@ class FoldeDomain:
             # initial value 
             tmp = IMCObject.calculate_epsilon_value(reordered_seq, input_sequence)/len(reordered_seq)
             
-
             surface_eps[idx] = [center_resid, reordered_seq, tmp]
             
         return surface_eps
