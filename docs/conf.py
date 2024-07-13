@@ -23,9 +23,8 @@ import finches
 # -- Project information -----------------------------------------------------
 
 project = 'finches'
-copyright = ("2023, Garrett M. Ginell. Project structure based on the "
-             "Computational Molecular Science Python Cookiecutter version 1.1")
-author = 'Garrett M. Ginell'
+copyright = ("2023-2025, Alex Holehouse & Garrett M. Ginell")
+author = 'Alex Holehouse & Garrett M. Ginell'
 
 # The short X.Y version
 version = ''
