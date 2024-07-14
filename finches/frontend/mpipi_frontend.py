@@ -9,7 +9,7 @@ import numpy as np
 
 
 class Mpipi_frontend(FinchesFrontend):
-    def __init__(self, salt=0.150, dielectric=80.0):
+    def __init__(self, salt=0.150, dielectric=80.0, arb_window_func = None):
 
         # call superclass constructor 
         super().__init__()
@@ -19,7 +19,7 @@ class Mpipi_frontend(FinchesFrontend):
         
 
         # build an interaction matrix constructor object
-        self.IMC_object = epsilon_calculation.InteractionMatrixConstructor(self.model)
+        self.IMC_object = epsilon_calculation.ArbitraryFilterInteractionMatrixContructor(self.model, arb_window_func)
 
 
     # functions defined in superclass listed below for clarity

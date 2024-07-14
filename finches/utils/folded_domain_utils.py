@@ -164,6 +164,9 @@ class FoldeDomain:
 
         # assign trajectory info
         self.traj = p
+        
+        #set the local distance parameters
+        self._surface_neighbor_distance = 9.0
 
         # calculate SASA of residues;
         # 100* to convert from nm^2 to A^2, and *0.1 for probe radius to convert from A to nm
@@ -311,7 +314,7 @@ class FoldeDomain:
     # ................................................................................
     #
     #
-    def get_nearest_neighbour_res(self, distance_thresh=9.0):
+    def get_nearest_neighbour_res(self, distance_thresh:float=None):
         """
 
         This function will find the nearest neighbours of each residue in 
@@ -342,6 +345,11 @@ class FoldeDomain:
         None
         
         """
+        #update the last used distance
+        if distance_thresh is None:
+            distance_thresh = self._surface_neighbor_distance
+        else:
+            self._surface_neighbor_distance = distance_thresh
 
 
         # rescale distance threshold into nanometers
@@ -572,6 +580,119 @@ class FoldeDomain:
             surface_eps[idx] = [center_resid, reordered_seq, tmp]
             
         return surface_eps
+    
+    
+    
+        # ................................................................................
+    #
+    #            
+    def calculate_surface_matrix_epsilon(self, input_sequence, IMCObject,
+                                         window_seq_distance_extent : int,
+                                         window_struct_distance_extent : float):
+        """
+        Nick's Version
+        This function calculates the surface epsilon values for each residue in the
+        protein. The function will calculate the surface epsilon for each residue in 
+        the protein and return this in a surface_epsilon dictionary.
+
+        Briefly, this function works by doing the following:
+
+        (1) Takeing each solvent accessible residue
+
+        (2) Finding the neighbour residues near that residue. Note we can redefine
+            the distance threshold used to define neighbours by running 
+            get_nearest_neighbour_res() function.
+
+        (3) Re-organizing the sequence order of the neighbor string depending on what
+            the center residue is. If the center residue is charged, re-order so all
+            charged residues of that type are next to it. If the center residue is a 
+            hydrophobe, reorder so the hydrophobes are next to it. We do this so we
+            take the local chemical environment into account for the epsilon 
+            calculation using the center residue to define what types(s) of local 
+            chemistry we care about.   
+
+        (4) Calculating the mean epsilon score between the "neighbor string" and 
+            the passed input string.
+
+        (5) Divide that epsilon score by the number of residues in the neighbor string
+            to get the average mean-field epsilon value for that residue.
+
+        Note this approach is probably ok if the input sequence is either quite 
+        short or a repetitive sequence, but effectively it calculates the mean-field
+        attraction/repulsion beteween each residue on the surface (using its local context
+        to define that interaction) and the ENTIRE input sequence. 
+
+        Parameters
+        ----------
+        input_sequence: str
+            Amino acid sequence of the input sequence
+
+        IMCObject: IMCObject
+            IMCObject that contains the epsilon calculate, this
+            can obtained as a object variable from an Mpipi_frontend
+            or CALAVDOS_frontend object.
+        
+        window_struct_distance_extent : float
+            This is the radius (calculated as a graph distance) of the filtering window in
+            the unit of the PDB file.
+            
+        window_seq_distance_extent : int
+            This is the radius of the window in terms of number of residues. This should match with the 
+            structural one in spacial units. If window_struct_distance_extent is 8
+            and the average residue distance is 0.5 in the same spatial units then 
+            the window_seq_distance_extent should be 16.
+
+        Returns
+        -------
+        Dict
+            Dictionary that maps between residue index and surface epsilon value. The
+            return dictionry has index position as key and then a list as values, where
+            each list has three positions:
+            [0] - the residue associated with that position
+            [1] - the neibouring residues, where neighbours are those residues within
+                  some distance threshold of the surface residue of interest
+            [2] - the surface epsilon value for that residue.
+
+        """
+        #amino acid constants
+        hydrophobes = ['I' , 'V', 'L', 'A', 'M']
+        negative = ['D', 'E']
+        positive = ['K', 'R']
+        
+        #recompute the neighbors based on distance specified
+        self.get_nearest_neighbour_res(distance_thresh=window_struct_distance_extent)
+
+        #creating a blank for saving the result
+        surface_eps = {}
+        
+        #sequence distance factor
+        seq_dist_factor = window_struct_distance_extent/window_seq_distance_extent
+        
+        #loop over the structure idxs and idr idxs
+        adj_idr_idxs = np.arange(window_seq_distance_extent, len(input_sequence)-window_seq_distance_extent,dtype=int)
+        ret_mat = np.zeros((len(self.surface_indices),len(input_sequence)), dtype=float)
+        for ll,struct_idx_center in enumerate(self.surface_indices):
+            for idr_idx_center in adj_idr_idxs:
+                #get the residues and respective distances for th estructured state
+                # get indices of all residues neighbouring this residue, excluding itself
+                struct_neighbor_resid = [i[0] for i in self.surface_neighbours[struct_idx_center]]
+                struct_neighbor_resid.insert(0,struct_idx_center)       
+                #grab the characters
+                struct_str = [self.sequence[k] for k in struct_neighbor_resid]
+                # build a local sequence list
+                struct_local_distance = [self.surface_distance_surface[struct_idx_center][k] for k in struct_neighbor_resid]
+                
+                #do the same for the idr
+                idr_negihbor_resid = np.arange(idr_idx_center-window_seq_distance_extent,idr_idx_center+window_seq_distance_extent)
+                #grab the sequence bit
+                idr_str = [input_sequence[k] for k in idr_negihbor_resid]
+                #grabe the distances
+                idr_local_distance = [seq_dist_factor*np.abs(k-idr_idx_center) for k in idr_negihbor_resid]
+                
+                #pass the sequence and distances for each window to the filter obj
+                ret_mat[ll,idr_idx_center] = IMCObject.calc_filtered_region(struct_str, struct_local_distance, idr_str, idr_local_distance)
+            
+        return ret_mat
 
 
     # ................................................................................

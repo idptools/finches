@@ -488,6 +488,73 @@ class InteractionMatrixConstructor:
                 matrix.append(tmp)
             
             return np.array(matrix)
+        
+        
+    def calculate_pairwise_heterotypic_matrix_structnidr_smoothed(self, structured_sequence, idr_sequence, 
+                                                                  linear_window, spatial_window, 
+                                                                  convert_to_custom=True, use_cython=True):
+        
+        """
+        This function takes two sequences and returns a sequence1 x sequence2
+        2D np.array.
+        Note - the matrix here is the raw unsliding-windowed matrix so will be
+        len(seq) by len(seq) long. For visualizing local regions of inter-residue
+        interaction use the calculate_sliding_epsilon() function.
+
+        In reality, you should just do all pairwise-residues ONCE 
+        at the start and then look 'em up, but this code below does the
+        dynamic non-redundant on-the-fly calculation of unique pairwise
+        residues.
+
+        Note we default to using a Cython implementation which is 3.5x faster
+        than the pure Python implementation. For now we're leaving in the 
+        option to fall back to a Python implementation but that may be 
+        removed at some point...
+
+        Parameters
+        ---------------
+        sequence : str
+            Amino acid sequence of interest
+
+        sequence2: str
+            Second amino acid sequence of interest
+
+        use_cython : bool
+            Flag to select whether to use the cythonized version of the code
+            or the Python version. The cythonized version reduces the time
+            to about 5-10% of the Python version. 
+
+        Returns
+        ------------------
+        np.array
+            Returns an (len(s1) x len(s2)) matrix with pairwise interactions; 
+            recall that negative values are attractive and positive are 
+            repulsive!
+
+        """
+
+        # note we have the if/else statement here because sequence_converter
+        # does its own checking post conversion
+        if convert_to_custom:
+            sequence1 = self.sequence_converter(sequence1)
+            sequence2 = self.sequence_converter(sequence2)
+        else:
+            self._check_sequence(sequence1)
+            self._check_sequence(sequence2)
+
+        if use_cython:
+            return matrix_manipulation.dict2matrix(sequence1, sequence2, self.lookup)
+            
+        else:                
+            matrix = []
+            for r1 in sequence1:
+                tmp = []
+            
+                for r2 in sequence2:                
+                    tmp.append(self.lookup[r1][r2])
+                matrix.append(tmp)
+            
+            return np.array(matrix)
 
 
     
@@ -873,3 +940,169 @@ class InteractionMatrixConstructor:
                 
         return (everything, seq2_indices, seq1_indices)
 
+
+
+
+class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
+    def __init__(self,
+                 parameters,
+                 weight_function,
+                 sequence_converter=False,
+                 charge_prefactor=None,
+                 null_interaction_baseline=None, 
+                 compute_forcefield_dependencies=False):
+        '''Initializes the arbitrary filtering needed for IDR structure interations
+        Mostly the same as the InterationMatrixConstructor but with a needed weighting function for the filter.
+        
+        The InteractionMatrixConstructor is a class which houses user-facing
+        functions for calculating inter-residue interactions. This is appropriate
+        if you want more fine-grained control over epsilon-associated calculations.
+        Alternatively, using one of the finches.frontend modules may be an easier 
+        route if you're just doing "standard" types of analysis.
+
+        Philosophically speaking, the goal here is to separate the biophysical
+        model used to determine interaction parameters into a set of classes 
+        housed in finches.forcefields, and then the class InteractionMatrixConstructor       
+        takes one of those models in as initializing input and provides a 
+        standardized way to calculate the same types of interaction properties 
+        derived from many different biophysical models. In software engineering, this
+        is known as an "interface" design pattern.
+
+        For example, using Mpipi_GGv1, one might do:
+
+            # import key modules
+            from finches.forcefields.mpipi import Mpipi_model
+            from finches.epsilon_calculation import InteractionMatrixConstructor
+            
+            # Initialize a finches.forcefields.Mpipi.Mpipi_model object
+            Mpipi_GGv1_params = Mpipi_model(version = 'Mpipi_GGv1')
+
+            # initialize an InteractionMatrixConstructor
+            IMC = InteractionMatrixConstructor(parameters = Mpipi_GGv1_params)
+
+        The InteractionMatrixConstructor object (aka IMC) then provides functionality 
+        for calculating inter-residue interactions using the energetics in the 
+        underlying model. Moreover, the IMC object can also then be updated in a
+        variety of ways.
+        
+        Parameters
+        -----------
+        parameters : finches.forcefield.<model>.<model_object>
+            Instance of one of the forcefield objects found in finches.forcefields 
+            module. This object contains all of the parameters for the model, such
+            that the InteractionMatrixConstructor calls on a series of functions
+            that a model presents to calculate the associated interactions in
+            a consistent way.
+
+            In this way, different interaction models can be distributed but the 
+            same analysis code (using an InteractionMatrixConstructor) can always
+            be used.
+
+            This parameters object has two key functions that are required to be
+            implemented.
+
+            * parameters.ALL_RESIDUES_TYPES : list of lists which define residues
+              which are allowed to occur in the same type of sequence; e.g., we expect
+              a protein list, an RNA list, a DNA list etc. Note that EVERY residue in
+              all lists must have a pair-wise interaction parameter calculatable via
+              the compute_interaction_parameter() function (described below)
+                        
+            * parameters.compute_interaction_parameter(r1,r2) : function which takes
+              two valid residues (i.e. any pair from the residues defined in 
+              ALL_RESIDUES_TYPES) and returns a value that reports on the relative
+              preferential interaction between those residues.
+
+            * parameters.CONFIGS: dictionary with some general default 
+              precomputed values for the forcefield, including: 'charge_prefactor' 
+              and, 'null_interaction_baseline', which will be used if these are
+              not explicitly passed into this constructor.
+                      
+        sequence_converter : function 
+            A function that takes in a sequence and converts the sequence to 
+            an alternative sequnence that matches the acceptable residue types of the 
+            parameters object. If no function is provided, a default function that 
+            returns the input sequences is provided. This can be useful if 
+            we need to mask sequences in a certain way.
+
+        charge_prefactor : float 
+            Model-specific value that defines how the charge weighting is scaled. 
+            Charge weighting is implemented in a way that runs oppositely 
+            charged residues are less repulsive for one another than they might 
+            otherwise be, mimicking the fact that charged sidechains can point away 
+            from one another and/or be influenced by pKa shifts. The 
+            charge_prefactor is a scalar which in effect, scales the strength of this 
+            scaling has and typically needs to be tuned on a per forcefield basis. 
+            Note that this value must be between 0 and 1.
+
+        null_interaction_baseline : float  
+            Model-specific threshold to differentiate between attractive and repulsive
+            interactions. By default, this baseline is parameterized based on the attractive/
+            repulsive interaction associated with a poly(GS) sequence, which we expect
+            to behave as a Gaussian chain, however, we can over-ride the default value. 
+            
+
+            NOTE -  null_interaction_baseline is specific to the parameter version. 
+                    The null_interaction_baseline is the value used to split matrix. 
+                    This has been built such that this value recapitulates PolyGS for                    
+                    the specific input model being used. Precomputed null_interaction 
+                    baseline can be found in the CONFIGS dictionary of the parameters
+                    object.
+
+                    To compute a new null_interaction_baseline for a new forcefield
+                    see:
+
+                        data.forcefield_dependencies.get_null_interaction_baseline
+
+        compute_forcefield_dependencies : bool 
+            Flag to specify whether to recompute the model-specific 
+            charge_prefactor and null_interaction_baseline used when computing epsilon if
+            these are not available at runtime. 
+        '''
+        #initialize the parent class
+        super().__init__(parameters,
+                 sequence_converter,
+                 charge_prefactor,
+                 null_interaction_baseline, 
+                 compute_forcefield_dependencies)
+        #initialize the weighting function to use for computation later
+        self.weight_function = weight_function
+        
+        
+    def apply_weighted_averaging(self, interaction_vec : np.ndarray, distance_from_center_vec : np.ndarray) -> float:
+        '''This function applies the weighted average to the 
+        
+        '''
+        #determine the wieghts based on the weighting function
+        weights = self.weight_function(interaction_vec)
+        #compute the weighted interaction
+        weighted_interaction =  np.dot(weights, interaction_vec)
+        #return the weighted average
+        return np.sum(weighted_interaction)/np.sum(weights)
+    
+    def determine_referenced_interaction_strength_vec(self, seq : str, ref_let : str):
+        return np.array([self.lookup[ref_let][vvv] for vvv in seq])
+    
+    def calc_filtered_region(self, seq1 : np.ndarray, r1 : np.ndarray, 
+                             seq2 : np.ndarray, r2 : np.ndarray) -> float:
+        '''This function calculates the filtered value of the region based on the 
+        
+        Parameters
+        ----------
+        seq1 : numpy.ndarray
+            This is the sequence of one of the values
+        '''
+        #check that seq1 has the same length of r1 and same for seq2 and r2
+        if len(seq1) != len(r1) or len(seq2) != len(r2):
+            raise Exception(f"Error in Calc_filtered_region. Length of sequence did not match length of radius")
+        #generate the tuple of all posibble combos from seq1 and seq2
+        #(radius1, radius2, interaction value)
+        data_concat = np.array([[r1[i], r2[j], self.lookup[seq1[i]][seq2[j]]]for i in range(len(r1)) for j in range(len(r2))])
+        
+        #pull the component distances and turn them into a real radius based on an orthogonality argument
+        distance_vec = np.linalg.norm(data_concat[:,0:1], axis=1)
+        
+        #compute the weighted average
+        wt_avg = self.apply_weighted_averaging(data_concat[:,2], distance_vec)
+        
+        #return
+        return wt_avg
