@@ -39,3 +39,14 @@ plt.imshow(b)
 plt.colorbar()
 plt.show()
 print(np.mean(b))
+
+
+#try the two sequences this way
+c = mf.calc_idr_idr_psuedo_spatial_interaction_matrix(seq1,seq2,3,5.5*3)
+plt.imshow(c)
+plt.colorbar()
+plt.show()
+print(np.mean(c))
+
+
+
