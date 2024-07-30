@@ -588,7 +588,10 @@ class FoldeDomain:
     #            
     def calculate_surface_matrix_epsilon(self, input_sequence, IMCObject,
                                          window_seq_distance_extent : int,
-                                         window_struct_distance_extent : float):
+                                         window_struct_distance_extent : float,
+                                         split = True,
+                                         split_threshold : float = 0.0,
+                                         idr_tail_exclusion : bool = False):
         """
         Nick's Version
         This function calculates the surface epsilon values for each residue in the
@@ -668,9 +671,16 @@ class FoldeDomain:
         #sequence distance factor
         seq_dist_factor = window_struct_distance_extent/window_seq_distance_extent
         
-        #loop over the structure idxs and idr idxs
-        adj_idr_idxs = np.arange(window_seq_distance_extent, len(input_sequence)-window_seq_distance_extent,dtype=int)
+        #determine which method to use the idr in
+        if idr_tail_exclusion: #chop off the ends of the idr
+            adj_idr_idxs = np.arange(window_seq_distance_extent, len(input_sequence)-window_seq_distance_extent,dtype=int)
+        else: #use the full idr
+            adj_idr_idxs = np.arange(0,len(input_sequence))
+            #settup the return matrix output (preallocate)
         ret_mat = np.zeros((len(self.surface_indices),len(input_sequence)), dtype=float)
+        if split: #if we split we need to pass twice the information back.
+            ret_mat2 = np.zeros((len(self.surface_indices),len(input_sequence)), dtype=float)
+        #loop over the structure idxs and idr idxs
         for ll,struct_idx_center in enumerate(self.surface_indices):
             for idr_idx_center in adj_idr_idxs:
                 #get the residues and respective distances for th estructured state
@@ -682,17 +692,40 @@ class FoldeDomain:
                 # build a local sequence list
                 struct_local_distance = [self.surface_distance_surface[struct_idx_center][k] for k in struct_neighbor_resid]
                 
-                #do the same for the idr
-                idr_negihbor_resid = np.arange(idr_idx_center-window_seq_distance_extent,idr_idx_center+window_seq_distance_extent)
+                #do the same for the idr (add 1 due to the non inclusive nature of arange)
+                idr_negihbor_resid = np.arange(idr_idx_center-window_seq_distance_extent,idr_idx_center+window_seq_distance_extent+1)
                 #grab the sequence bit
                 idr_str = [input_sequence[k] for k in idr_negihbor_resid]
                 #grabe the distances
                 idr_local_distance = [seq_dist_factor*np.abs(k-idr_idx_center) for k in idr_negihbor_resid]
                 
                 #pass the sequence and distances for each window to the filter obj
-                ret_mat[ll,idr_idx_center] = IMCObject.calc_filtered_region(struct_str, struct_local_distance, idr_str, idr_local_distance)
-            
+                if split: #splitting the attractive and repulsive components
+                    pos_vv,neg_vv = IMCObject.calc_filtered_region(struct_str, struct_local_distance, idr_str, idr_local_distance,
+                                                                                split = True, split_thresh=split_threshold)
+                    ret_mat[ll,idr_idx_center] = pos_vv
+                    ret_mat2[ll,idr_idx_center] = neg_vv
+                else: #Dont split them and just take the average
+                    ret_mat[ll,idr_idx_center] = IMCObject.calc_filtered_region(struct_str, struct_local_distance, idr_str, idr_local_distance,
+                                                                                split = False)
+                    
+        # #determine if the extra whitespace on the exterior of the vectors needs to get removed
+        # if remove_extra_space:
+        #     if split:
+        #         rmp, struct_idxsp, idr_idxsp = IMCObject.remove_empty_rows_or_columns(ret_mat)
+        #         rmn, struct_idxsn, idr_idxsn = IMCObject.remove_empty_rows_or_columns(ret_mat2)
+                
+        #         #recombine them
+        #         ret_mat = (rmp, struct_idxsp, idr_idxsp)
+        #         ret_mat2 = (rmn, struct_idxsn, idr_idxsn)
+        #     else:
+        #         pass
+        
+        #combine the data if nessisary
+        if split:
+            ret_mat = (ret_mat, ret_mat2)
         return ret_mat
+        
 
 
     # ................................................................................

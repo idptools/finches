@@ -270,45 +270,6 @@ class Mpipi_frontend(FinchesFrontend):
                                           disorder_1=disorder_1,
                                           disorder_2=disorder_2,
                                           no_disorder=no_disorder)
-        
-        
-        
-    def calc_idr_idr_psuedo_spatial_interaction_matrix(self, seq1 : str,seq2 : str, window_extent : int,
-                                                       window_equivilent_spatial_distance : float) -> np.ndarray:
-        '''This function computes an interaction matrix in the manner done for 
-        
-        '''
-        #check that there is a wieghting function that this object was initialized with
-        
-        #find the indexes to be used to loop based on the filter window
-        ids1 = np.arange(window_extent, len(seq1)-window_extent,dtype=int)
-        ids2 = np.arange(window_extent, len(seq1)-window_extent,dtype=int)
-        
-        #compute the conversion factor
-        seq_dist_factor = window_equivilent_spatial_distance/window_extent
-        
-        #loop over the ids
-        ret_mat = np.zeros((len(seq1),len(seq2)),dtype=float)
-        for i in ids1:
-            for j in ids2:
-                #do the same for the idr
-                idr_negihbor_resid1 = np.arange(i-window_extent,i+window_extent)
-                #grab the sequence bit
-                idr_str1 = [seq1[k] for k in idr_negihbor_resid1]
-                #grabe the distances
-                idr_local_distance1 = [seq_dist_factor*np.abs(k-i) for k in idr_negihbor_resid1]
-                
-                #do the same for the idr
-                idr_negihbor_resid2 = np.arange(j-window_extent,j+window_extent)
-                #grab the sequence bit
-                idr_str2 = [seq2[k] for k in idr_negihbor_resid2]
-                #grabe the distances
-                idr_local_distance2 = [seq_dist_factor*np.abs(k-j) for k in idr_negihbor_resid2]
-                
-                #compute the 
-                ret_mat[i,j] = self.IMC_object.calc_filtered_region(idr_str1, idr_local_distance1, idr_str2, idr_local_distance2)
-                
-        return ret_mat
 
                                           
                                         

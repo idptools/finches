@@ -2,6 +2,7 @@ import metapredict as meta
 from finches.forcefields.mpipi import Mpipi_model
 from finches import epsilon_to_FHtheory
 from finches import epsilon_stateless
+from itertools import product
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -1222,26 +1223,94 @@ class FinchesFrontend:
             
 
         return [all_phase_diagrams, fig, ax]
+    
+    
+    
+    
+    def calc_idr_idr_psuedo_spatial_interaction_matrix(self, seq1 : str,seq2 : str, window_extent : int,
+                                                       window_equivilent_spatial_distance : float,
+                                                       full_extent : bool = True,
+                                                       split : bool = False, split_thresh : float = 0.0) -> np.ndarray:
+        '''This function computes an interaction matrix in the manner done by the structural portion.
+        
+        Parameters
+        ----------
+        seq1 : str
+            This is the first IDR
+        '''
+        #check that there is a wieghting function that this object was initialized with
+        filter_func = self.IMC_object.weight_function
+        if filter_func is None:
+            raise Exception(f"There is no weighting function in this object. You must have initialized with a weighting function for this to work")
+        
+        #find the indexes to be used to loop based on the filter window
+        if full_extent == True:
+            ids1 = np.arange(len(seq1))
+            ids2 = np.arange(len(seq2))
+        else:
+            ids1 = np.arange(window_extent, len(seq1)-window_extent,dtype=int)
+            ids2 = np.arange(window_extent, len(seq1)-window_extent,dtype=int)
             
-
-
+        #get all the pairs of ids to loop over
+        pairs = list(product(ids1,ids2))
+        
+        #compute the conversion factor
+        seq_dist_factor = window_equivilent_spatial_distance/window_extent
+        
+        #loop over the ids
+        ret_mat = np.zeros((len(seq1),len(seq2)),dtype=float)
+        for (i,j) in pairs:
+            #do the same for the idr
+            m = i- window_extent
+            if m < 0:
+                m = 0
+            n = i + window_extent
+            if n > len(seq1):
+                n = len(seq1)
+            idr_negihbor_resid1 = np.arange(m,n)
+            #grab the sequence bit
+            idr_str1 = [seq1[k] for k in idr_negihbor_resid1]
+            #grabe the distances
+            idr_local_distance1 = np.array([seq_dist_factor*np.abs(k-i) for k in idr_negihbor_resid1])
+            
+            #do the same for the idr
+            #do the same for the idr
+            m = j- window_extent
+            if m < 0:
+                m = 0
+            n = j + window_extent
+            if n > len(seq2):
+                n = len(seq2)
+            idr_negihbor_resid2 = np.arange(m,n)
+            #grab the sequence bit
+            idr_str2 = [seq2[k] for k in idr_negihbor_resid2]
+            #grabe the distances
+            idr_local_distance2 = np.array([seq_dist_factor*np.abs(k-j) for k in idr_negihbor_resid2])
+            
+            #compute the 
+            ret_mat[i,j] = self.IMC_object.calc_filtered_region(idr_str1, idr_local_distance1, idr_str2, idr_local_distance2, split = split, split_thresh = split_thresh)
+                
+        return ret_mat, (ids1, ids2)
     
-        
-        
-
-
-
-        
-        
     
     
-                           
-
+    def trim_empty_rows_and_columns(self, result_matrix : np.ndarray) -> tuple:
+        '''Removing a row or column if it is all zeros. (wrapper for the IMC_object.remove_empty_rows_or_columns)
         
-
-
+        This serves to give direct access to the function that removes extra columns and rows. 
         
-
-    
-
-    
+        This function removes the rows or columns that are all zeroes and then
+        catalogs the remaining rows and columns to ensure the user still knows which are there.
+        
+        Parameters
+        ----------
+        result_matrix : np.ndarray
+            This is the matrix that is the result of the 
+        
+        Returns
+        -------
+        tuple 
+            This is tuple with the reduced matrix first, the first axis indexes, and then the second axis
+            index that remained post the reduction.
+        '''
+        return self.IMC_object.remove_empty_rows_or_columns(result_matrix)

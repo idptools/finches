@@ -7,6 +7,7 @@ values : Garrett M. Ginell & Alex S. Holehouse
 """
 import numpy as np
 import math
+from itertools import product
 
 from .data import forcefield_dependencies
 from . import parsing_aminoacid_sequences
@@ -1083,26 +1084,118 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         return np.array([self.lookup[ref_let][vvv] for vvv in seq])
     
     def calc_filtered_region(self, seq1 : np.ndarray, r1 : np.ndarray, 
-                             seq2 : np.ndarray, r2 : np.ndarray) -> float:
+                             seq2 : np.ndarray, r2 : np.ndarray,
+                             split : bool =True,
+                             split_thresh : float = 0.0):
         '''This function calculates the filtered value of the region based on the 
+        
         
         Parameters
         ----------
         seq1 : numpy.ndarray
-            This is the sequence of one of the values
+            This is the first sequence that is in the window associated with the first protein
+        r1 : numpy.ndarray
+            Distance values in the seq1 dimension
+        seq2 : numpy.ndarray
+            This is the second sequence that is in the window associated with the second protein
+        r2 : numpy.ndarray
+            Distance values in the seq2 dimension
+        split : bool
+            This is the flag that determines if the data is going to get split. 
+            If it is going to get split then this will split the interaction values
+            prior to filtering between the values above/inclusive and strictly below the 
+            split_thresh.
+        split_thresh : float
+            This is the threshold that splits the interaction strength between "attractive" and 
+            "repulsive". 
+            
+        Returns
+        -------
+        ret_val : numpy.ndarray or tuple
+            If the split bool is False then this function returns a numpy.ndarray
+            that is the value for the filtered matrix at the interaction locations
+            of interest. If the split boolean is True, then the ouput is a tuple
+            where the first value is the mean for the repulsive interactions and
+            the second is the mean for the attactive interactions.      
         '''
         #check that seq1 has the same length of r1 and same for seq2 and r2
         if len(seq1) != len(r1) or len(seq2) != len(r2):
             raise Exception(f"Error in Calc_filtered_region. Length of sequence did not match length of radius")
         #generate the tuple of all posibble combos from seq1 and seq2
         #(radius1, radius2, interaction value)
-        data_concat = np.array([[r1[i], r2[j], self.lookup[seq1[i]][seq2[j]]]for i in range(len(r1)) for j in range(len(r2))])
+        linear_index_pairings = list(product(range(len(r1)),range(len(r2)))) #fairly fast way to get this without a nested for loop
+        data_concat = np.array([[r1[i], r2[j], self.lookup[seq1[i]][seq2[j]]]for (i,j) in linear_index_pairings])
         
         #pull the component distances and turn them into a real radius based on an orthogonality argument
         distance_vec = np.linalg.norm(data_concat[:,0:1], axis=1)
         
-        #compute the weighted average
-        wt_avg = self.apply_weighted_averaging(data_concat[:,2], distance_vec)
+        #determine functional behavior based on if a split in the data is to be considered on interaction strenght
+        ret_val = None
+        interaction_vec = data_concat[:,2]
+        if split:
+            #split the matrix into positive and negative values
+            pos_vec = (interaction_vec>=split_thresh)*interaction_vec
+            neg_vec = (interaction_vec<split_thresh)*interaction_vec
+            #apply the weighting function to the local neighborhood
+            filt_pos = self.apply_weighted_averaging(pos_vec, distance_vec)
+            filt_neg = self.apply_weighted_averaging(neg_vec, distance_vec)
+            #create a tuple to pass back
+            ret_val = (filt_pos, filt_neg) #remember that positive is repulsive
+        else:
+            #compute the weighted average
+            ret_val = self.apply_weighted_averaging(interaction_vec, distance_vec)
         
         #return
-        return wt_avg
+        return ret_val
+    
+    def remove_empty_rows_or_columns(result_matrix : np.ndarray) -> tuple:
+        '''Removing a row or column if it is all zeros.
+        
+        This function removes the rows or columns that are all zeroes and then
+        catalogs the remaining rows and columns to ensure the user still knows which are there.
+        
+        Parameters
+        ----------
+        result_matrix : np.ndarray
+            This is the matrix that is the result of the 
+        
+        Returns
+        -------
+        tuple 
+            This is tuple with the reduced matrix first, the first axis indexes, and then the second axis
+            index that remained post the reduction.
+        '''
+        #check that there are ony 2 dimensions to the matrix passed
+        if len(result_matrix.shape) != 2:
+            raise Exception(f"Removing empty rows assumes that are only two dimensions in the matrix. The passed matrix has {len(result_matrix.shape)} dimensions")
+        
+        #find the number of columns and rows
+        num_rows, num_cols = result_matrix.shape
+        
+        #loop over the rwos and check if all the values are 0s
+        rm_row_indexes = []
+        for i in range(num_rows):
+            #pull the values
+            row_vec = result_matrix[i]
+            #check if the row vec is all 0s
+            if np.all(row_vec == 0):
+                rm_row_indexes.append(i)
+        #do the same for ht ecolumns
+        rm_col_indexes = []
+        for j in range(num_cols):
+            #pull the column of interest
+            col_vec = result_matrix[:,j]
+            #check if the column is all 0s
+            if np.all(col_vec == 0):
+                rm_col_indexes.append(j)
+                
+        #remove the columns and rows that have all zeros
+        cleaned_rows = np.delete(rm_row_indexes, result_matrix, axis = 0)
+        cleaned_mat = np.delete(rm_col_indexes, cleaned_rows, axis = 1)
+        
+        #grabe the indexes that are still left in each axis
+        p1_ind = [k for k in range(num_rows) if k not in rm_row_indexes]
+        p2_ind = [k for k in range(num_cols) if k not in rm_col_indexes]
+        
+        #return the output
+        return cleaned_mat, p1_ind, p2_ind
