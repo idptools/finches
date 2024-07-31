@@ -47,7 +47,7 @@ class CALVADOS_frontend(FinchesFrontend):
         self.model = calvados_model('CALVADOS2', salt=salt, pH=pH, temp=temp)
 
         # build an interaction matrix constructor object
-        self.IMC_object = epsilon_calculation.InteractionMatrixConstructor(self.model, arb_window_func)
+        self.IMC_object = epsilon_calculation.ArbitraryFilterInteractionMatrixContructor(self.model, arb_window_func)
 
 
     # decorator checks for RNA in CALVADOS input

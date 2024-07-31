@@ -693,7 +693,13 @@ class FoldeDomain:
                 struct_local_distance = [self.surface_distance_surface[struct_idx_center][k] for k in struct_neighbor_resid]
                 
                 #do the same for the idr (add 1 due to the non inclusive nature of arange)
-                idr_negihbor_resid = np.arange(idr_idx_center-window_seq_distance_extent,idr_idx_center+window_seq_distance_extent+1)
+                m = idr_idx_center-window_seq_distance_extent
+                if m <0:
+                    m = 0
+                n = idr_idx_center+window_seq_distance_extent+1
+                if n > len(input_sequence):
+                    n= len(input_sequence)
+                idr_negihbor_resid = np.arange(m,n)
                 #grab the sequence bit
                 idr_str = [input_sequence[k] for k in idr_negihbor_resid]
                 #grabe the distances
