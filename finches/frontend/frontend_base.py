@@ -1264,7 +1264,7 @@ class FinchesFrontend:
             m = i- window_extent
             if m < 0:
                 m = 0
-            n = i + window_extent
+            n = i + window_extent+1
             if n > len(seq1):
                 n = len(seq1)
             idr_negihbor_resid1 = np.arange(m,n)
@@ -1278,7 +1278,7 @@ class FinchesFrontend:
             m = j- window_extent
             if m < 0:
                 m = 0
-            n = j + window_extent
+            n = j + window_extent+1
             if n > len(seq2):
                 n = len(seq2)
             idr_negihbor_resid2 = np.arange(m,n)
@@ -1288,7 +1288,10 @@ class FinchesFrontend:
             idr_local_distance2 = np.array([seq_dist_factor*np.abs(k-j) for k in idr_negihbor_resid2])
             
             #compute the 
-            ret_mat[i,j] = self.IMC_object.calc_filtered_region(idr_str1, idr_local_distance1, idr_str2, idr_local_distance2, split = split, split_thresh = split_thresh)
+            ret_mat[i,j] = self.IMC_object.calc_filtered_region(idr_str1, idr_local_distance1, idr_str2, idr_local_distance2, split = True)
+            
+        if split:
+            ret_mat = ((ret_mat>split_thresh)*ret_mat, (ret_mat<=split_thresh)*ret_mat2)
                 
         return ret_mat, (ids1, ids2)
     

@@ -947,7 +947,7 @@ class InteractionMatrixConstructor:
 class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
     def __init__(self,
                  parameters,
-                 weight_function,
+                 weight_function=None,
                  sequence_converter=False,
                  charge_prefactor=None,
                  null_interaction_baseline=None, 
@@ -1068,6 +1068,27 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         #initialize the weighting function to use for computation later
         self.weight_function = weight_function
         
+    
+    '''
+    properties
+    '''
+    @property
+    def threshold_offset(self) ->  float:
+        '''This computes the value that corresponds to the original epsilons 0 value.'''
+        #check if _threshold_offset has been previously calculated
+        if hasattr(self, '_threshold_offset'):
+            return self._threshold_offset
+        else: #if it hasnt check that the weight_function is not 
+            if self.weight_function is None:
+                return None
+            else: #need to calculate the _threshold_offset
+                pass
+                
+    
+    '''
+    methods
+    '''
+        
         
     def apply_weighted_averaging(self, interaction_vec : np.ndarray, distance_from_center_vec : np.ndarray) -> float:
         '''This function applies the weighted average to the 
@@ -1076,9 +1097,12 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         #determine the wieghts based on the weighting function
         weights = self.weight_function(interaction_vec)
         #compute the weighted interaction
-        weighted_interaction =  np.dot(weights, interaction_vec)
+        weighted_interaction =  weights* interaction_vec
         #return the weighted average
-        return np.sum(weighted_interaction)/np.sum(weights)
+        nsum = np.sum(weighted_interaction)
+        dsum = np.sum(weights)
+        res = nsum/dsum
+        return res
     
     def determine_referenced_interaction_strength_vec(self, seq : str, ref_let : str):
         return np.array([self.lookup[ref_let][vvv] for vvv in seq])
@@ -1086,7 +1110,7 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
     def calc_filtered_region(self, seq1 : np.ndarray, r1 : np.ndarray, 
                              seq2 : np.ndarray, r2 : np.ndarray,
                              split : bool =True,
-                             split_thresh : float = 0.0):
+                             split_thresh : float = None):
         '''This function calculates the filtered value of the region based on the 
         
         
@@ -1121,26 +1145,32 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         #check that seq1 has the same length of r1 and same for seq2 and r2
         if len(seq1) != len(r1) or len(seq2) != len(r2):
             raise Exception(f"Error in Calc_filtered_region. Length of sequence did not match length of radius")
+        
+        if split_thresh is None:
+            split_thresh = self.null_interaction_baseline
         #generate the tuple of all posibble combos from seq1 and seq2
         #(radius1, radius2, interaction value)
         linear_index_pairings = list(product(range(len(r1)),range(len(r2)))) #fairly fast way to get this without a nested for loop
         data_concat = np.array([[r1[i], r2[j], self.lookup[seq1[i]][seq2[j]]]for (i,j) in linear_index_pairings])
         
         #pull the component distances and turn them into a real radius based on an orthogonality argument
-        distance_vec = np.linalg.norm(data_concat[:,0:1], axis=1)
+        disp_mat = data_concat[:,0:2]
+        distance_vec = np.linalg.norm(disp_mat, axis=1)
         
         #determine functional behavior based on if a split in the data is to be considered on interaction strenght
         ret_val = None
         interaction_vec = data_concat[:,2]
         if split:
             #split the matrix into positive and negative values
-            pos_vec = (interaction_vec>=split_thresh)*interaction_vec
-            neg_vec = (interaction_vec<split_thresh)*interaction_vec
+            pos_binary = interaction_vec>=split_thresh
+            neg_binary = interaction_vec<split_thresh
+            pos_vec = (pos_binary)*interaction_vec - split_thresh
+            neg_vec = (neg_binary)*interaction_vec - split_thresh
             #apply the weighting function to the local neighborhood
             filt_pos = self.apply_weighted_averaging(pos_vec, distance_vec)
             filt_neg = self.apply_weighted_averaging(neg_vec, distance_vec)
             #create a tuple to pass back
-            ret_val = (filt_pos, filt_neg) #remember that positive is repulsive
+            ret_val = (filt_pos*np.sum(pos_binary) +  filt_neg*np.sum(neg_binary))/len(interaction_vec) #remember that positive is repulsive
         else:
             #compute the weighted average
             ret_val = self.apply_weighted_averaging(interaction_vec, distance_vec)

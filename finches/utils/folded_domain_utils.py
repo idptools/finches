@@ -705,15 +705,8 @@ class FoldeDomain:
                 #grabe the distances
                 idr_local_distance = [seq_dist_factor*np.abs(k-idr_idx_center) for k in idr_negihbor_resid]
                 
-                #pass the sequence and distances for each window to the filter obj
-                if split: #splitting the attractive and repulsive components
-                    pos_vv,neg_vv = IMCObject.calc_filtered_region(struct_str, struct_local_distance, idr_str, idr_local_distance,
-                                                                                split = True, split_thresh=split_threshold)
-                    ret_mat[ll,idr_idx_center] = pos_vv
-                    ret_mat2[ll,idr_idx_center] = neg_vv
-                else: #Dont split them and just take the average
-                    ret_mat[ll,idr_idx_center] = IMCObject.calc_filtered_region(struct_str, struct_local_distance, idr_str, idr_local_distance,
-                                                                                split = False)
+                ret_mat[ll,idr_idx_center] = IMCObject.calc_filtered_region(struct_str, struct_local_distance, idr_str, idr_local_distance,
+                                                                                split = True)
                     
         # #determine if the extra whitespace on the exterior of the vectors needs to get removed
         # if remove_extra_space:
@@ -729,7 +722,7 @@ class FoldeDomain:
         
         #combine the data if nessisary
         if split:
-            ret_mat = (ret_mat, ret_mat2)
+            ret_mat = ((ret_mat>split_threshold)*ret_mat, (ret_mat<=split_threshold)*ret_mat2)
         return ret_mat
         
 
