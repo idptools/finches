@@ -1291,7 +1291,7 @@ class FinchesFrontend:
             ret_mat[i,j] = self.IMC_object.calc_filtered_region(idr_str1, idr_local_distance1, idr_str2, idr_local_distance2, split = True)
             
         if split:
-            ret_mat = ((ret_mat>split_thresh)*ret_mat, (ret_mat<=split_thresh)*ret_mat2)
+            ret_mat = ((ret_mat>split_thresh)*ret_mat, (ret_mat<=split_thresh)*ret_mat)
                 
         return ret_mat, (ids1, ids2)
     

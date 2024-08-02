@@ -1160,20 +1160,20 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         #determine functional behavior based on if a split in the data is to be considered on interaction strenght
         ret_val = None
         interaction_vec = data_concat[:,2]
-        if split:
-            #split the matrix into positive and negative values
-            pos_binary = interaction_vec>=split_thresh
-            neg_binary = interaction_vec<split_thresh
-            pos_vec = (pos_binary)*interaction_vec - split_thresh
-            neg_vec = (neg_binary)*interaction_vec - split_thresh
-            #apply the weighting function to the local neighborhood
-            filt_pos = self.apply_weighted_averaging(pos_vec, distance_vec)
-            filt_neg = self.apply_weighted_averaging(neg_vec, distance_vec)
-            #create a tuple to pass back
-            ret_val = (filt_pos*np.sum(pos_binary) +  filt_neg*np.sum(neg_binary))/len(interaction_vec) #remember that positive is repulsive
-        else:
-            #compute the weighted average
-            ret_val = self.apply_weighted_averaging(interaction_vec, distance_vec)
+    # if split:
+    #     #split the matrix into positive and negative values
+    #     pos_binary = interaction_vec>=split_thresh
+    #     neg_binary = interaction_vec<split_thresh
+    #     pos_vec = (pos_binary)*interaction_vec - split_thresh
+    #     neg_vec = (neg_binary)*interaction_vec - split_thresh
+    #     #apply the weighting function to the local neighborhood
+    #     filt_pos = self.apply_weighted_averaging(pos_vec, distance_vec)
+    #     filt_neg = self.apply_weighted_averaging(neg_vec, distance_vec)
+    #     #create a tuple to pass back
+    #     ret_val = (filt_pos*np.sum(pos_binary) +  filt_neg*np.sum(neg_binary))/len(interaction_vec) #remember that positive is repulsive
+    # else:
+    #     #compute the weighted average
+        ret_val = self.apply_weighted_averaging(interaction_vec, distance_vec) - split_thresh
         
         #return
         return ret_val
