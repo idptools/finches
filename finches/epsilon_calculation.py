@@ -1082,12 +1082,76 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
             if self.weight_function is None:
                 return None
             else: #need to calculate the _threshold_offset
-                pass
+                seq_gs = 'GS'*20
+                #seq_gs = 'GS'*2 + 'G'
+                # r_gs = np.array([-2,-1,0,1,2])
+                # self._threshold_offset = self.calc_filtered_region(seq_gs, r_gs*3.5, seq_gs, r_gs, offset=False)
+                mat,_ = self.compute_offset_term(seq_gs,seq_gs,2,2*3.5)
+                self._threshold_offset= np.mean(mat)
+                return self._threshold_offset
                 
     
     '''
     methods
     '''
+    
+    def compute_offset_term(self, seq1 : str,seq2 : str, window_extent : int,
+                                                       window_equivilent_spatial_distance : float,
+                                                       full_extent : bool = False):
+        '''basically a copy of the front end function that does the same thing'''
+        #check that there is a wieghting function that this object was initialized with
+        filter_func = self.weight_function
+        if filter_func is None:
+            raise Exception(f"There is no weighting function in this object. You must have initialized with a weighting function for this to work")
+        
+        #find the indexes to be used to loop based on the filter window
+        if full_extent == True:
+            ids1 = np.arange(len(seq1))
+            ids2 = np.arange(len(seq2))
+        else:
+            ids1 = np.arange(window_extent, len(seq1)-window_extent,dtype=int)
+            ids2 = np.arange(window_extent, len(seq1)-window_extent,dtype=int)
+            
+        #get all the pairs of ids to loop over
+        pairs = list(product(ids1,ids2))
+        
+        #compute the conversion factor
+        seq_dist_factor = window_equivilent_spatial_distance/window_extent
+        
+        #loop over the ids
+        ret_mat = np.zeros((len(seq1),len(seq2)),dtype=float)
+        for (i,j) in pairs:
+            #do the same for the idr
+            m = i- window_extent
+            if m < 0:
+                m = 0
+            n = i + window_extent+1
+            if n > len(seq1):
+                n = len(seq1)
+            idr_negihbor_resid1 = np.arange(m,n)
+            #grab the sequence bit
+            idr_str1 = [seq1[k] for k in idr_negihbor_resid1]
+            #grabe the distances
+            idr_local_distance1 = np.array([seq_dist_factor*np.abs(k-i) for k in idr_negihbor_resid1])
+            
+            #do the same for the idr
+            #do the same for the idr
+            m = j- window_extent
+            if m < 0:
+                m = 0
+            n = j + window_extent+1
+            if n > len(seq2):
+                n = len(seq2)
+            idr_negihbor_resid2 = np.arange(m,n)
+            #grab the sequence bit
+            idr_str2 = [seq2[k] for k in idr_negihbor_resid2]
+            #grabe the distances
+            idr_local_distance2 = np.array([seq_dist_factor*np.abs(k-j) for k in idr_negihbor_resid2])
+            
+            #compute the 
+            ret_mat[i,j] = self.calc_filtered_region(idr_str1, idr_local_distance1, idr_str2, idr_local_distance2, offset=False)
+                
+        return ret_mat, (ids1, ids2)
         
         
     def apply_weighted_averaging(self, interaction_vec : np.ndarray, distance_from_center_vec : np.ndarray) -> float:
@@ -1109,8 +1173,7 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
     
     def calc_filtered_region(self, seq1 : np.ndarray, r1 : np.ndarray, 
                              seq2 : np.ndarray, r2 : np.ndarray,
-                             split : bool =True,
-                             split_thresh : float = None):
+                             offset=True):
         '''This function calculates the filtered value of the region based on the 
         
         
@@ -1146,8 +1209,6 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         if len(seq1) != len(r1) or len(seq2) != len(r2):
             raise Exception(f"Error in Calc_filtered_region. Length of sequence did not match length of radius")
         
-        if split_thresh is None:
-            split_thresh = self.null_interaction_baseline
         #generate the tuple of all posibble combos from seq1 and seq2
         #(radius1, radius2, interaction value)
         linear_index_pairings = list(product(range(len(r1)),range(len(r2)))) #fairly fast way to get this without a nested for loop
@@ -1173,7 +1234,9 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
     #     ret_val = (filt_pos*np.sum(pos_binary) +  filt_neg*np.sum(neg_binary))/len(interaction_vec) #remember that positive is repulsive
     # else:
     #     #compute the weighted average
-        ret_val = self.apply_weighted_averaging(interaction_vec, distance_vec) - split_thresh
+        ret_val = self.apply_weighted_averaging(interaction_vec, distance_vec)
+        if offset:
+            ret_val = ret_val - self.threshold_offset
         
         #return
         return ret_val

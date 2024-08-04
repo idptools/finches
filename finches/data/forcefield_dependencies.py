@@ -68,4 +68,8 @@ def get_null_interaction_baseline(X_model, lower_end=-10.0, upper_end=10.0, alte
     return result.root
 
 
+#get the baseline interaction strength for a gs linker using the new methodology:
+
+
+
 # to compute charge prefactor see the prefactor_calibration.ipynb notebook associated with finches
