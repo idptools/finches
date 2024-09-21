@@ -1,42 +1,40 @@
-from .frontend_base import FinchesFrontend
+# other stuff
+import numpy as np
+
+from finches import epsilon_calculation
 
 # for model construction
 from finches.forcefields.mpipi import Mpipi_model
-from finches import epsilon_calculation
 
-# other stuff
-import numpy as np
+from .frontend_base import FinchesFrontend
 
 
 class Mpipi_frontend(FinchesFrontend):
     def __init__(self, salt=0.150, dielectric=80.0):
-
-        # call superclass constructor 
+        # call superclass constructor
         super().__init__()
 
         # initialize an Mpipi forcefield opbject
-        self.model = Mpipi_model('Mpipi_GGv1', salt=salt, dielectric=dielectric)
-        
+        self.model = Mpipi_model("Mpipi_GGv1", salt=salt, dielectric=dielectric)
 
         # build an interaction matrix constructor object
         self.IMC_object = epsilon_calculation.InteractionMatrixConstructor(self.model)
-
 
     # functions defined in superclass listed below for clarity
     # epslion() define in super exclusively
     # per_residue_attractive_vector() defined in super exclusively
 
-        
-        
-    def intermolecular_idr_matrix(self,
-                                  seq1,
-                                  seq2,
-                                  window_size=31,
-                                  use_cython=True,
-                                  use_aliphatic_weighting=True,
-                                  use_charge_weighting=True
-                                  disorder_1=True,
-                                  disorder_2=True):
+    def intermolecular_idr_matrix(
+        self,
+        seq1,
+        seq2,
+        window_size=31,
+        use_cython=True,
+        use_aliphatic_weighting=True,
+        use_charge_weighting=True,
+        disorder_1=True,
+        disorder_2=True,
+    ):
         """
         Returns the interaction matrix for the two sequences. Specifically this involves
         decomposing the two sequences into window_size fragments and calculating the inter-fragment
@@ -47,7 +45,7 @@ class Mpipi_frontend(FinchesFrontend):
         function also returns the indices for sequence1 and sequence2.
 
         If sequence 1 or sequence 2 contain 'U', then the disorder profile is not generated for
-        that sequence. 
+        that sequence.
 
         Parameters
         --------------
@@ -58,12 +56,12 @@ class Mpipi_frontend(FinchesFrontend):
             Input sequence 2
 
         window_size : int
-            The window size to use for the interaction matrix calculation. 
-            Default is 31. 
+            The window size to use for the interaction matrix calculation.
+            Default is 31.
 
         use_cython : bool
             Whether to use the cython implementation of the interaction matrix calculation.
-            Default is True. 
+            Default is True.
 
         use_aliphatic_weighting : bool
             Whether to use the aliphatic weighting scheme for the interaction matrix
@@ -87,10 +85,10 @@ class Mpipi_frontend(FinchesFrontend):
         --------------
         tuple
             A tuple containing the interaction matrix, disorder profile for sequence 1, and disorder
-            profile for sequence 2. 
+            profile for sequence 2.
 
-            [0] : This is interaction matrix, and is itself a tuple of 3 elements. The first 
-            is the matrix of sliding epsilon values, and the second and 3rd are the indices that map            
+            [0] : This is interaction matrix, and is itself a tuple of 3 elements. The first
+            is the matrix of sliding epsilon values, and the second and 3rd are the indices that map
             sequence position from sequence1 and sequence2 to the matrix
 
             [1] disorder profile for sequence 1. Will be all 1s if disorder_1 is False
@@ -98,59 +96,59 @@ class Mpipi_frontend(FinchesFrontend):
             [2] disorder profile for sequence 2. Will be all 1s if disorder_2 is False
 
         """
-        
 
         # Mpipi can accomdate RNA as polyU only
-        if seq1.find('U') == -1:
+        if seq1.find("U") == -1:
             disorder_1 = True
         else:
             disorder_1 = False
 
-        if seq2.find('U') == -1:
+        if seq2.find("U") == -1:
             disorder_2 = True
         else:
             disorder_2 = False
-            
-        
+
         # call the superclass function
-        return super().intermolecular_idr_matrix(seq1,
-                                                 seq2,
-                                                 window_size=window_size,
-                                                 use_cython=use_cython,
-                                                 use_aliphatic_weighting=use_aliphatic_weighting,
-                                                 use_charge_weighting=use_charge_weighting,
-                                                 disorder_1=disorder_1,
-                                                 disorder_2=disorder_2)
+        return super().intermolecular_idr_matrix(
+            seq1,
+            seq2,
+            window_size=window_size,
+            use_cython=use_cython,
+            use_aliphatic_weighting=use_aliphatic_weighting,
+            use_charge_weighting=use_charge_weighting,
+            disorder_1=disorder_1,
+            disorder_2=disorder_2,
+        )
 
-
-    def interaction_figure(self,
-                           seq1,
-                           seq2,
-                           window_size=31,
-                           use_cython=True,
-                           use_aliphatic_weighting=True,
-                           use_charge_weighting=True,
-                           tic_frequency=100,
-                           seq1_domains=[],
-                           seq2_domains=[],
-                           seq1_lines=[],
-                           seq2_lines=[],
-                           linewidth=1,
-                           vmin=-3,
-                           vmax=3,
-                           cmap='PRGn',                           
-                           fname=None,
-                           zero_folded=True,
-                           no_disorder=False):
-
+    def interaction_figure(
+        self,
+        seq1,
+        seq2,
+        window_size=31,
+        use_cython=True,
+        use_aliphatic_weighting=True,
+        use_charge_weighting=True,
+        tic_frequency=100,
+        seq1_domains=[],
+        seq2_domains=[],
+        seq1_lines=[],
+        seq2_lines=[],
+        linewidth=1,
+        vmin=-3,
+        vmax=3,
+        cmap="PRGn",
+        fname=None,
+        zero_folded=True,
+        no_disorder=False,
+    ):
         """
         Function to generate an interaction matrix figure between two sequences. This does
-        all the calculation on the backend and formats a figure with parallel disorder tracks 
+        all the calculation on the backend and formats a figure with parallel disorder tracks
         alongside the interaction matrix.
 
         If sequence 1 or sequence 2 contain 'U', then the disorder profile is not generated for
-        that sequence. 
-        
+        that sequence.
+
         Parameters
         --------------
         seq1 : str
@@ -182,25 +180,25 @@ class Mpipi_frontend(FinchesFrontend):
             Frequency of the TICs on the plot. Default is 100.
 
         seq1_domains : list
-            List of tuples/lists containing the start and end positions of domains in 
+            List of tuples/lists containing the start and end positions of domains in
             sequence 1. This means these can be easily highlighted in the plot.
 
         seq2_domains : list
             List of tuples/lists containing the start and end positions of domains in
             sequence 2. This means these can be easily highlighted in the plot.
-                           
+
         seq1_lines : list
             List of values that will draw lines onto the plot along sequence 1.
 
         seq2_lines : list
             List of values that will draw lines onto the plot along sequence 1.
-                                                      
+
         vmin : float
             Minimum value for the interaction matrix color scale. Default is -3.
 
         vmax : float
             Maximum value for the interaction matrix color scale. Default is 3.
-        
+
         cmap : str
             Colormap to use for the interaction matrix. Default is 'PRGn'.
 
@@ -234,52 +232,41 @@ class Mpipi_frontend(FinchesFrontend):
             ax_right : matplotlib.axes.Axes  (from plt.subplot2grid()
 
             ax_colorbar : matplotlib.axes.Axes  (from plt.subplot2grid()
-    
+
 
         """
-        
-
 
         # Mpipi can accomdate RNA as polyU only
-        if seq1.find('U') == -1:
+        if seq1.find("U") == -1:
             disorder_1 = True
         else:
             disorder_1 = False
 
-        if seq2.find('U') == -1:
+        if seq2.find("U") == -1:
             disorder_2 = True
         else:
             disorder_2 = False
 
         # call the superclass function
-        return super().interaction_figure(seq1,
-                                          seq2,
-                                          window_size=window_size,
-                                          use_cython=use_cython,
-                                          use_aliphatic_weighting=use_aliphatic_weighting,
-                                          use_charge_weighting=use_charge_weighting,
-                                          tic_frequency=tic_frequency,
-                                          seq1_domains=seq1_domains,
-                                          seq2_domains=seq2_domains,
-                                          seq1_lines=seq1_lines,
-                                          seq2_lines=seq2_lines,
-                                          linewidth=linewidth,
-                                          vmin=vmin,
-                                          vmax=vmax,
-                                          cmap=cmap,
-                                          fname=fname,
-                                          zero_folded=zero_folded,
-                                          disorder_1=disorder_1,
-                                          disorder_2=disorder_2,
-                                          no_disorder=no_disorder)
-
-                                          
-                                        
-
-
-
-        
-        
-
-
-
+        return super().interaction_figure(
+            seq1,
+            seq2,
+            window_size=window_size,
+            use_cython=use_cython,
+            use_aliphatic_weighting=use_aliphatic_weighting,
+            use_charge_weighting=use_charge_weighting,
+            tic_frequency=tic_frequency,
+            seq1_domains=seq1_domains,
+            seq2_domains=seq2_domains,
+            seq1_lines=seq1_lines,
+            seq2_lines=seq2_lines,
+            linewidth=linewidth,
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
+            fname=fname,
+            zero_folded=zero_folded,
+            disorder_1=disorder_1,
+            disorder_2=disorder_2,
+            no_disorder=no_disorder,
+        )
