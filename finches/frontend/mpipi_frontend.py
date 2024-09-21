@@ -34,7 +34,9 @@ class Mpipi_frontend(FinchesFrontend):
                                   window_size=31,
                                   use_cython=True,
                                   use_aliphatic_weighting=True,
-                                  use_charge_weighting=True):
+                                  use_charge_weighting=True
+                                  disorder_1=True,
+                                  disorder_2=True):
         """
         Returns the interaction matrix for the two sequences. Specifically this involves
         decomposing the two sequences into window_size fragments and calculating the inter-fragment
