@@ -32,8 +32,8 @@ class Mpipi_frontend(FinchesFrontend):
         use_cython=True,
         use_aliphatic_weighting=True,
         use_charge_weighting=True,
-        disorder_1=True,
-        disorder_2=True,
+        disorder_1=None,
+        disorder_2=None,
     ):
         """
         Returns the interaction matrix for the two sequences. Specifically this involves
@@ -97,16 +97,15 @@ class Mpipi_frontend(FinchesFrontend):
 
         """
 
-        # Mpipi can accomdate RNA as polyU only
-        if seq1.find("U") == -1:
-            disorder_1 = True
-        else:
+        if "U" in seq1:
             disorder_1 = False
+        elif disorder_1 is None:
+            disorder_1 = True
 
-        if seq2.find("U") == -1:
-            disorder_2 = True
-        else:
+        if "U" in seq2:
             disorder_2 = False
+        elif disorder_2 is None:
+            disorder_2 = True
 
         # call the superclass function
         return super().intermolecular_idr_matrix(
