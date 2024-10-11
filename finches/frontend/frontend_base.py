@@ -840,6 +840,9 @@ class FinchesFrontend:
                                     smoothing_window = 30,
                                     poly_order = 3,
                                     domains = [],
+                                    domain_color = 'yellow',
+                                    domain_alpha = 0.3,
+                                    trace_width = 3,
                                     vmin = -0.8,
                                     vmax = 0.8,
                                     tic_frequency=100,
@@ -847,6 +850,7 @@ class FinchesFrontend:
                                     fname=None,
                                     zero_folded=True,
                                     show_grid = False,
+                                    figsize=(4, 1.5),
                                     ylim = [-1.2,1.2]):
                                     
         """
@@ -874,6 +878,16 @@ class FinchesFrontend:
             A list of tuples containing the start and end indices of folded domains
             in the protein sequence. These will be shaded in the plot.
 
+        domain_color : str
+            The color to use for the passed domains. Default is 'yellow'.
+
+        domain_alpha : float
+            The alpha value for the passed domains. Default is 0.3.
+
+        trace_width : float
+            The width of the line for the per-residue attractive vector. 
+            Default is 3.
+
         vmin : float
             The minimum value for the color scale. Default is -0.8.
 
@@ -890,6 +904,12 @@ class FinchesFrontend:
         zero_folded : bool
             If True, the folded domains will be shaded in the plot. Default is True.
 
+        show_grid : bool
+            If True, a grid will be displayed on the plot. Default is False.
+
+        figsize : tuple
+            The size of the figure. Default is (4, 1.5).
+
         ylim : list
             The y-axis limits for the plot. Default is [-1.2,1.2].
 
@@ -904,10 +924,10 @@ class FinchesFrontend:
         # get the per-residue attractive vector
         X = self.protein_nucleic_vector(seq, fragsize=fragsize, smoothing_window=smoothing_window, poly_order=poly_order)
 
-        fig = plt.figure(figsize=(4., 1.5), dpi=450)
+        fig = plt.figure(figsize=figsize, dpi=450)
         ax = plt.gca()
 
-        plt.scatter(X[0], X[1], c=X[1], s=3, vmin=vmin, vmax=vmax, cmap=cmap)
+        plt.scatter(X[0], X[1], c=X[1], s=trace_width, vmin=vmin, vmax=vmax, cmap=cmap)
         plt.plot(X[0], X[1], 'k-',lw=0.3)
 
         if zero_folded:
@@ -916,7 +936,7 @@ class FinchesFrontend:
                 ax.axvspan(d[0],d[1],linewidth=0, zorder=-12, color='grey',alpha=0.6)
 
         for d in domains:
-            ax.axvspan(d[0],d[1],linewidth=0, zorder=-20, color='yellow', alpha=0.5)
+            ax.axvspan(d[0],d[1],linewidth=0, zorder=-20, color=domain_color, alpha=domain_alpha)
                         
             
         plt.xlim([1,len(seq)+1])
