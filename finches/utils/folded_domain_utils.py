@@ -59,9 +59,11 @@ THREE_TO_ONE = {'ALA': 'A',
 
 
 
-
-
-class FoldeDomain:
+# internal notes 2024-10-20
+# NB: In earlier versions of finches, FoldedDomain was defined as FoldeDomain (missing the
+# ending 'd' of folded. To maintain backwards compatibility, we alias the old name to the
+# new correct one at the end of this class. 
+class FoldedDomain:
 
     # ................................................................................
     #
@@ -74,7 +76,9 @@ class FoldeDomain:
                  residue_overide_mapping={},
                  surface_thresh=0.10,
                  sasa_mode='v1',
-                 ignore_warnings=False):
+                 ignore_warnings=False,
+                 SASA_ONLY=False,
+                 ):
         """
         Class to handle folded domains and perform folded domain structure 
         analysis related to epsilon-associated interacions.
@@ -135,10 +139,12 @@ class FoldeDomain:
             v2 means we calculate the SASA of the residue, but then compare to the summed max
             SASA of the sidechain with the backbone. This is more stringent 
 
-        
-
         ignore_warnings: bool
             ignore warnings (default False)
+
+        SASA_ONLY: bool
+            Only calculate SASA and return (default False). If this is set, all other
+            functionality will fail.
 
         """
 
@@ -183,6 +189,10 @@ class FoldeDomain:
                 else:                
                     print('Encountered residue name {three_letter} that is not a default AA nor in overide mapping')                    
         self.sequence = s
+
+        # bail here
+        if SASA_ONLY:
+            return
 
         # find solvent surface res
         surface_vector = []
@@ -869,13 +879,16 @@ class FoldeDomain:
                     fh.write(f'{i+1} A 0\n')
                 else:
                     fh.write(f'{i+1} A {round(surface_epsilon[i][2],3)}\n')
-                
+
+
+# < end of class> - note we define this here because we actually 
+FoldeDomain = FoldedDomain
 
 
 # ................................................................................
 #
 #
-def extract_and_write_domains(pdb_file, outfile, start, end, reset_indices=True):
+def extract_and_write_domains(pdb_file: str, outfile: str, start: int, end: int, reset_indices:bool=True) -> None:
     """
     This function will extract a domain from a pdb file and write it 
     to a new file. Note this function will renumber the residues and atoms
@@ -926,6 +939,8 @@ def extract_and_write_domains(pdb_file, outfile, start, end, reset_indices=True)
     # write pdb file
     p.save_pdb(outfile)
 
+
+    
 
 #def inter_domain_epsilon(fd1, fd2):
 #    for 
