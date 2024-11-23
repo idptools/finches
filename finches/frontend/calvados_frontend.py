@@ -62,7 +62,11 @@ class CALVADOS_frontend(FinchesFrontend):
                                   window_size=31,
                                   use_cython=True,
                                   use_aliphatic_weighting=True,
-                                  use_charge_weighting=True):
+                                  use_charge_weighting=True,
+                                  disorder_1=True,
+                                  disorder_2=True,
+                                  null_shuffle=False):
+                                  
         """
         Returns the interaction matrix for the two sequences. Specifically this involves
         decomposing the two sequences into window_size fragments and calculating the inter-fragment
@@ -106,6 +110,12 @@ class CALVADOS_frontend(FinchesFrontend):
             Whether to generate the disorder profile for sequence 2. Default is True. If False,
             a uniform disorder profile is used (all values=1).
 
+        null_shuffle : bool
+            Whether to shuffle the sequence before calculating the interaction matrix. Default
+            is False. If set to a number defines the number of shuffles used for each sequence;
+            recommended to use 100 shuffles.
+
+
         Returns
         --------------
         tuple
@@ -131,8 +141,9 @@ class CALVADOS_frontend(FinchesFrontend):
                                                  use_cython=use_cython,
                                                  use_aliphatic_weighting=use_aliphatic_weighting,
                                                  use_charge_weighting=use_charge_weighting,
-                                                 disorder_1=True,
-                                                 disorder_2=True)
+                                                 disorder_1=disorder_1,
+                                                 disorder_2=disorder_2,
+                                                 null_shuffle=null_shuffle)
 
     
     # ....................................................................................
@@ -202,7 +213,10 @@ class CALVADOS_frontend(FinchesFrontend):
                            cmap='PRGn',
                            fname=None,
                            zero_folded=True,
-                           no_disorder=False):
+                           no_disorder=False,
+                           null_shuffle=False,
+                           plot_rectangles=None):
+                           
 
         """
         Function to generate an interaction matrix figure between two sequences. This does
@@ -275,6 +289,16 @@ class CALVADOS_frontend(FinchesFrontend):
             Whether to include the disorder profiles. Default is False. If True, the disorder
             profiles will not be included.
 
+        null_shuffle : bool
+            Whether to shuffle the sequence before calculating the interaction matrix. Default
+            is False. If set to a number defines the number of shuffles used for each sequence;
+            recommended to use 100 shuffles.
+
+        plot_rectangles : list
+            If a list is provided it should be a list of lists, where each sublist has the
+            folowing information [seq1_start, seq1_end, seq2_start, seq2_end, color, alpha, kwargs].
+            Based on this information, rectangles will be drawn on the plot to highlight
+            specific regions. Default is None.
 
         Returns
         --------------
@@ -315,7 +339,9 @@ class CALVADOS_frontend(FinchesFrontend):
                                           zero_folded=zero_folded,
                                           disorder_1=True,
                                           disorder_2=True,
-                                          no_disorder=no_disorder)
+                                          no_disorder=no_disorder,
+                                          null_shuffle=null_shuffle,
+                                          plot_rectangles=plot_rectangles)
     
 
     

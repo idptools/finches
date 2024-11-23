@@ -2,6 +2,7 @@ import metapredict as meta
 from finches.forcefields.mpipi import Mpipi_model
 from finches import epsilon_to_FHtheory
 from finches import epsilon_stateless
+from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -52,7 +53,8 @@ class FinchesFrontend:
                                   use_aliphatic_weighting=True,
                                   use_charge_weighting=True,
                                   disorder_1=True,
-                                  disorder_2=True):
+                                  disorder_2=True,
+                                  null_shuffle=False):
 
         """
         Returns the interaction matrix for the two sequences. Specifically this involves
@@ -97,6 +99,12 @@ class FinchesFrontend:
             Whether to generate the disorder profile for sequence 2. Default is True. If False,
             a uniform disorder profile is used (all values=1).
 
+        null_shuffle : bool
+            Whether to shuffle the sequence before calculating the interaction matrix. Default
+            is False. If set to a number defines the number of shuffles used for each sequence;
+            recommended to use 100 shuffles.
+
+
         Returns
         --------------
         tuple
@@ -111,7 +119,7 @@ class FinchesFrontend:
 
             [2] disorder profile for sequence 2. Will be all 1s if disorder_2 is False
 
-        """                                  
+        """                 
         
         # compute the matrix
         B = self.IMC_object.calculate_sliding_epsilon(seq1,
@@ -120,13 +128,59 @@ class FinchesFrontend:
                                                       use_cython=use_cython,
                                                       use_aliphatic_weighting=use_aliphatic_weighting,
                                                       use_charge_weighting=use_charge_weighting)
+        
+        # if we're shuffling the sequence
+        if null_shuffle is not False:
 
+            # sanity check if input is provided for null_shuffle; note we explicitly include
+            # book because bool is a subclass of int and we don't want to allow that to avoid
+            # any potential confusion.
+            if not isinstance(null_shuffle, (int, float)) or isinstance(null_shuffle, bool):
+                raise ValueError('null_shuffle must be an integer or float')
+
+            # initialize for storing 
+            shuffle_matrices = []
+
+            # define an iterator so we print progress if this is gonna take a while 
+            if null_shuffle > 50:
+                local_iterator = tqdm(range(null_shuffle))
+            else:
+                local_iterator = range(null_shuffle)
+
+            
+            # cycle through the number of shuffles
+            for i in local_iterator:
+
+                # nb for homotypic we ensure the shuffles remain homotypic
+                seq_1_shuffled = ''.join(np.random.permutation(list(seq1)))
+                seq_2_shuffled = ''.join(np.random.permutation(list(seq2)))
+
+                B_tmp = self.IMC_object.calculate_sliding_epsilon(seq_1_shuffled,
+                                                                  seq_2_shuffled,
+                                                                  window_size=window_size,
+                                                                  use_cython=use_cython,
+                                                                  use_aliphatic_weighting=use_aliphatic_weighting,
+                                                                  use_charge_weighting=use_charge_weighting)
+                shuffle_matrices.append(B_tmp[0])
+
+            if seq1 == seq2:
+                # note - we do this to symmetrize the null matrix without introducing atrifacts be 
+                # enforcing shuffled sequences to always be the same
+                new_B_0 = B[0] - (np.mean(shuffle_matrices, axis=0) + np.mean(np.array(shuffle_matrices).swapaxes(1,2), axis=0))/2
+
+            else:
+                # overwrite the original matrix with the shuffle-normalized matrix
+                new_B_0 = B[0] - np.mean(shuffle_matrices, axis=0)
+            #new_B_0 = np.mean(shuffle_matrices, axis=0)
+            new_B_1 = B[1]
+            new_B_2 = B[2]
+            B = (new_B_0, new_B_1, new_B_2)
 
         # compute disorder profile for sequence 1 assuming disorder_1 is set to True
         if disorder_1:
             start_python_slice = B[1][0] - 1
             end_python_slice   = B[1][-1] # no -1 because python slices are not inclusive
-            disorder_1 = meta.predict_disorder(seq1)[start_python_slice:end_python_slice]
+            disorder_1 = meta.predict_disorder(seq1, version=2)[start_python_slice:end_python_slice]
         else:
             disorder_1 = np.array([1]*B[0].shape[0])
 
@@ -134,7 +188,7 @@ class FinchesFrontend:
         if disorder_2:
             start_python_slice = B[2][0] - 1 # -1 to move into python indexing
             end_python_slice   = B[2][-1] # no -1 because python slices are not inclusive            
-            disorder_2 = meta.predict_disorder(seq2)[start_python_slice:end_python_slice]
+            disorder_2 = meta.predict_disorder(seq2, version=2)[start_python_slice:end_python_slice]
         else:
             disorder_2 = np.array([1]*B[0].shape[1])
 
@@ -253,9 +307,9 @@ class FinchesFrontend:
                            zero_folded=True,
                            disorder_1=True,
                            disorder_2=True,
-                           no_disorder=False):
-                           
-                           
+                           no_disorder=False,
+                           null_shuffle=False,
+                           plot_rectangles=None):
     
         """
         Function to generate an interaction matrix figure between two sequences. This does
@@ -331,6 +385,17 @@ class FinchesFrontend:
         no_disorder : bool
             Whether to include the disorder profile for sequence 2. Default is False.
 
+        null_shuffle : bool
+            Whether to shuffle the sequence before calculating the interaction matrix. Default
+            is False. If set to a number defines the number of shuffles used for each sequence;
+            recommended to use 100 shuffles.
+
+        plot_rectangles : list
+            If a list is provided it should be a list of lists, where each sublist has the
+            folowing information [seq1_start, seq1_end, seq2_start, seq2_end, color, alpha, kwargs].
+            Based on this information, rectangles will be drawn on the plot to highlight
+            specific regions. Default is None.
+
 
         Returns
         --------------
@@ -360,7 +425,8 @@ class FinchesFrontend:
                                                                    window_size=window_size,
                                                                    use_cython=use_cython,
                                                                    use_aliphatic_weighting=use_aliphatic_weighting,
-                                                                   use_charge_weighting=use_charge_weighting)
+                                                                   use_charge_weighting=use_charge_weighting,
+                                                                   null_shuffle=null_shuffle)
 
 
         if zero_folded:        
@@ -471,6 +537,21 @@ class FinchesFrontend:
             cbar = fig.colorbar(im, cax=ax_colorbar, orientation='vertical')
             ax_colorbar.yaxis.set_ticks_position('left')
             ax_colorbar.yaxis.set_label_position('left')
+
+        if plot_rectangles is not None:
+            for r in plot_rectangles:
+                region_start_1 = r[0]
+                region_end_1   = r[1]
+                region_start_2 = r[2]
+                region_end_2   = r[3]                
+                kwargs = r[4]
+                ax_main.add_patch(matplotlib.patches.Rectangle((region_start_1, region_start_2), 
+                                                               region_end_1-region_start_1, 
+                                                               region_end_2-region_start_2,                                                                
+                                                               linewidth=2,                                                               
+                                                               facecolor='none',
+                                                               **kwargs))
+                                                               
 
         plt.tight_layout()
         

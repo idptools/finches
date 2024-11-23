@@ -34,7 +34,7 @@ class Mpipi_frontend(FinchesFrontend):
         use_charge_weighting=True,
         disorder_1=None,
         disorder_2=None,
-    ):
+        null_shuffle=False):    
         """
         Returns the interaction matrix for the two sequences. Specifically this involves
         decomposing the two sequences into window_size fragments and calculating the inter-fragment
@@ -81,6 +81,11 @@ class Mpipi_frontend(FinchesFrontend):
             Whether to generate the disorder profile for sequence 2. Default is True. If False,
             a uniform disorder profile is used (all values=1).
 
+        null_shuffle : bool
+            Whether to shuffle the sequence before calculating the interaction matrix. Default
+            is False. If set to a number defines the number of shuffles used for each sequence;
+            recommended to use 100 shuffles.
+
         Returns
         --------------
         tuple
@@ -117,6 +122,7 @@ class Mpipi_frontend(FinchesFrontend):
             use_charge_weighting=use_charge_weighting,
             disorder_1=disorder_1,
             disorder_2=disorder_2,
+            null_shuffle=null_shuffle
         )
 
     def interaction_figure(
@@ -139,7 +145,9 @@ class Mpipi_frontend(FinchesFrontend):
         fname=None,
         zero_folded=True,
         no_disorder=False,
-    ):
+        null_shuffle=False,
+        plot_rectangles=None):
+        
         """
         Function to generate an interaction matrix figure between two sequences. This does
         all the calculation on the backend and formats a figure with parallel disorder tracks
@@ -214,6 +222,16 @@ class Mpipi_frontend(FinchesFrontend):
             Whether to include the disorder profiles. Default is False. If True, the disorder
             profiles will not be included.
 
+        null_shuffle : bool
+            Whether to shuffle the sequence before calculating the interaction matrix. Default
+            is False. If set to a number defines the number of shuffles used for each sequence;
+            recommended to use 100 shuffles.
+
+        plot_rectangles : list
+            If a list is provided it should be a list of lists, where each sublist has the
+            folowing information [seq1_start, seq1_end, seq2_start, seq2_end, color, alpha, kwargs].
+            Based on this information, rectangles will be drawn on the plot to highlight
+            specific regions. Default is None.
 
         Returns
         --------------
@@ -268,4 +286,6 @@ class Mpipi_frontend(FinchesFrontend):
             disorder_1=disorder_1,
             disorder_2=disorder_2,
             no_disorder=no_disorder,
-        )
+            null_shuffle=null_shuffle,
+            plot_rectangles=plot_rectangles)
+        
