@@ -1082,11 +1082,11 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
             if self.weight_function is None:
                 return None
             else: #need to calculate the _threshold_offset
-                seq_gs = 'GS'*20
+                seq_gs = 'GS'*25
                 #seq_gs = 'GS'*2 + 'G'
                 # r_gs = np.array([-2,-1,0,1,2])
                 # self._threshold_offset = self.calc_filtered_region(seq_gs, r_gs*3.5, seq_gs, r_gs, offset=False)
-                mat,_ = self.compute_offset_term(seq_gs,seq_gs,2,2*3.5)
+                mat,_ = self.compute_offset_term(seq_gs,seq_gs,5,5*3.5)
                 self._threshold_offset= np.mean(mat)
                 return self._threshold_offset
                 
@@ -1097,7 +1097,7 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
     
     def compute_offset_term(self, seq1 : str,seq2 : str, window_extent : int,
                                                        window_equivilent_spatial_distance : float,
-                                                       full_extent : bool = False):
+                                                       full_extent : bool = True):
         '''basically a copy of the front end function that does the same thing'''
         #check that there is a wieghting function that this object was initialized with
         filter_func = self.weight_function
@@ -1159,7 +1159,7 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         
         '''
         #determine the wieghts based on the weighting function
-        weights = self.weight_function(interaction_vec)
+        weights = self.weight_function(distance_from_center_vec)
         #compute the weighted interaction
         weighted_interaction =  weights* interaction_vec
         #return the weighted average
