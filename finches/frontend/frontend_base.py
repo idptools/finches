@@ -1229,6 +1229,8 @@ class FinchesFrontend:
     
     def calc_idr_idr_psuedo_spatial_interaction_matrix(self, seq1 : str,seq2 : str, window_extent : int,
                                                        window_equivilent_spatial_distance : float,
+                                                       use_aliphatic_weighting : bool = True,
+                                                       use_charge_weighting : bool = True,
                                                        full_extent : bool = True) -> np.ndarray:
         '''This function computes an interaction matrix in the manner done by the structural portion.
         
@@ -1287,7 +1289,9 @@ class FinchesFrontend:
             idr_local_distance2 = np.array([seq_dist_factor*np.abs(k-j) for k in idr_negihbor_resid2])
             
             #compute the 
-            ret_mat[i,j] = self.IMC_object.calc_filtered_region(idr_str1, idr_local_distance1, idr_str2, idr_local_distance2)
+            ret_mat[i,j] = self.IMC_object.calc_filtered_region(idr_str1, idr_local_distance1, idr_str2, idr_local_distance2,
+                                                                use_aliphatic_weighting=use_aliphatic_weighting,
+                                                                use_charge_weighting=use_charge_weighting)
                 
         return ret_mat, (ids1, ids2)
     

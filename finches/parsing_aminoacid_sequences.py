@@ -21,6 +21,7 @@ from .sequence_tools import MASK_n_closest_nearest_neighbors, mask_sequence, get
 # new characters for PIMMS aliphatic groups 
 aliphatic_group1 = {'A':'a', 'L':'l', 'M':'m', 'I':'i', 'V':'v'}
 aliphatic_group2 = {'A':'b', 'L':'o', 'M':'x', 'I':'y', 'V':'z'}
+ALIPHATIC_RESIDUES = ['A','V','I','L','M']
 
 ## ---------------------------------------------------------------------------
 ##
@@ -387,3 +388,49 @@ def get_aliphaticgroup_sequence(chain):
             newsequence.append(a)
     
     return ''.join(newsequence)
+
+
+
+
+def get_charged_sequence_vector(sequence : str) -> np.ndarray:
+    '''This function returns the charge of the amino acid as a numpy array
+    
+    Parameters
+    ----------
+    sequence : str
+        This is the string or list of amino acids in the sequeence you want to check.
+    
+    Ruturns
+    -------
+    numpy.ndarray
+        A numpy array with the charge of the amino acid at physiological conditions.
+        The charge is in units of e. So a D or an E map to -1 and a K or R maps to +1.
+    '''
+    #mask the negative charges and then multiply by -1 to give them the correct charge
+    neg_vec = -1 * np.array(mask_sequence(sequence, ['D','E']))
+
+    #mask the positive charges 
+    pos_vec = np.array(mask_sequence(sequence, ['K','R']))
+
+    #add each residue in the vector and reutrn the result
+    return neg_vec + pos_vec
+
+
+def get_aliphatic_sequence_vector(sequence : str) -> np.ndarray:
+    '''This function masks the aliphatic residues with a binary 1 or 0 mask.
+    The reisudes that are considered to be aliphatic are:
+    A, V, I, L, M
+    
+    Parameters
+    ----------
+    sequence : str
+        This is the string or list of amino acids in the sequence
+        
+    Returns
+    -------
+    np.ndarray
+        A numpy array with the mask for th ealiphatic residues
+    '''
+    #mask the aliphatics and return the numpy array
+    return np.array(mask_sequence(sequence, ALIPHATIC_RESIDUES))
+    

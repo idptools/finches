@@ -1067,6 +1067,13 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
                  compute_forcefield_dependencies)
         #initialize the weighting function to use for computation later
         self.weight_function = weight_function
+
+        #define the charge correction weighting function
+        func1 = lambda x: np.exp(np.power(x/(1*3.4),2)/2)
+        self.weight_function_charge = func1
+
+        #define the aliphatic correction weighting function
+        self.weight_function_aliphatic = func1
         
     
     '''
@@ -1168,12 +1175,83 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         res = nsum/dsum
         return res
     
+    def calculate_charge_correction_term(self, amino_acid_list : np.ndarray, distance_vec : np.ndarray) -> float:
+        '''This function computes the charge correction term utilizing the idea of Net Charge/Charged amino acids in an expanding disk.
+        This function bidirectionally applies...
+        Parameters
+        ----------
+        amino_acid_list : list
+            This is a list of the amino acid letters from both sequences concatenated together in the same manner as distance_vec.
+        distance_vec : np.array
+            This is the local distance of each letter along its respective "sequence"
+        param : float
+            This is the fudge factor that must be used to account for charge clusting effects.
+        Returns
+        -------
+        float
+            This is the correction term to subtract off the 
+        '''
+        param = 0.2
+
+        correction_term = 0 #this is the correction term to return (0 if the origin has no charged residues)
+        #find all the letters that localize at 0 away from the origin
+        has_charge = False
+        letters_at_origin = []
+        for k in range(len(distance_vec)):
+            if distance_vec[k] == 0:
+                letters_at_origin.append(amino_acid_list[k])
+        #determine if any of the origin letters are charged
+        charges = 'RKED'
+        for let in letters_at_origin:
+            if let in charges:
+                has_charge = True
+                break
+
+        #if there is a charged group at the origin then go into the if statement
+        if has_charge: 
+            #get the charge masked vector
+            charge_vector = parsing_aminoacid_sequences.get_charged_sequence_vector(amino_acid_list)
+
+            #take the absoluyte value to get the characteristic function for if the residue is charged
+            isCharged_vector = np.abs(charge_vector)
+
+            #compute the numerator and denominator values
+            #mu*w(r)C
+            numerator_vec = self.weight_function_charge(distance_vec)*charge_vector*isCharged_vector
+            denominator_vec = self.weight_function_charge(distance_vec)*isCharged_vector
+
+            #compute the correction term
+            correction_term = param * np.sum(numerator_vec)/np.sum(denominator_vec)
+            
+
+            
+        return correction_term #return 0 if there is no charge at the origin (could weight them but if you are sufficiently local then you should be okay)
+        
+
+    def calculate_aliphatic_correction_term(self, amino_acid_list : np.ndarray, distance_vec : np.ndarray) -> float:
+        '''This function calculates a correction terms to be subtracted from the local interaction term.
+        This correct does not require that the residue being considered is aliphatic.
+        '''
+        param = 1
+        #get the aliphatic vector
+        aliphatic_vec = parsing_aminoacid_sequences.get_aliphatic_sequence_vector(amino_acid_list)
+
+        #get a vector that can be summed to give the result
+        res_vec = self.weight_function_aliphatic(distance_vec)*aliphatic_vec
+
+        #return the value
+        return param * np.sum(res_vec)
+
+    
     def determine_referenced_interaction_strength_vec(self, seq : str, ref_let : str):
         return np.array([self.lookup[ref_let][vvv] for vvv in seq])
     
     def calc_filtered_region(self, seq1 : np.ndarray, r1 : np.ndarray, 
                              seq2 : np.ndarray, r2 : np.ndarray,
-                             offset=True):
+                             use_aliphatic_weighting : bool = True,
+                             use_charge_weighting : bool = True,
+                             offset : bool = True,
+                             center_index : int = None):
         '''This function calculates the filtered value of the region based on the 
         
         
@@ -1187,14 +1265,13 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
             This is the second sequence that is in the window associated with the second protein
         r2 : numpy.ndarray
             Distance values in the seq2 dimension
-        split : bool
-            This is the flag that determines if the data is going to get split. 
-            If it is going to get split then this will split the interaction values
-            prior to filtering between the values above/inclusive and strictly below the 
-            split_thresh.
-        split_thresh : float
-            This is the threshold that splits the interaction strength between "attractive" and 
-            "repulsive". 
+        use_aliphatic_weighting : bool
+            This boolean determines whether local clusting of aliphatics is considered when computing the epsilon value
+        use_charge_weighting : bool
+            This boolean determines whether local clustering of charged residues are considered when computing the epsilon value
+        offset : bool
+            This bool determines whether the offset term should be applied or not. IT ALWAYS SHOULD BE.
+            This is just for the offset initialization
             
         Returns
         -------
@@ -1208,6 +1285,13 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         #check that seq1 has the same length of r1 and same for seq2 and r2
         if len(seq1) != len(r1) or len(seq2) != len(r2):
             raise Exception(f"Error in Calc_filtered_region. Length of sequence did not match length of radius")
+        
+        #find the index of the local region that is the center
+        #first determine if it is needed to do this
+        if center_index is None and (use_aliphatic_weighting or use_charge_weighting):
+            for k in range(len(r1)):
+                for l in range(len(r2)):
+                    pass
         
         #generate the tuple of all posibble combos from seq1 and seq2
         #(radius1, radius2, interaction value)
@@ -1233,8 +1317,13 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
     #     #create a tuple to pass back
     #     ret_val = (filt_pos*np.sum(pos_binary) +  filt_neg*np.sum(neg_binary))/len(interaction_vec) #remember that positive is repulsive
     # else:
-    #     #compute the weighted average
+        #compute the weighted average
         ret_val = self.apply_weighted_averaging(interaction_vec, distance_vec)
+        #apply correction terms to the calculation
+        if use_aliphatic_weighting:
+            ret_val = ret_val - self.calculate_aliphatic_correction_term(np.concatenate((seq1,seq1)), np.concatenate((r1,r2)))
+        if use_charge_weighting:
+            ret_val = ret_val - self.calculate_charge_correction_term(np.concatenate((seq1,seq1)), np.concatenate((r1,r2)))
         if offset:
             ret_val = ret_val - self.threshold_offset
         
