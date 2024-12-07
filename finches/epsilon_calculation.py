@@ -1191,7 +1191,7 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         float
             This is the correction term to subtract off the 
         '''
-        param = 0.2
+        param = 1
 
         correction_term = 0 #this is the correction term to return (0 if the origin has no charged residues)
         #find all the letters that localize at 0 away from the origin
@@ -1221,7 +1221,7 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
             denominator_vec = self.weight_function_charge(distance_vec)*isCharged_vector
 
             #compute the correction term
-            correction_term = param * np.sum(numerator_vec)/np.sum(denominator_vec)
+            correction_term = param*np.abs(np.sum(numerator_vec)/np.sum(denominator_vec))
             
 
             
@@ -1320,10 +1320,21 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         #compute the weighted average
         ret_val = self.apply_weighted_averaging(interaction_vec, distance_vec)
         #apply correction terms to the calculation
+        #concatenate the strings prior
+        seq_concat = np.concatenate((seq1,seq2))
+        dist_concat = np.concatenate((r1,r2))
+        if len(seq_concat) != len(dist_concat):
+            print(f"There was an issue in concatenating the sequences fo the correction.")
+            print(f"Seq1 (length = {len(seq1)}): {seq1}\nSeq2 (length = {len(seq2)}): {seq2}")
+            print(f"Concated (length = {len(seq_concat)}): {seq_concat}")
+            print(f"Radius1 (length = {len(r1)}): {r1}\nRadius2 (length = {len(r2)}): {r2}")
+            print(f"Radius Concated (length = {len(dist_concat)}): {dist_concat}")
+            raise Exception(f"Unequal Length")
         if use_aliphatic_weighting:
-            ret_val = ret_val - self.calculate_aliphatic_correction_term(np.concatenate((seq1,seq1)), np.concatenate((r1,r2)))
+            pass #fix this later
+            #ret_val = ret_val - self.calculate_aliphatic_correction_term(np.concatenate((seq1,seq1)), np.concatenate((r1,r2)))
         if use_charge_weighting:
-            ret_val = ret_val - self.calculate_charge_correction_term(np.concatenate((seq1,seq1)), np.concatenate((r1,r2)))
+            ret_val = ret_val - self.calculate_charge_correction_term(seq_concat, dist_concat)
         if offset:
             ret_val = ret_val - self.threshold_offset
         
