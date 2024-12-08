@@ -1331,8 +1331,8 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
             print(f"Radius Concated (length = {len(dist_concat)}): {dist_concat}")
             raise Exception(f"Unequal Length")
         if use_aliphatic_weighting:
-            pass #fix this later
-            #ret_val = ret_val - self.calculate_aliphatic_correction_term(np.concatenate((seq1,seq1)), np.concatenate((r1,r2)))
+            #pass #fix this later
+            ret_val = ret_val - self.calculate_aliphatic_correction_term(seq_concat, dist_concat)
         if use_charge_weighting:
             ret_val = ret_val - self.calculate_charge_correction_term(seq_concat, dist_concat)
         if offset:
