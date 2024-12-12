@@ -5,7 +5,12 @@
 import os
 
 
-from ._version import __version__
+# Generate _version.py if missing and in the Read the Docs environment
+if os.getenv("READTHEDOCS") == "True" and not os.path.isfile('../finches/_version.py'):   
+    import versioningit            
+__version__ = versioningit.get_version('../')
+else:
+    from ._version import __version__
 
 # front-end imports here
 from finches.frontend.calvados_frontend import CALVADOS_frontend

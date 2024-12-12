@@ -1,1 +1,2 @@
 versioningit
+sphinx_rtd_theme

@@ -328,7 +328,7 @@ class FoldedDomain:
         the protein. It will evaluate values for the following object variables
         that can be accessed after the function is called:
 
-        * self.surface_neighbours: dictionary that reports on the indeices of induces 
+        * self.surface_neighbours: dictionary that reports on the indices of residues 
         that are within a certain distance of each residue (defined by the distance 
         threshold parameter)
 
@@ -421,7 +421,6 @@ class FoldedDomain:
                 connect_id = connected_node[0]
                 connect_dist = connected_node[1]
 
-        
                 G.add_edge(node, connect_id, weight=connect_dist)
 
         all_shortest_paths = dict(nx.all_pairs_dijkstra_path_length(G, weight='weight'))
@@ -526,6 +525,7 @@ class FoldedDomain:
             IMCObject that contains the epsilon calculate, this
             can obtained as a object variable from an Mpipi_frontend
             or CALAVDOS_frontend object.
+
 
         Returns
         -------
@@ -881,7 +881,112 @@ class FoldedDomain:
                     fh.write(f'{i+1} A {round(surface_epsilon[i][2],3)}\n')
 
 
-# < end of class> - note we define this here because we actually 
+    def calculate_idr_surface_patch_interactions(self, 
+                                   interacting_sequence, 
+                                   IMCObject, 
+                                   idr_tile_size = 31,
+                                   patch_radius=12):
+        """
+        NOTE: You can either make an fdobj by feeding in a path to a PDB 
+        or you can premake your fdobj and use that. Either fdobj or path_to_pdb
+        must be set to None or this function will rais an exception.
+        
+        function to calculate the interaction between some chemistry
+        and the surface patches of a sequence. Patches are defined
+        by residues within distance thresh of the central residue. 
+
+        TO DO ; UPDATE THESE DOCS
+
+        Parameters
+        -----------
+        interacting_sequence : str
+            the sequence that interacts with the protein in the PDB as a string
+
+        IMCObject: IMCObject
+            IMCObject that contains the epsilon calculate. The IMCObject is an initialized
+            FINCHES-derived object that enables epsilon calculations. It can be found in 
+            the Mpipi_frontend or CALAVDOS_frontend objects, as an IMC_object variable.
+            
+        patch_radius : float
+            the radius from the center of the patch to allow residues to contribute
+            to the patch. Default is 12 Angstroms.
+
+        Returns
+        --------
+        tupe
+            [0] dict of the patch mean interactions
+            [1] matrix for visualizing IDR:FD surface
+            [2] mean vector for visualizing IDR:FD surface
+
+
+        """
+
+        if (idr_tile_size % 2) == 0:
+            raise Exception("IDR tile window size must be an odd integer.")
+
+        if (idr_tile_size > len(interacting_sequence)):
+            raise Exception("IDR tile window size must be less than the length of the provided sequence.")
+        
+        half_window = int((idr_tile_size - 1)/2)
+
+        # get nearest neighbors and surface neighbors
+        self.get_nearest_neighbour_res(distance_thresh=patch_radius)
+        
+        neighbors = self.surface_neighbours
+
+        # get sequence
+        seq = self.sequence
+
+        # dict to hold patches
+        interaction_dict = {}
+        
+        # now iterate over all possible patches
+        for patch_ind_center in neighbors:
+            resinds = neighbors[patch_ind_center]
+
+            patch_mean_eps = sum([IMCObject.calculate_epsilon_value(interacting_sequence, seq[a]) for a, dist in resinds])/len(interacting_sequence)
+
+            interacting_residues=''.join([seq[a] for a, dist in resinds])
+            residue_indices=[a for a,n in resinds]
+            interaction_dict[patch_ind_center]={'mean_epsilon':patch_mean_eps, 'interacting_residues':interacting_residues, 'residue_indices':residue_indices, 'resinds_with_dist':resinds}
+        
+        for i in interaction_dict.keys():
+            res_data = interaction_dict[i]
+
+            tmp = []
+            for j in range(half_window, len(interacting_sequence) - half_window):
+                tmp.append(IMCObject.calculate_epsilon_value(interacting_sequence[(j - half_window):(j + half_window + 1)], res_data['interacting_residues']))
+
+
+            interaction_dict[i]['idr_epsilon_vector'] = tmp
+
+        # pre-initailize the empty vector
+        empty_vector = np.array([np.nan] * len(list(interaction_dict.values())[0]['idr_epsilon_vector']))
+        
+        collect_epsilon_vectors = []
+        
+        for i in range(len(self)):
+
+            # if residue i is a surface residue
+            if interaction_dict.get(i):
+                collect_epsilon_vectors.append(np.array(interaction_dict[i]['idr_epsilon_vector']))
+            else:
+                collect_epsilon_vectors.append(empty_vector)
+
+        vector_mean = np.array([x['idr_epsilon_vector'] for x in interaction_dict.values()]).mean(axis=0)
+        
+        return [interaction_dict, np.array(collect_epsilon_vectors), vector_mean]            
+        
+        
+
+
+
+        
+    
+        
+
+# < end of class> - note we define this here because we actually want to alias the old
+# name to the new name....
 FoldeDomain = FoldedDomain
 
 

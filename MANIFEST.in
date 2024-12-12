@@ -1,8 +1,16 @@
 include CODE_OF_CONDUCT.md
+include LICENSE
+include MANIFEST.in
+
 
 # include all .pyx files wherever they may be
 recursive-include * *.pyx
 recursive-include * *.pickle
 recursive-include finches/data *
 
+# avoids tmp files being packaged which is good!
 global-exclude *.py[cod] __pycache__ *.so
+
+# in THEORY this means everything under 
+# the `metapredict/` directory is included
+graft finches

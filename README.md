@@ -2,7 +2,7 @@ FINCHES
 ==============================
 ![Finches Logo](finches_logo_v1.png)
 
-### Current version: 0.1.1 (beta public)
+### Current version: 0.1.2 (beta public)
 
 ## About
 FINCHES (First-principle Interactions via CHEmical Specificity) is a software package for computing IDR-associated chemical specificity. It is the accompanying implementation associated with the preprint:
@@ -100,7 +100,7 @@ Head on over to `demo/` directory for some Jupyter notebooks showing the types o
 
 ### Copyright
 
-Copyright (c) 2023-2024, Garrett M. Ginell & Alex S. Holehouse
+Copyright (c) 2023-2024, Garrett M. Ginell & Alex S. Holehouse under a CC BY-NC 4.0 license.
 
 ### Acknowledgements
 Finches was built by Garrett Ginell and Alex Holehouse.

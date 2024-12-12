@@ -133,7 +133,7 @@ class FinchesFrontend:
         if null_shuffle is not False:
 
             # sanity check if input is provided for null_shuffle; note we explicitly include
-            # book because bool is a subclass of int and we don't want to allow that to avoid
+            # bool because bool is a subclass of int and we don't want to allow that to avoid
             # any potential confusion.
             if not isinstance(null_shuffle, (int, float)) or isinstance(null_shuffle, bool):
                 raise ValueError('null_shuffle must be an integer or float')

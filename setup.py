@@ -9,13 +9,15 @@ import numpy
 import os
 
 
-pyx_path = "finches/utils/matrix_manipulation.pyx"
-print("Absolute path:", os.path.abspath(pyx_path))
+cython_file = os.path.join("finches", "utils", "matrix_manipulation.pyx")
+
+#pyx_path = "finches/utils/matrix_manipulation.pyx"
+print("Absolute path:", os.path.abspath(cython_file))
 
 extensions = [
     Extension(
         "finches.utils.matrix_manipulation",
-        ["finches/utils/matrix_manipulation.pyx"],
+        [cython_file],
         include_dirs=[numpy.get_include()], 
     )]
 

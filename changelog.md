@@ -1,5 +1,13 @@
 # Changelog
 
+### Version 0.1.2 (beta; Dec 2024)
+* Version 0.1.2 brings a number of new features that are fully implemented but limited in their using facing capacity. This will be addressed over the coming weeks (i.e. by end of 2024).
+* A new approach for automating IDR-associated domain decomposition. This domain decomposition approach was developed by Alex Keeley. 
+* **InterLogos**: In 0.1.2 we're pleased to introduce InterLogos. InterLogos are akin to sequence logos in that they provide a way to visually identify residues and regions that are predicted to drive attractive intermolecular interactions. InterLogos were developed by Nick Razo. InterLogos will be introduced into finches-online in the near future.
+* A newly revised method for calculating IDR:folded domain surace interactions that give residue-specific information. This approach was developed by Stephen Plassmeyer and Ryan Emenecker.
+* Various other small improvements.
+
+
 ### Version 0.1.1 (beta)
 * Added `no_disorder` flag to frontend objects, which means we generate intermaps without the disorder profiles. 
 * Added `per_residue_repulsive_vector()` function to frontend objects, enabling the repulsive vector to be returned.
