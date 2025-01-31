@@ -100,7 +100,7 @@ Head on over to `demo/` directory for some Jupyter notebooks showing the types o
 
 ### Copyright
 
-Copyright (c) 2023-2024, Garrett M. Ginell & Alex S. Holehouse under a CC BY-NC 4.0 license.
+Copyright (c) 2023-2025, Garrett M. Ginell & Alex S. Holehouse under a CC BY-NC 4.0 license.
 
 ### Acknowledgements
 Finches was built by Garrett Ginell and Alex Holehouse.

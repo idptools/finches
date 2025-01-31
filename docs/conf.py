@@ -17,10 +17,6 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('..'))
 
-from unittest.mock import MagicMock
-
-MOCK_MODULES = ["numpy", "torch", "metapredict", "scipy", "pandas"]  # Add any packages causing issues
-sys.modules.update((mod, MagicMock()) for mod in MOCK_MODULES)
 
 # -- Project information -----------------------------------------------------
 
@@ -32,6 +28,8 @@ author = 'Alex Holehouse & Garrett M. Ginell'
 version = ''
 # The full version, including alpha/beta/rc tags
 release = ''
+
+autodoc_mock_imports = ["metapredict"]
 
 
 # -- General configuration ---------------------------------------------------
