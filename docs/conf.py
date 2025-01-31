@@ -18,7 +18,10 @@ import sys
 sys.path.insert(0, os.path.abspath('..'))
 
 import finches
+from unittest.mock import MagicMock
 
+MOCK_MODULES = ["numpy", "torch", "metapredict", "scipy", "pandas"]  # Add any packages causing issues
+sys.modules.update((mod, MagicMock()) for mod in MOCK_MODULES)
 
 # -- Project information -----------------------------------------------------
 
