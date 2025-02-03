@@ -1069,7 +1069,7 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         self.weight_function = weight_function
 
         #define the charge correction weighting function
-        func1 = lambda x: np.exp(np.power(x/(1*3.4),2)/2)
+        func1 = lambda x: np.exp(-1*np.power(x/(0.5*3.4),1)/2)
         self.weight_function_charge = func1
 
         #define the aliphatic correction weighting function
@@ -1085,7 +1085,7 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         #check if _threshold_offset has been previously calculated
         if hasattr(self, '_threshold_offset'):
             return self._threshold_offset
-        else: #if it hasnt check that the weight_function is not 
+        else: #if it hasnt check that the weight_function is not none
             if self.weight_function is None:
                 return None
             else: #need to calculate the _threshold_offset
@@ -1174,6 +1174,13 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         dsum = np.sum(weights)
         res = nsum/dsum
         return res
+
+    def _check_local_charge_criteria(self, charge_vec : np.ndarray, distance_vec : np.ndarray,
+                                    min_charge : int = 4, max_dist : float = 3.4) -> bool:
+        '''Checks that there are at enough local charges'''
+        #find all the charge states within max_dist
+        close_charge = charge_vec[distance_vec <= max_dist]
+        return np.sum(close_charge) >= min_charge
     
     def calculate_charge_correction_term(self, amino_acid_list : np.ndarray, distance_vec : np.ndarray) -> float:
         '''This function computes the charge correction term utilizing the idea of Net Charge/Charged amino acids in an expanding disk.
@@ -1215,13 +1222,17 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
             #take the absoluyte value to get the characteristic function for if the residue is charged
             isCharged_vector = np.abs(charge_vector)
 
-            #compute the numerator and denominator values
-            #mu*w(r)C
-            numerator_vec = self.weight_function_charge(distance_vec)*charge_vector*isCharged_vector
-            denominator_vec = self.weight_function_charge(distance_vec)*isCharged_vector
+            #make sure there is a minimum number of charges near by
+            if self._check_local_charge_criteria(isCharged_vector, distance_vec):
 
-            #compute the correction term
-            correction_term = param*np.abs(np.sum(numerator_vec)/np.sum(denominator_vec))
+                #compute the numerator and denominator values
+                #mu*w(r)C
+                numerator_vec = self.weight_function_charge(distance_vec)*charge_vector*isCharged_vector
+                denominator_vec = isCharged_vector
+                #denominator_vec = self.weight_function_charge(distance_vec)*isCharged_vector
+
+                #compute the correction term
+                correction_term = param*np.abs(np.sum(numerator_vec)/np.sum(denominator_vec))
             
 
             
@@ -1232,7 +1243,7 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         '''This function calculates a correction terms to be subtracted from the local interaction term.
         This correct does not require that the residue being considered is aliphatic.
         '''
-        param = 1
+        param = 1/26
         #get the aliphatic vector
         aliphatic_vec = parsing_aminoacid_sequences.get_aliphatic_sequence_vector(amino_acid_list)
 
@@ -1331,8 +1342,8 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
             print(f"Radius Concated (length = {len(dist_concat)}): {dist_concat}")
             raise Exception(f"Unequal Length")
         if use_aliphatic_weighting:
-            #pass #fix this later
-            ret_val = ret_val - self.calculate_aliphatic_correction_term(seq_concat, dist_concat)
+            pass #fix this later
+            #ret_val = ret_val - self.calculate_aliphatic_correction_term(seq_concat, dist_concat)
         if use_charge_weighting:
             ret_val = ret_val - self.calculate_charge_correction_term(seq_concat, dist_concat)
         if offset:
