@@ -180,7 +180,7 @@ class FinchesFrontend:
         if disorder_1:
             start_python_slice = B[1][0] - 1
             end_python_slice   = B[1][-1] # no -1 because python slices are not inclusive
-            disorder_1 = meta.predict_disorder(seq1, version=2)[start_python_slice:end_python_slice]
+            disorder_1 = meta.predict_disorder(seq1)[start_python_slice:end_python_slice]
         else:
             disorder_1 = np.array([1]*B[0].shape[0])
 
@@ -188,7 +188,7 @@ class FinchesFrontend:
         if disorder_2:
             start_python_slice = B[2][0] - 1 # -1 to move into python indexing
             end_python_slice   = B[2][-1] # no -1 because python slices are not inclusive            
-            disorder_2 = meta.predict_disorder(seq2, version=2)[start_python_slice:end_python_slice]
+            disorder_2 = meta.predict_disorder(seq2)[start_python_slice:end_python_slice]
         else:
             disorder_2 = np.array([1]*B[0].shape[1])
 
