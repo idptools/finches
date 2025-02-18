@@ -596,7 +596,8 @@ class FoldeDomain:
         Nick's Version
         This function calculates the surface epsilon values for each residue in the
         protein. The function will calculate the surface epsilon for each residue in 
-        the protein and return this in a surface_epsilon dictionary.
+        the protein and return this as a matrix. The matrix correlation back to the dataset
+        is based on self.surface_indices.
 
         Briefly, this function works by doing the following:
 
@@ -657,16 +658,9 @@ class FoldeDomain:
             [2] - the surface epsilon value for that residue.
 
         """
-        #amino acid constants
-        hydrophobes = ['I' , 'V', 'L', 'A', 'M']
-        negative = ['D', 'E']
-        positive = ['K', 'R']
         
         #recompute the neighbors based on distance specified
         self.get_nearest_neighbour_res(distance_thresh=window_struct_distance_extent)
-
-        #creating a blank for saving the result
-        surface_eps = {}
         
         #sequence distance factor
         seq_dist_factor = window_struct_distance_extent/window_seq_distance_extent
@@ -678,8 +672,6 @@ class FoldeDomain:
             adj_idr_idxs = np.arange(0,len(input_sequence))
             #settup the return matrix output (preallocate)
         ret_mat = np.zeros((len(self.surface_indices),len(input_sequence)), dtype=float)
-        if split: #if we split we need to pass twice the information back.
-            ret_mat2 = np.zeros((len(self.surface_indices),len(input_sequence)), dtype=float)
         #loop over the structure idxs and idr idxs
         for ll,struct_idx_center in enumerate(self.surface_indices):
             for idr_idx_center in adj_idr_idxs:
@@ -705,8 +697,7 @@ class FoldeDomain:
                 #grabe the distances
                 idr_local_distance = [seq_dist_factor*np.abs(k-idr_idx_center) for k in idr_negihbor_resid]
                 
-                ret_mat[ll,idr_idx_center] = IMCObject.calc_filtered_region(struct_str, struct_local_distance, idr_str, idr_local_distance,
-                                                                                split = True)
+                ret_mat[ll,idr_idx_center] = IMCObject.calc_filtered_region(struct_str, struct_local_distance, idr_str, idr_local_distance)
                     
         # #determine if the extra whitespace on the exterior of the vectors needs to get removed
         # if remove_extra_space:
@@ -722,7 +713,7 @@ class FoldeDomain:
         
         #combine the data if nessisary
         if split:
-            ret_mat = ((ret_mat>split_threshold)*ret_mat, (ret_mat<=split_threshold)*ret_mat2)
+            ret_mat = ((ret_mat>split_threshold)*ret_mat, (ret_mat<=split_threshold)*ret_mat)
         return ret_mat
         
 

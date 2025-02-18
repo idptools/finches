@@ -1295,6 +1295,15 @@ class FinchesFrontend:
                 
         return ret_mat, (ids1, ids2)
     
+
+    def calc_idr_idr_psuedo_spatial_boltzman_average(self, seq1 : str,seq2 : str, window_extent : int,
+                                                       window_equivilent_spatial_distance : float,
+                                                       use_aliphatic_weighting : bool = True,
+                                                       use_charge_weighting : bool = True,
+                                                       full_extent : bool = True) -> float:
+        '''This is a wrapper on the calc_idr_idr_psuedo_spatial_interaction_matrix function that calculates the boltzman weighted average'''
+        
+    
     
     
     def trim_empty_rows_and_columns(self, result_matrix : np.ndarray) -> tuple:

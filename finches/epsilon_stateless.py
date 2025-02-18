@@ -526,3 +526,32 @@ def get_interdomain_epsilon_value(sequence1,
     # sum attractive and repulsive vectors to get sequence1 centric vector
     return attractive_value + repulsive_value
 
+def compute_boltzman_avg(matrix : np.ndarray, kt : float = 1) -> float:
+    '''Computes a weighted average of the matrix based on the boltzman distribution
+    
+    Parameters
+    ----------
+    matrix : np.ndarray
+        This is the data that you want the weighted average of based on the boltzman distribution
+    kt : float
+        This is the "temperature" you are using for your boltzman distribution
+    
+    Returns
+    -------
+    float
+        This is the weighted average of every element in the matrix
+    '''
+    #first flatten the matrix (not nessisary but helps with conceptualizing as a 1D vector)
+    flat_mat = matrix.flatten()
+
+    #compute the non-normed boltzman terms
+    b_terms = np.exp(-1*flat_mat/kt)
+
+    #compute the probabilities from the boltszman distribution
+    probs = b_terms/np.sum(b_terms)
+
+    #compute the weighted average
+    w_avg = np.sum(probs*flat_mat)
+
+    #return the weighted average
+    return w_avg

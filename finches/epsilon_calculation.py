@@ -1066,13 +1066,16 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
                  null_interaction_baseline, 
                  compute_forcefield_dependencies)
         #initialize the weighting function to use for computation later
-        self.weight_function = weight_function
+        func1 = lambda x: np.exp(-1*np.power(x/(1*3.4),2)/2)
+        if weight_function is None:
+            self.weight_function = func1
+        else:
+            self.weight_function = weight_function
 
-        #define the charge correction weighting function
-        func1 = lambda x: np.exp(-1*np.power(x/(0.5*3.4),1)/2)
+        #define the charge correction weighting function (currently not used)
         self.weight_function_charge = func1
 
-        #define the aliphatic correction weighting function
+        #define the aliphatic correction weighting function (currently not used)
         self.weight_function_aliphatic = func1
         
     
@@ -1176,7 +1179,7 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         return res
 
     def _check_local_charge_criteria(self, charge_vec : np.ndarray, distance_vec : np.ndarray,
-                                    min_charge : int = 4, max_dist : float = 3.4) -> bool:
+                                    min_charge : int = 5, max_dist : float = 3.4) -> bool:
         '''Checks that there are at enough local charges'''
         #find all the charge states within max_dist
         close_charge = charge_vec[distance_vec <= max_dist]
@@ -1198,7 +1201,7 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
         float
             This is the correction term to subtract off the 
         '''
-        param = 1
+        param = 0.2
 
         correction_term = 0 #this is the correction term to return (0 if the origin has no charged residues)
         #find all the letters that localize at 0 away from the origin
@@ -1345,7 +1348,8 @@ class ArbitraryFilterInteractionMatrixContructor(InteractionMatrixConstructor):
             pass #fix this later
             #ret_val = ret_val - self.calculate_aliphatic_correction_term(seq_concat, dist_concat)
         if use_charge_weighting:
-            ret_val = ret_val - self.calculate_charge_correction_term(seq_concat, dist_concat)
+            pass
+            #ret_val = ret_val - self.calculate_charge_correction_term(seq_concat, dist_concat)
         if offset:
             ret_val = ret_val - self.threshold_offset
         
