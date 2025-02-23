@@ -439,7 +439,141 @@ class FoldeDomain:
 
 
         
-            
+    # ................................................................................
+    #
+    #
+    #Auxillar functions Nick added
+    def _get_surface_dist_vec_from_res(self, reference_surface_residue_idx : int) -> np.ndarray:
+        '''This function obtains the vector of surface distances from the referenced index
+        
+        Parameters
+        ----------
+        reference_surface_residue_idx : int
+            This is the surface index that you wish to determine the distance from for all other residues
+
+        Returns
+        -------
+        np.ndarray
+            contains the distance each residue has away from the reference. It is indexed based on index matching from self.surface_indices
+        '''
+        #check that the refrence index is in the surface set of indexes
+        if reference_surface_residue_idx not in self.surface_indices:
+            raise Exception(f"The reference index was not in the list of surface indexes. The reference index was {reference_surface_residue_idx}.\nThe surface indexes are: {self.surface_indices}")
+        
+        #loop over each surface residue to generate the distance from each residue
+        dist_list = []
+        for k in self.surface_indices:
+            single_dist = self.surface_distance_surface[reference_surface_residue_idx][k]
+            dist_list.append(single_dist)
+        
+        #return the distance
+        return np.array(dist_list)
+
+
+    def _get_idr_res_dist_from_ref(self, reference_idr_residue_idx : int, idr_seq : str) -> np.ndarray:
+        '''Gets relative index distance from a reference index (plus 1)
+        
+        Parameters
+        ----------
+        reference_idr_residue_idx : int
+            This is the reference index to compute the relative index distnace from
+        idr_seq : str
+            This is the sequence of the IDR
+        
+        Returns
+        -------
+        numpy.ndarray
+            This is the array of relative index prositions from the reference position (plus 1)
+        '''
+        #check that the reference is an int and within in the length of the IDR
+        if not isinstance(reference_idr_residue_idx, (int, np.integer)):
+            raise Exception(f"The reference index must be an integer. It is currently {type(reference_idr_residue_idx).__name__}.")
+        if reference_idr_residue_idx >= len(idr_seq):
+            raise Exception(f"The refernce index must be contained within the idr of interest in order to be reference. The IDR is {len(idr_seq)} residues long while the specified index was {reference_idr_residue_idx}")
+
+        #loop over each index in the idr and compute its distance from the reference
+        dist_list = []
+        for j in range(len(idr_seq)):
+            #The one is added to ensure some conformational freedom for the first residue to interact with neighbors
+            dp1 = np.abs(j-reference_idr_residue_idx) + 1
+            #append it to the list
+            dist_list.append(dp1)
+
+        #convert to a numpy array and return it
+        return np.array(dist_list)
+
+
+    def _generate_referenced_distance_maps(self, idr_vec : np.ndarray, fd_vec : np.ndarray) -> tuple[np.ndarray]:
+        '''This creates a series of maps that will allow you to compare if the IDR is too contrained once pinned to reach a particular surface residue
+        
+        Parameters
+        ----------
+        idr_vec : numpy.ndarray
+            This is vector indexed based on surface_indices which contains the distances of each residue from the reference
+        fd_vec : numpy.ndarray
+            This is the relative index distance from the reference index
+
+        Returns
+        -------
+        tuple[np.ndarray]
+            This is tuple of np.ndarray. The first array is the idr matrix and the second one is the folded doamin
+        '''
+        #time to generate the matrixes
+        # 1. Column-Repeated 2D Array (each column is the vector)
+        #The fd is the repeated columns
+        column_matrix = np.tile(fd_vec[:, np.newaxis], (1, len(idr_vec)))
+
+        # 2. Row-Repeated 2D Array (each row is the vector)
+        #The idr is the repeated rows
+        row_matrix = np.tile(idr_vec, (len(fd_vec), 1))
+
+        #return the result (idr, fd)
+        return (row_matrix, column_matrix)
+    
+
+    def get_distance_mask(self, idr_seq : str, idr_ref_ind : int, dist_contraint : float, fd_ref_ind : int) -> np.ndarray[bool]:
+        '''This function returns the positions that are to be excluded because of distance contraints
+
+        The idea is that you have tethered a residue at a location on the surface of the folded domain.
+        
+        Return value meaning
+        0 : to be included
+        1 : to be excluded due to distance contraints
+
+        Parameters
+        ----------
+        idr_seq : str
+            This is the idr sequence
+        idr_ref_ind : int
+            The IDR reference index
+        dist_contraint : float
+            This is the distance (in units of the pdb) each residue of the IDR can sample.
+            Being 1 more residue away from the tethered IDR residue will increase the distance
+            restraint seen by this amount.
+        fd_ref_ind : int
+            This is the index of the tethered position on the surface of the folded domain
+
+        Returns
+        -------
+        numpy.ndarray
+            This is a mask of the locations to be excluded based on the distance contraint
+        '''
+        #obtain the surface and idr vectors
+        #need to multiply for the idr to get it from index distance to actual spatial distance
+        idr_vec = dist_contraint*self._get_idr_res_dist_from_ref(idr_ref_ind, idr_seq)
+        surf_vec = self._get_surface_dist_vec_from_res(fd_ref_ind)
+
+        #Now generate the maps
+        idr_map, surf_map = self._generate_referenced_distance_maps(idr_vec=idr_vec, fd_vec = surf_vec)
+
+        #compare the values to generate a matrix of bools
+        #when the surface is greater than the idr
+        logic_mat = idr_map < surf_map
+
+        #return the logic matrix
+        return logic_mat
+
+
     # ................................................................................
     #
     #
@@ -586,12 +720,12 @@ class FoldeDomain:
         # ................................................................................
     #
     #            
-    def calculate_surface_matrix_epsilon(self, input_sequence, IMCObject,
+    def calculate_surface_matrix_epsilon(self, input_sequence : str, IMCObject,
                                          window_seq_distance_extent : int,
                                          window_struct_distance_extent : float,
-                                         split = True,
+                                         split = False,
                                          split_threshold : float = 0.0,
-                                         idr_tail_exclusion : bool = False):
+                                         idr_tail_exclusion : bool = False) -> np.ndarray:
         """
         Nick's Version
         This function calculates the surface epsilon values for each residue in the
@@ -599,64 +733,42 @@ class FoldeDomain:
         the protein and return this as a matrix. The matrix correlation back to the dataset
         is based on self.surface_indices.
 
-        Briefly, this function works by doing the following:
-
-        (1) Takeing each solvent accessible residue
-
-        (2) Finding the neighbour residues near that residue. Note we can redefine
-            the distance threshold used to define neighbours by running 
-            get_nearest_neighbour_res() function.
-
-        (3) Re-organizing the sequence order of the neighbor string depending on what
-            the center residue is. If the center residue is charged, re-order so all
-            charged residues of that type are next to it. If the center residue is a 
-            hydrophobe, reorder so the hydrophobes are next to it. We do this so we
-            take the local chemical environment into account for the epsilon 
-            calculation using the center residue to define what types(s) of local 
-            chemistry we care about.   
-
-        (4) Calculating the mean epsilon score between the "neighbor string" and 
-            the passed input string.
-
-        (5) Divide that epsilon score by the number of residues in the neighbor string
-            to get the average mean-field epsilon value for that residue.
-
-        Note this approach is probably ok if the input sequence is either quite 
-        short or a repetitive sequence, but effectively it calculates the mean-field
-        attraction/repulsion beteween each residue on the surface (using its local context
-        to define that interaction) and the ENTIRE input sequence. 
+        This works by approximating a series of locally flat surfaces that are strung togeher by the IDR window.
+        A filter is then applied assuming perpendiular axis between the IDR residue away from the one in question
+        and the one being compared against the surfuce. This allows for a distance to be calculated for the filter.
 
         Parameters
         ----------
         input_sequence: str
             Amino acid sequence of the input sequence
-
         IMCObject: IMCObject
             IMCObject that contains the epsilon calculate, this
             can obtained as a object variable from an Mpipi_frontend
-            or CALAVDOS_frontend object.
-        
+            or CALAVDOS_frontend object. 
         window_struct_distance_extent : float
             This is the radius (calculated as a graph distance) of the filtering window in
-            the unit of the PDB file.
-            
+            the unit of the PDB file. Typically angstroms...     
         window_seq_distance_extent : int
             This is the radius of the window in terms of number of residues. This should match with the 
             structural one in spacial units. If window_struct_distance_extent is 8
             and the average residue distance is 0.5 in the same spatial units then 
             the window_seq_distance_extent should be 16.
+        split : bool
+            This specifies if the window should be split into positive and negative regions.
+            This currently does not do anything of use so I would leave it set to False.
+        split_threshold : float
+            This sets the value to threshold at. I would keep this set at 0.
+        idr_tail_exclusion : bool
+            This determines if you will get 0's where a full window cannot be achieve (signal processing correctly)
+            or get values where there is not a full window. Physically, the tail ends of the IDR will see less of the IDR
+            so there might be a physical reason to keep the edge values.
 
         Returns
         -------
-        Dict
-            Dictionary that maps between residue index and surface epsilon value. The
-            return dictionry has index position as key and then a list as values, where
-            each list has three positions:
-            [0] - the residue associated with that position
-            [1] - the neibouring residues, where neighbours are those residues within
-                  some distance threshold of the surface residue of interest
-            [2] - the surface epsilon value for that residue.
-
+        numpy.ndarray
+            This is the interaction terms for each IDR surface interacting residue pair.
+            It goes first by the surface residue index (specified by surface_indicies) and 
+            then by the IDR index.
         """
         
         #recompute the neighbors based on distance specified
@@ -713,8 +825,105 @@ class FoldeDomain:
         
         #combine the data if nessisary
         if split:
-            ret_mat = ((ret_mat>split_threshold)*ret_mat, (ret_mat<=split_threshold)*ret_mat)
+            pass
+            #ret_mat = ((ret_mat>split_threshold)*ret_mat, (ret_mat<=split_threshold)*ret_mat)
         return ret_mat
+
+
+    def pinned_surface_matrix_epsilon_surfind(self, input_sequence : str, IMCObject,
+                                         pinned_idr_residue_index : list[int],
+                                         pinned_surface_index : list[int],
+                                         window_seq_distance_extent : int,
+                                         window_struct_distance_extent : float,
+                                         split = False,
+                                         split_threshold : float = 0.0,
+                                         idr_tail_exclusion : bool = False,
+                                         distance_constraint : float = 2.1,
+                                         mask_val = 0) -> np.ndarray:
+        """
+        This function pins a series of IDR residue to a series of folded domain residues.
+        This is useful when considering the folded domain to have a tail or linker and you want
+        to exclude inaccesible portions of the surface to that IDR
+
+        Parameters
+        ----------
+        input_sequence: str
+            Amino acid sequence of the input sequence
+        IMCObject: IMCObject
+            IMCObject that contains the epsilon calculate, this
+            can obtained as a object variable from an Mpipi_frontend
+            or CALAVDOS_frontend object. 
+        pinned_idr_residue_index : list[int]
+            This is the residue of the idr that you wish to pin to the (the list matches pinnee resiudes)
+        pinned_surface_index : list[int]
+            This is the surface index that you are pinning the IDR residue to (the list portion matches pinned residues)
+        window_struct_distance_extent : float
+            This is the radius (calculated as a graph distance) of the filtering window in
+            the unit of the PDB file. Typically angstroms...     
+        window_seq_distance_extent : int
+            This is the radius of the window in terms of number of residues. This should match with the 
+            structural one in spacial units. If window_struct_distance_extent is 8
+            and the average residue distance is 0.5 in the same spatial units then 
+            the window_seq_distance_extent should be 16.
+        split : bool
+            This specifies if the window should be split into positive and negative regions.
+            This currently does not do anything of use so I would leave it set to False.
+        split_threshold : float
+            This sets the value to threshold at. I would keep this set at 0.
+        idr_tail_exclusion : bool
+            This determines if you will get 0's where a full window cannot be achieve (signal processing correctly)
+            or get values where there is not a full window. Physically, the tail ends of the IDR will see less of the IDR
+            so there might be a physical reason to keep the edge values.
+        distance_constraint : float
+            This is how much further each amino acid can explore than its neightbor closer to the pinned amino acid.
+            This is in the same units as the PDB file (likely angstrom)
+        mask_val 
+            This is the value you want to put in the interaction matrix whenever you mask it.
+
+        Returns
+        -------
+        numpy.ndarray
+            This is the interaction terms for each IDR surface interacting residue pair.
+            It goes first by the surface residue index (specified by surface_indicies) and 
+            then by the IDR index.
+        """
+        #check to ensure a constraint was passed and that they are of matching length
+        if len(pinned_idr_residue_index) < 1 or len(pinned_surface_index) < 1:
+            raise Exception(f"You must pass pinned residues for this function to work. Currently there are {len(pinned_idr_residue_index)} IDR residues and {len(pinned_surface_index)} pinned surface residues")
+        if len(pinned_surface_index) != len(pinned_idr_residue_index):
+            raise Exception(f"The length of the pinned surface residues and pinned idr residues must match.")
+
+        #get the interaction matrix
+        interaction_matrix = self.calculate_surface_matrix_epsilon(input_sequence = input_sequence, IMCObject = IMCObject,
+                                         window_seq_distance_extent = window_seq_distance_extent,
+                                         window_struct_distance_extent = window_struct_distance_extent,
+                                         split = split,
+                                         split_threshold = split_threshold,
+                                         idr_tail_exclusion = idr_tail_exclusion)
+        
+        #get the mask for the interaction values
+        contraint_mask_list = []
+        for idr_idx, fd_idx in zip(pinned_idr_residue_index, pinned_idr_residue_index):
+            #produce a mask for each pairing of pinned residues
+            interaction_mask = self.get_distance_mask(input_sequence, idr_idx,distance_constraint, fd_idx)
+            #append this to the list of masks
+            contraint_mask_list.append(interaction_mask)
+
+        #generate a single large mask based if any of the contraints removed that interaction
+        full_mask = contraint_mask_list[0]
+        for mm in contraint_mask_list:
+            #check if either mask has a removal there and update the full mask
+            full_mask = full_mask | mm
+
+        #mask to the specified value
+        interaction_matrix[full_mask] = mask_val
+
+        #return the masked result
+        return interaction_matrix
+    
+
+    
+
         
 
 
