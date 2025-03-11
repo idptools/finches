@@ -43,7 +43,7 @@ def get_charge_weighted_mask(sequence1, sequence2):
 
     If I have two fragments that are EEE and EEE, then my charge weighting will be
     
-    |NCPR/FCR| = |-1/1| = 1.0 - MAX POSSIBLE WEIGH
+    |NCPR/FCR| = |-1/1| = 1.0 - MAX POSSIBLE WEIGHT
 
     In this way, clusters of like-charged residues are weighted up, and then
     subtracted off the repulsive cross terms to weaken like-charge repulsion.
@@ -135,9 +135,9 @@ def get_charge_weighted_mask(sequence1, sequence2):
                     # for that fragment, calculate the local fcr and ncpr
                     [local_fcr, local_ncpr] = calculate_FCR_and_NCPR(l_resis)
 
-                    # calculate the charge weight as |NCPR/FRC|. This means in one limit charg_weight goes
+                    # calculate the charge weight as |NCPR/FRC|. This means in one limit charge_weight goes
                     # to 1 if the fragment is all the same type of charged residues, and goes to 0 if the
-                    # if the fragment is neutra, regardless of the fraction of charged residues.
+                    # if the fragment is neutral, regardless of the fraction of charged residues.
                     chrg_weight = np.abs(local_ncpr / local_fcr)
 
                     w_repulsive = chrg_weight
@@ -186,7 +186,7 @@ def get_charge_weighted_mask(sequence1, sequence2):
         attractive_matrix.append(tmp_attractive)
         repulsive_matrix.append(tmp_repulsive)
 
-    # asset matrices are the right shape
+    # Assert matrices are the right shape
     attractive_matrix = np.array(attractive_matrix)
     repulsive_matrix = np.array(repulsive_matrix)
 
@@ -331,7 +331,7 @@ def get_aliphatic_groups(chain):
 
     """
     
-    # get binary mask of aliphatics 
+    # get binary mask of aliphatics, so ali_mask is 1 for aliphatics and 0 for non-aliphatics 
     ali_mask = mask_sequence(chain, ['A','V','I','L','M'])
     
     # count the number of nearest neighbors per aliphatic

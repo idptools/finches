@@ -265,24 +265,40 @@ def MASK_n_closest_nearest_neighbors(mask, max_separation=1, max_distance=4):
     """
     w_half = max_distance    
     
-    # extract fragments per aliphatic residue (IE split mask by mask seperator, iterate by aliphatic and get sum within fragment 
+    # extract fragments per aliphatic residue (IE split mask by mask separator, iterate by aliphatic and get sum within fragment 
     # for centered window around aliphatic residue
-    frags = extract_fragments(mask,max_separation=max_separation)
+
+    # frags is a series of sublists where each sublist is a fragment of the mask and contains aliphatics with a max of 
+    # one 'gap' between congigous aliphatics
+    frags = extract_fragments(mask, max_separation=max_separation)
+
+    # this list has an aliphatic fragment for each aliphatic residue in the mask,
+    # ie len(per_ali_frags) == sum(mask)
     per_ali_frags=[] 
     
     for frag in frags:
+
+        # get fragment size
         l = len(frag)
-        # handle residues where nearest neighbor fragment is less than the window size
+
+        # if the fragment is equal to or smaller than the window size
         if l <= w_half:
+
+            # for each residue in the fragment
             for r in frag:
+
+                # if the residue is an aliphatic, add it to the list
                 if r == '1':
                     per_ali_frags.append(frag)
         else: 
             # parse frags larger than window size
             l_mask = frag
-            out_mask=[]
             for i,r in enumerate(l_mask):
+
+                # if the residue is an aliphatic...
                 if r == '1':
+
+                    # 
                     if w_half >= i and i+w_half <= l:
                         per_ali_frags.append(l_mask[:i+w_half+1])
                     elif  i+w_half > l:

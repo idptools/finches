@@ -720,19 +720,21 @@ def get_bidirectional_interaction_regions(array,
         regions.append(r)
     
     # algorithm to merge overlapping rectangles
-    merged = True
+    merged = True    
     while merged:
         merged = False
         for i in range(len(regions)):
             for j in range(i+1, len(regions)):
+                
                 if rectangles_overlap(regions[i], regions[j]):
                     merged = True
                     regions[i] =  (((min(regions[i][0][0], regions[j][0][0]), max(regions[i][0][1], regions[j][0][1])), 
                                     (min(regions[i][1][0], regions[j][1][0]), max(regions[i][1][1], regions[j][1][1]))))
-                    regions.pop(j)
+                    regions.pop(j)                    
                     break
             if merged:
-                break            
+                break    
+                
 
     return regions
     

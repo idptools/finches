@@ -3,15 +3,25 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to finches's documentation!
+FINCHES documentation
 =========================================================
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+About
+-----------
+FINCHES 
 
+.. toctree::
+   :maxdepth: 1
+   :caption: Contents:
+   
    getting_started
+   examples
+   idr_idr
+   idr_fd
+   phase_diagrams
+   caveats
    api
+   extended_methods
 
 
 
