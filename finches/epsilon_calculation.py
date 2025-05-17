@@ -4,8 +4,13 @@ Class to build Interation Matrix from Mpipi forcefield By
 
 values : Garrett M. Ginell & Alex S. Holehouse 
 2023-08-06
+
+Updated by: Nicholas Razo
+2025-05-16
 """
 import numpy as np
+from scipy.ndimage import convolve1d
+from scipy import signal
 import math
 
 from .data import forcefield_dependencies
@@ -15,6 +20,9 @@ from .PDB_structure_tools import build_column_mask_based_on_xyz
 
 from .utils import matrix_manipulation
 from . import epsilon_stateless
+
+# -------------------------------------------------------------------------------------------------
+CANONICAL_AMINOACID_ORDERED = ['M', 'G', 'K', 'T', 'Y', 'A', 'D', 'E', 'V', 'L', 'Q', 'W', 'R', 'F', 'S', 'H', 'N', 'P', 'C', 'I']
 
 # -------------------------------------------------------------------------------------------------
 class InteractionMatrixConstructor:
@@ -194,6 +202,70 @@ class InteractionMatrixConstructor:
     ## ................................................................................... ##
     ##
     ##
+    def _update_lookup_vec_dif(self) -> None:
+        """
+        Function which wipes any previous inter-residue interaction difference vector representation
+        computes it assuming that the lookup_vec is always updated. Please note that these vectors
+        are signed. It assumes that the first index is the 'initial' vector and the second
+        vector is the final vector.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+
+        """
+        # find the length of the lookup vector
+        lookvec_len = len(self.lookup_vec)
+
+        # loop over each amino acid in the list that defines the encoding order
+        ending_result = []
+        for i in range(lookvec_len):
+            temp = []
+            for j in range(lookvec_len):
+                #take the difference between the initial and final vectors interaction
+                vi = self.lookup_vec[i]
+                vf = self.lookup_vec[j]
+                temp.append(vf - vi)
+
+            #add the temp to the ending result
+            ending_result.append(temp)
+
+        # set the result to difference lookup vec
+        self.lookup_vec_dif =  ending_result
+
+    def _update_lookup_vec(self) -> None:
+        """
+        Function which wipes any previous inter-residue interaction vectorization scheme
+        and recomputes the parameters (the 'lookup_vec'). This DOES NOT update the 
+        lookup dictionary and the vectorized form is computed based on lookup. You must
+        call _update_lookup_dict prior to callig this function.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+
+        """
+        # loop over each amino acid in the list that defines the encoding order
+        ending_result = []
+        for a1 in CANONICAL_AMINOACID_ORDERED:
+            #this is the interaction list for a amino acid
+            temp = []
+            for a2 in CANONICAL_AMINOACID_ORDERED:
+                temp.append(self.lookup[a1][a2])
+            # append the amino acid to the end result
+            ending_result.append(temp)
+
+        #save the result as a numpy array
+        self.lookup_vec = np.array(ending_result)
+
     def _update_lookup_dict(self, unknown_set_to_zero=False):
         """
         Function which, if called, wipes the previous inter-residue interaction
@@ -297,6 +369,11 @@ class InteractionMatrixConstructor:
         # updated parameters object
         self._update_lookup_dict()
 
+        # update the lookup_vec (vectorial form of the lookup dict)
+        self._update_lookup_vec()
+
+        # lastly update the 
+
 
     ## ................................................................................... ##
     ##
@@ -355,6 +432,34 @@ class InteractionMatrixConstructor:
         
     ## ------------------------------------------------------------------------------
     ##
+    def vector_encode_seq(self, sequence : str) -> list[np.ndarray]:
+        """
+        This function is here to produce a vector encoding of a sequence.
+        The vector encoding is the interaction term for that residue to all
+        other amino acids.
+        The result is a list of numpy arrays. The arrays are 'row' vectors.
+
+        Parameters
+        ----------
+        sequence : str
+            This is the string you wish to convert to its amino acid interaction representation
+
+        Returns
+        -------
+        list[numpy.ndarray]
+            This is the list of numpy array encodings for interaction strength. The length of this will
+            be the same as the input string.
+        """
+        # loop over each character in the string
+        ret_val = []
+        for aa in sequence:
+            # find the index in the list for the current amino acid
+            aa_idx = CANONICAL_AMINOACID_ORDERED.index(aa)
+            ret_val.append(self.lookup_vec[aa_idx])
+
+        # return the converted sequence
+        return ret_val
+
     def get_converted_sequence(self, sequence):
         """
         Function to return sequence passed through the sequence converter
@@ -872,4 +977,244 @@ class InteractionMatrixConstructor:
         
                 
         return (everything, seq2_indices, seq1_indices)
+
+
+
+
+    ######################################################################
+    ##                                                                  ##
+    ##                                                                  ##
+    ##              FUNCTIONS FOR SEQUENCE CHEMISTRY                    ##
+    ##                                                                  ##
+    ##                                                                  ##
+    ######################################################################
+
+
+    def moving_weighted_average_of_vectors_valid(self, vector_list : list[np.ndarray], kernel_weights : np.ndarray, 
+                                                 mode : str ='nearest', cval : float =0.0):
+        """
+        Computes a moving weighted average over a sequence of vectors, returning only
+        the "valid" part where the kernel fully overlaps the input data.
+
+        Parameters
+        ----------
+        vector_list : list[np.ndarray]
+            A list of 1D NumPy arrays (vectors). Assumed all vectors have same length.
+
+        kernel_weights : np.ndarray
+            A 1D NumPy array representing the filter kernel.
+
+        mode : str, optional
+            The mode parameter for handling boundaries during convolution.
+            Default is 'nearest'.
+
+        cval : float, optional
+            Value to fill past edges of input if mode is 'constant'.
+            Default is 0.0.
+
+        Returns
+        -------
+        np.ndarray
+            A 2D NumPy array where each row is a resulting averaged vector.
+            The sequence will be shorter than the input by (len(kernel_weights) - 1).
+            If len(vector_list) < len(kernel_weights), returns empty array.
+
+        Raises
+        ------
+        ValueError
+            If vector_list is empty, kernel_weights is empty, or kernel_weights sum to zero.
+        """
+        if not vector_list:
+            return np.array([]) # Or np.empty((0,0)) if features known, but best to be consistent
+        if not isinstance(kernel_weights, np.ndarray) or kernel_weights.ndim != 1 or kernel_weights.size == 0:
+            raise ValueError("kernel_weights must be a non-empty 1D NumPy array.")
+
+        try:
+            data_matrix = np.array(vector_list)
+        except Exception as e:
+            raise ValueError(f"Could not convert vector_list to a NumPy array. Ensure all vectors have the same dimension. Error: {e}")
+
+        if data_matrix.ndim == 1: # List of scalars was passed
+            if len(vector_list) > 0 and isinstance(vector_list[0], (int, float, np.number)):
+                data_matrix = data_matrix.reshape(-1, 1)
+            else: # Single vector passed, make it a row in a 2D array
+                data_matrix = data_matrix.reshape(1, -1)
+
+
+        if data_matrix.ndim != 2:
+            raise ValueError("Input vector_list must produce a 2D array when stacked (a sequence of vectors).")
+        
+        num_input_vectors, num_features = data_matrix.shape
+        if num_features == 0 and num_input_vectors > 0: # list of empty arrays
+            # Kernel length for slicing calculation
+            K = len(kernel_weights)
+            if num_input_vectors < K:
+                return np.empty((0, 0))
+            valid_len = num_input_vectors - K + 1
+            return np.empty((valid_len, 0))
+        elif num_features == 0 and num_input_vectors == 0: # empty list
+            return np.empty((0,0))
+
+
+        kernel_sum = np.sum(kernel_weights)
+        if np.isclose(kernel_sum, 0):
+            raise ValueError("Sum of kernel weights is close to zero, cannot compute a weighted average.")
+        
+        normalized_kernel = kernel_weights / kernel_sum
+        K = len(normalized_kernel)
+
+        if num_input_vectors < K:
+            # Not enough data points for even one full kernel application
+            return np.empty((0, num_features))
+
+        # Perform convolution, this will produce an output of the same shape as data_matrix along axis 0
+        averaged_vectors_matrix_full = convolve1d(
+            data_matrix,
+            weights=normalized_kernel,
+            axis=0,
+            mode=mode,
+            cval=cval
+        )
+
+        # Calculate slice indices for the "valid" part
+        # The 'valid' output has length N - K + 1
+        # For a centered kernel (default origin in convolve1d):
+        # Trim (K-1)//2 from the start
+        # Trim K//2 from the end (which means the end slice index is N - K//2)
+        
+        start_slice_index = (K - 1) // 2
+        # The end_slice_index for Python slicing (exclusive) needs to result in N - K + 1 elements.
+        # end_slice_index = start_slice_index + (num_input_vectors - K + 1)
+        # Or, calculated from the end:
+        end_slice_index = num_input_vectors - (K // 2) # num_input_vectors is N
+
+        # Ensure start_slice_index is not greater than end_slice_index (handles N<K implicitly too)
+        if start_slice_index >= end_slice_index :
+            return np.empty((0, num_features))
+
+
+        valid_averaged_vectors = averaged_vectors_matrix_full[start_slice_index:end_slice_index, :]
+
+        return valid_averaged_vectors
+    
+    def compute_region_interaction_vectors(self, sequence : str, region_size : int, 
+                                           kernal_type : str = 'flat',
+                                           **kwargs) -> np.ndarray:
+        """
+        Computes interaction vectors for regions of a sequence using a sliding window approach.
+        Each vector represents the average interaction profile for a region of specified size.
+
+        Parameters
+        ----------
+        sequence : str
+            The amino acid sequence to analyze.
+
+        region_size : int
+            The size of the sliding window/region to compute interactions for.
+
+        kernal_type : str, optional
+            The type of kernel to use for weighted averaging.
+            Options are 'flat' (uniform) or 'gaussian'.
+            Default is 'flat'.
+
+        **kwargs : dict
+            Additional keyword arguments:
+            - std : float
+                Standard deviation for Gaussian kernel (only used if kernal_type='gaussian').
+                Default is 1.0.
+
+        Returns
+        -------
+        np.ndarray
+            A 2D array where each row represents the averaged interaction vector 
+            for a region. Shape is (n_regions, n_interaction_types) where n_regions
+            depends on sequence and region size, and n_interaction_types is the 
+            length of the interaction vector for each residue.
+
+        Notes
+        -----
+        The output array will be shorter than the input sequence due to edge effects
+        from the sliding window. Only positions where the window fully overlaps 
+        the sequence are included.
+        """
+        # encode the sequence
+        enc_seq = self.vector_encode_seq(sequence=sequence)
+
+        # determine the window that the user requested
+        if kernal_type == 'flat':
+            kern = np.ones(region_size, dtype=float)
+        if kernal_type == 'gaussian':
+            #get the standard deviation if it was passed otherwise set it equal to 1
+            std = kwargs.get('std', 1.0)
+            kern = signal.windows.gaussian(region_size, std=std)
+
+        # call the moving average filter 
+        return self.moving_weighted_average_of_vectors_valid(enc_seq, kernel_weights=kern)
+    
+    def determine_region_amino_acid_preference(self, avg_vec_seq : np.ndarray) -> list[dict[str,float]]:
+        """
+        Assignes values to each amino acid for each sequence position based on the avg_vec_seq value
+        """
+        #loop over each value in the seuqence
+        seq_list = []
+        for i in range(len(avg_vec_seq)):
+            #loop over each amino acid
+            temp = {}
+            for j in range(len(CANONICAL_AMINOACID_ORDERED)):
+                val = avg_vec_seq[i,j]
+                if val < 0:
+                    temp[CANONICAL_AMINOACID_ORDERED[j]] = np.abs(val)
+                else:
+                    temp[CANONICAL_AMINOACID_ORDERED[j]] = 0.0
+            #add the temp to the seq_list
+            seq_list.append(temp)
+
+        #return the result
+        return seq_list
+    
+    def determine_region_amino_acid_aversion(self, avg_vec_seq : np.ndarray) -> list[dict[str,float]]:
+        """
+        Assigns
+        """
+        #loop over each value in the seuqence
+        seq_list = []
+        for i in range(len(avg_vec_seq)):
+            #loop over each amino acid
+            temp = {}
+            for j in range(len(CANONICAL_AMINOACID_ORDERED)):
+                val = avg_vec_seq[i,j]
+                if val > 0:
+                    temp[CANONICAL_AMINOACID_ORDERED[j]] = np.abs(val)
+                else:
+                    temp[CANONICAL_AMINOACID_ORDERED[j]] = 0.0
+            #add the temp to the seq_list
+            seq_list.append(temp)
+
+        #return the result
+        return seq_list
+    
+    def determine_region_interaction_norm(self, avg_vec_seq : np.ndarray) -> np.ndarray:
+        """
+        Here
+        """
+        seq_list = []
+        for i in range(len(avg_vec_seq)):
+            # pull the vector for the interactions of that residue
+            v1 = avg_vec_seq[i]
+
+            # take the norm of the vector
+            v1_norm = np.linalg.norm(v1)
+
+            # add the value to the list
+            seq_list.append(v1_norm)
+
+        #return 
+        return np.array(seq_list)
+    
+
+
+
+
+
+
 
