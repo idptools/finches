@@ -372,7 +372,8 @@ class InteractionMatrixConstructor:
         # update the lookup_vec (vectorial form of the lookup dict)
         self._update_lookup_vec()
 
-        # lastly update the 
+        # lastly update the difference vectors
+        self._update_lookup_vec_dif()
 
 
     ## ................................................................................... ##
@@ -459,6 +460,105 @@ class InteractionMatrixConstructor:
 
         # return the converted sequence
         return ret_val
+    
+    def vector_decode_seq(self, sequence : list[np.ndarray]) -> list[dict[str,np.ndarray]]:
+        """
+        Decodes a sequence of interaction vectors into a more interpretable format.
+        
+        This function takes a list of interaction vectors and converts each vector into a 
+        dictionary that maps amino acid one-letter codes to their corresponding interaction 
+        values. This makes it easier to interpret the interaction profile for each position
+        in the sequence.
+
+        Parameters
+        ----------
+        sequence : list[np.ndarray]
+            List of interaction vectors, where each vector contains interaction values 
+            with all canonical amino acids
+
+        Returns
+        -------
+        list[dict[str,np.ndarray]]
+            List of dictionaries, one per position in the sequence. Each dictionary maps 
+            amino acid one-letter codes to their interaction values
+            
+        Example
+        -------
+        >>> imc = InteractionMatrixConstructor(parameters)
+        >>> vec_seq = imc.vector_encode_seq('MG')
+        >>> decoded = imc.vector_decode_seq(vec_seq)
+        >>> decoded[0]['A']  # gets interaction value between M and A at position 0
+        array([0.5])
+        """
+        #loop over every position in the sequence
+        ret_val = []
+        for i,vec in enumerate(sequence):
+            # loop over each amino acid at each position to learn about the interaciton
+            temp = {}
+            for j, aa in enumerate(CANONICAL_AMINOACID_ORDERED):
+                temp[aa] = vec[j]
+            # add the value tp the return list
+            ret_val.append(temp)
+    
+    def position_encode_seq(self, sequence : str) -> list[int]:
+        """
+        This function is here to produce a postiion encoding of a sequence (CANONICAL_AMINOACID_ORDERED).
+        
+        The result is a list of integers that correspond to the index in CANONICAL_AMINOACID_ORDERED.
+
+        Parameters
+        ----------
+        sequence : str
+            This is the string you wish to convert to its amino acid interaction representation
+
+        Returns
+        -------
+        list[int]
+            A list of indexes that correspond to CANONICAL_AMINOACID_ORDERED
+        """
+        # loop over each character in the string
+        ret_val = []
+        for aa in sequence:
+            # find the index in the list for the current amino acid
+            aa_idx = CANONICAL_AMINOACID_ORDERED.index(aa)
+            ret_val.append(aa_idx)
+
+        # return the converted sequence
+        return ret_val
+    
+    def position_decode_seq(self, sequence : list[int]) -> str:
+        """
+        Decodes a positionally encoded sequence back into an amino acid sequence string.
+        
+        This function takes a list of integer indices and converts each index back to its 
+        corresponding amino acid using the CANONICAL_AMINOACID_ORDERED list. The amino acids
+        are then joined together into a single string.
+
+        Parameters
+        ----------
+        sequence : list[int]
+            List of integer indices corresponding to positions in CANONICAL_AMINOACID_ORDERED
+
+        Returns
+        -------
+        str
+            The decoded amino acid sequence as a string
+            
+        Example
+        -------
+        >>> imc = InteractionMatrixConstructor(parameters)
+        >>> encoded = [0, 1, 2]  # corresponds to ['M', 'G', 'K']
+        >>> imc.position_decode_seq(encoded)
+        'MGK'
+        """
+        # loop over every character in the seqence
+        ret_val = []
+        for aa in sequence:
+            #convert the integer into a character
+            ret_val.append(CANONICAL_AMINOACID_ORDERED[aa])
+
+        # convert the list to a string and return it
+        return ''.join(ret_val)
 
     def get_converted_sequence(self, sequence):
         """
@@ -1151,51 +1251,90 @@ class InteractionMatrixConstructor:
         # call the moving average filter 
         return self.moving_weighted_average_of_vectors_valid(enc_seq, kernel_weights=kern)
     
-    def determine_region_amino_acid_preference(self, avg_vec_seq : np.ndarray) -> list[dict[str,float]]:
+    def compute_region_chemical_heterogeneity_vectors(self, sequence : str, region_size : int) -> np.ndarray:
         """
-        Assignes values to each amino acid for each sequence position based on the avg_vec_seq value
-        """
-        #loop over each value in the seuqence
-        seq_list = []
-        for i in range(len(avg_vec_seq)):
-            #loop over each amino acid
-            temp = {}
-            for j in range(len(CANONICAL_AMINOACID_ORDERED)):
-                val = avg_vec_seq[i,j]
-                if val < 0:
-                    temp[CANONICAL_AMINOACID_ORDERED[j]] = np.abs(val)
-                else:
-                    temp[CANONICAL_AMINOACID_ORDERED[j]] = 0.0
-            #add the temp to the seq_list
-            seq_list.append(temp)
+        Computes chemical heterogeneity vectors for sliding windows along a sequence.
+        
+        For each window of size region_size, this function evaluates the chemical 
+        heterogeneity by considering all possible pairs of positions within the window
+        and calculating their interaction vector differences. The absolute values of 
+        these differences are averaged to produce a measure of chemical heterogeneity 
+        for each window position.
 
-        #return the result
-        return seq_list
-    
-    def determine_region_amino_acid_aversion(self, avg_vec_seq : np.ndarray) -> list[dict[str,float]]:
-        """
-        Assigns
-        """
-        #loop over each value in the seuqence
-        seq_list = []
-        for i in range(len(avg_vec_seq)):
-            #loop over each amino acid
-            temp = {}
-            for j in range(len(CANONICAL_AMINOACID_ORDERED)):
-                val = avg_vec_seq[i,j]
-                if val > 0:
-                    temp[CANONICAL_AMINOACID_ORDERED[j]] = np.abs(val)
-                else:
-                    temp[CANONICAL_AMINOACID_ORDERED[j]] = 0.0
-            #add the temp to the seq_list
-            seq_list.append(temp)
+        Parameters
+        ----------
+        sequence : str
+            The amino acid sequence to analyze.
+        region_size : int
+            The size of the sliding window to use for calculating heterogeneity.
 
-        #return the result
-        return seq_list
+        Returns
+        -------
+        np.ndarray
+            A 2D numpy array where each row represents the averaged chemical heterogeneity
+            vector for a window position. The number of rows will be len(sequence) - region_size,
+            and the number of columns matches the dimensionality of the interaction vectors.
+        """
+        # find the length of the sequence
+        seq_len = len(sequence)
+
+        #position encode the sequence
+        enc_seq = self.position_encode_seq(sequence)
+
+        # get all unique combinations of local indexes within a window
+        all_local_combos = []
+        for i in range(region_size-1):
+            for j in np.arange(i+1,region_size):
+                all_local_combos.append((i,j))
+
+        # loop over each window
+        ret_val = []
+        for k in range(seq_len - region_size + 1):
+            #loop over each unique local index combination
+            temp = []
+            for (first_idx, second_idx) in all_local_combos:
+                #pull the encoded positions for each index
+                p1 = enc_seq[first_idx + k]
+                p2 = enc_seq[second_idx + k]
+
+                #get the difference in chemical specificity for that pair of residues being swapped
+                vec_dif = self.lookup_vec_dif[p1][p2]
+
+                # append the absolute value of the vector difference to the temporary list
+                temp.append(np.abs(vec_dif))
+
+            #compute the mean value across the columns (average value of each vec_dif)
+            mean_vec = np.mean(np.array(temp), axis=0)
+
+            # append this to the return value
+            ret_val.append(mean_vec)
+
+        #return the vectorial heterogeneity values
+        return np.array(ret_val)
+                
     
     def determine_region_interaction_norm(self, avg_vec_seq : np.ndarray) -> np.ndarray:
         """
-        Here
+        Calculates the Euclidean norm (magnitude) of interaction vectors for each position.
+        
+        This function computes the L2 norm of each row vector in the averaged vector sequence.
+        It can be interepreted as providing two measures: interaction strength or heterogeneity.
+        When passing a sequence of intera ction vectors it provides a measure of the overall
+        interaction strength at each position regardless of whether the interactions are favorable 
+        or unfavorable. when passing a sequence of interaction differences it provides a measure
+        of chemicical heterogeneity in that region.
+
+        Parameters
+        ----------
+        avg_vec_seq : np.ndarray
+            A 2D numpy array where each row represents the interaction vector for a position
+            in the sequence. The columns correspond to interactions with each canonical amino acid.
+
+        Returns
+        -------
+        np.ndarray
+            A 1D numpy array containing the L2 norm of each row vector, representing the
+            overall interaction strength at each position in the sequence.
         """
         seq_list = []
         for i in range(len(avg_vec_seq)):
@@ -1211,6 +1350,123 @@ class InteractionMatrixConstructor:
         #return 
         return np.array(seq_list)
     
+    def determine_region_logo_manipulation(self, avg_vec_seq: np.ndarray, threshold: float = 0.0, 
+                                                operation: str = 'lt') -> list[dict[str,float]]:
+        """
+        Analyzes an averaged vector sequence to determine amino acid interactions based on a threshold.
+        
+        For each position in the averaged vector sequence, this function identifies which amino 
+        acids have interaction values that satisfy the specified threshold condition and returns 
+        their absolute magnitudes. Values that don't meet the condition are set to 0.0.
+
+        Parameters
+        ----------
+        avg_vec_seq : np.ndarray
+            A 2D numpy array where each row represents the interaction vector for a position
+            in the sequence. The columns correspond to interactions with each canonical amino acid.
+
+        threshold : float, optional
+            The threshold value to compare interaction values against. Default is 0.
+
+        operation : str, optional
+            The comparison operation to use. Options are:
+            - 'lt': less than (value < threshold)
+            - 'gt': greater than (value > threshold)
+            Default is 'lt'.
+
+        Returns
+        -------
+        list[dict[str,float]]
+            A list of dictionaries, one per position in avg_vec_seq. Each dictionary maps
+            amino acid one-letter codes to their interaction strength (absolute value of 
+            the interaction). Amino acids not meeting the threshold condition are assigned 0.0.
+
+        Raises
+        ------
+        ValueError
+            If operation is not 'lt' or 'gt'.
+        """
+        if operation not in ['lt', 'gt']:
+            raise ValueError("Operation must be either 'lt' or 'gt'")
+
+        seq_list = []
+        for i in range(len(avg_vec_seq)):
+            temp = {}
+            for j in range(len(CANONICAL_AMINOACID_ORDERED)):
+                val = avg_vec_seq[i,j]
+                if (operation == 'lt' and val < threshold) or (operation == 'gt' and val > threshold):
+                    temp[CANONICAL_AMINOACID_ORDERED[j]] = np.abs(val)
+                else:
+                    temp[CANONICAL_AMINOACID_ORDERED[j]] = 0.0
+            seq_list.append(temp)
+
+        return seq_list
+    
+    def boltzmann_normalize(self, avg_vec_seq: np.ndarray, kt: float = 1.0, mode: str = 'region') -> np.ndarray:
+        """
+        Performs Boltzmann normalization on a sequence of interaction vectors.
+
+        Parameters
+        ----------
+        avg_vec_seq : np.ndarray
+            A 2D numpy array where each row represents a position in the sequence and
+            each column represents interaction values with canonical amino acids.
+            Shape is (n_positions, n_amino_acids)
+
+        kt : float, optional
+            Temperature factor (kT) used in Boltzmann normalization. Higher values lead
+            to more uniform distributions. Default is 1.0.
+
+        mode : str, optional
+            Normalization mode to use:
+            - 'region': Normalize each column independently (per amino acid interaction)
+            - 'residue': Normalize each row independently (per sequence position)
+            - 'whole': Normalize entire matrix using all values
+            Default is 'region'.
+
+        Returns
+        -------
+        np.ndarray
+            Boltzmann normalized array with same shape as input. Values are normalized
+            such that they sum to 1.0 within each normalization group as defined by mode.
+
+        Raises
+        ------
+        ValueError
+            If mode is not one of 'region', 'residue', or 'whole'
+            If kt <= 0
+        """
+        if kt <= 0:
+            raise ValueError("kt must be positive")
+
+        if mode not in ['region', 'residue', 'whole']:
+            raise ValueError("mode must be one of: 'region', 'residue', 'whole'")
+
+        # Create copy to avoid modifying original
+        vec_seq = avg_vec_seq.copy()
+        
+        # Convert to Boltzmann factors: exp(-E/kT)
+        boltz_factors = np.exp(-vec_seq / kt)
+
+        if mode == 'region':
+            # Normalize each column (amino acid interaction) independently
+            # Sum along rows (axis=0) to get normalization factors for each column
+            norm_factors = np.sum(boltz_factors, axis=0)
+            normalized = boltz_factors / norm_factors[np.newaxis, :]
+
+        elif mode == 'residue':
+            # Normalize each row (sequence position) independently
+            # Sum along columns (axis=1) to get normalization factors for each row
+            normalized = boltz_factors / np.sum(boltz_factors, axis=1)[:, np.newaxis]
+
+        else:  # mode == 'whole'
+            # Normalize entire matrix using single normalization factor
+            normalized = boltz_factors / np.sum(boltz_factors)
+
+        return normalized
+
+
+
 
 
 

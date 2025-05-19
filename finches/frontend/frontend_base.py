@@ -1323,8 +1323,409 @@ class FinchesFrontend:
             
 
         return [all_phase_diagrams, fig, ax]
+    
+
+
+
+    #########################################################
+    ##                 Single Sequence Analysis            ##
+    #########################################################
+    
+
+    def calculate_region_interactions_dict(self, sequence : str, region_size : int, 
+                                      kernal_type : str = 'flat', **kwargs) -> list[dict[str, float]]:
+        """
+        Calculates interaction dictionaries for sliding window regions along a sequence.
+
+        For each window position, computes the average interaction profile and returns it
+        as a dictionary mapping amino acids to their interaction values.
+
+        Parameters
+        ----------
+        sequence : str
+            The amino acid sequence to analyze
+
+        region_size : int
+            Size of the sliding window used for analysis
+
+        kernal_type : str, optional
+            Type of kernel used for weighted averaging. Options are:
+            - 'flat': Uniform weighting (default)
+            - 'gaussian': Gaussian weighting
+
+        **kwargs : dict
+            Additional arguments passed to the kernel calculation:
+            - std: Standard deviation if using Gaussian kernel
+
+        Returns
+        -------
+        list[dict[str, float]]
+            List of dictionaries, one per window position. Each dictionary maps amino acid
+            one-letter codes to their interaction values in that window.
+        """
+        # compute the interaction matrix
+        interaction_mat = self.calculate_region_interactions_mat(sequence,
+                                                                 region_size,
+                                                                 kernal_type,
+                                                                 **kwargs)
+        
+        # transform the matrix into a dictionary
+        interaction_dict = self.IMC_object.vector_decode_seq(interaction_mat)
+
+        # return the region dictionary
+        return  interaction_dict
+    
+    def calculate_region_interactions_mat(self, sequence : str, region_size : int, 
+                                      kernal_type : str = 'flat', **kwargs) -> np.ndarray:
+        """
+        Calculates interaction matrices for sliding window regions along a sequence.
+
+        For each window position, computes the average interaction profile and returns it
+        as a matrix where each row represents the interactions for one window position.
+
+        Parameters
+        ----------
+        sequence : str
+            The amino acid sequence to analyze
+
+        region_size : int
+            Size of the sliding window used for analysis
+
+        kernal_type : str, optional
+            Type of kernel used for weighted averaging. Options are:
+            - 'flat': Uniform weighting (default)
+            - 'gaussian': Gaussian weighting
+
+        **kwargs : dict
+            Additional arguments passed to the kernel calculation:
+            - std: Standard deviation if using Gaussian kernel
+
+        Returns
+        -------
+        np.ndarray
+            2D array where each row represents the interaction vector for a window position,
+            and columns represent interactions with different amino acids
+        """
+        # Compute the interaction matrix
+        interaction_mat = self.IMC_object.compute_region_interaction_vectors(sequence, region_size,
+                                                                     kernal_type, **kwargs)
+        
+        # return teh interaction matrix
+        return interaction_mat
+    
+    def calculate_region_chemical_heterogeneity_dict(self, sequence : str, region_size : int) -> list[dict[str,float]]:
+        """
+        Calculates chemical heterogeneity dictionaries for sliding window regions.
+
+        For each window position, computes the chemical heterogeneity profile and returns
+        it as a dictionary mapping amino acids to their heterogeneity values.
+
+        Parameters
+        ----------
+        sequence : str
+            The amino acid sequence to analyze
+
+        region_size : int
+            Size of the sliding window used for analysis
+
+        Returns
+        -------
+        list[dict[str,float]]
+            List of dictionaries, one per window position. Each dictionary maps amino acid
+            one-letter codes to their heterogeneity values in that window.
+        """
+        # compute and the heterogeneity matrix
+        heterogeneity_mat = self.calculate_region_chemical_heterogeneity_mat(sequence, region_size)
+
+        # decode the sequence
+        heterogeneity_dict = self.IMC_object.vector_decode_seq(heterogeneity_mat)
+
+        #return teh value
+        return heterogeneity_dict
+    
+    def calculate_region_chemical_heterogeneity_mat(self, sequence : str, region_size : int) -> np.ndarray:
+        """
+        Calculates chemical heterogeneity matrices for sliding window regions.
+
+        For each window position, computes the chemical heterogeneity profile and returns
+        it as a matrix where each row represents the heterogeneity for one window position.
+
+        Parameters
+        ----------
+        sequence : str
+            The amino acid sequence to analyze
+
+        region_size : int
+            Size of the sliding window used for analysis
+
+        Returns
+        -------
+        np.ndarray
+            2D array where each row represents the heterogeneity vector for a window position,
+            and columns represent heterogeneity with different amino acids
+        """
+        # compute and return the region chemical heterogeneity vector
+        heterogeneity = self.IMC_object.compute_region_chemical_heterogeneity_vectors(sequence, region_size)
+
+        return heterogeneity
+    
+    def maximal_attractor(self, sequence : str, region_size : int, 
+                                kernal_type : str = 'flat', **kwargs) -> tuple[str,np.ndarray]:
+        """
+        Determines the sequence that maximally attracts with the input sequence.
+
+        For each window position, identifies the amino acids that would provide 
+        the strongest attractive interactions with that region.
+
+        Parameters
+        ----------
+        sequence : str
+            The amino acid sequence to analyze
+
+        region_size : int
+            Size of the sliding window used for analysis
+
+        kernal_type : str, optional
+            Type of kernel used for weighted averaging. Options are:
+            - 'flat': Uniform weighting (default)
+            - 'gaussian': Gaussian weighting
+
+        **kwargs : dict
+            Additional arguments passed to the kernel calculation:
+            - std: Standard deviation if using Gaussian kernel
+
+        Returns
+        -------
+        tuple[str,np.ndarray]
+            A tuple containing:
+            - str: The sequence that maximally attracts with the input sequence
+            - np.ndarray: Array of interaction strengths at each position
+        """
+        # get the sequence interaction profile
+        interact_mat = self.calculate_region_interactions_mat(sequence, region_size, kernal_type, **kwargs)
+
+        # find the locations of the strongest interacting values and the values themselves
+        max_vals = np.min(interact_mat, axis=1)
+        max_idx = np.argmin(interact_mat, axis=1)
+
+        # convert the indexes into amino acids
+        strong_interact_seq = self.IMC_object.position_decode_seq(max_idx)
+
+        #return the values
+        return strong_interact_seq, max_vals 
+    
+    def maximal_repulsor(self, sequence : str, region_size : int, 
+                                kernal_type : str = 'flat', **kwargs) -> tuple[str,np.ndarray]:
+        """
+        Determines the sequence that maximally repels from the input sequence.
+
+        For each window position, identifies the amino acids that would provide 
+        the strongest repulsive interactions with that region.
+
+        Parameters
+        ----------
+        sequence : str
+            The amino acid sequence to analyze
+
+        region_size : int
+            Size of the sliding window used for analysis
+
+        kernal_type : str, optional
+            Type of kernel used for weighted averaging. Options are:
+            - 'flat': Uniform weighting (default)
+            - 'gaussian': Gaussian weighting
+
+        **kwargs : dict
+            Additional arguments passed to the kernel calculation:
+            - std: Standard deviation if using Gaussian kernel
+
+        Returns
+        -------
+        tuple[str,np.ndarray]
+            A tuple containing:
+            - str: The sequence that maximally repels from the input sequence
+            - np.ndarray: Array of interaction strengths at each position
+        """
+        # get the sequence interaction profile
+        interact_mat = self.calculate_region_interactions_mat(sequence, region_size, kernal_type, **kwargs)
+
+        # find the locations of the strongest interacting values and the values themselves
+        max_vals = np.max(interact_mat, axis=1)
+        max_idx = np.argmax(interact_mat, axis=1)
+
+        # convert the indexes into amino acids
+        strong_interact_seq = self.IMC_object.position_decode_seq(max_idx)
+
+        #return the values
+        return strong_interact_seq, max_vals
+    
             
 
+    def interaction_strength(self, sequence : str, region_size : int, 
+                                    kernal_type : str = 'flat', **kwargs) -> np.ndarray:
+        """
+        Computes the overall interaction strength for each window position.
+
+        Calculates the norm of the interaction matrix as a measure of bulk interaction
+        strength, returning a vector that spans the sequence length minus region size plus 1.
+
+        Parameters
+        ----------
+        sequence : str
+            The amino acid sequence to analyze
+
+        region_size : int
+            Size of the sliding window used for analysis
+
+        kernal_type : str, optional
+            Type of kernel used for weighted averaging. Options are:
+            - 'flat': Uniform weighting (default)
+            - 'gaussian': Gaussian weighting
+
+        **kwargs : dict
+            Additional arguments passed to the kernel calculation:
+            - std: Standard deviation if using Gaussian kernel
+
+        Returns
+        -------
+        np.ndarray
+            1D array containing interaction strength values for each window position
+        """
+        # get the interaction matrix
+        interaction_mat = self.calculate_region_interactions_mat(sequence=sequence, region_size=region_size, kernal_type=kernal_type, **kwargs)
+
+        # compute the interaction strength
+        interaction_strength = np.linalg.norm(interaction_mat,axis=1)
+
+        # return the interaction strength
+        return interaction_strength
+    
+    def chemical_interaction_heterogeneity(self, sequence : str, region_size : int) -> np.ndarray:
+        """
+        Computes the chemical interaction heterogeneity for each window position.
+
+        Calculates the norm of the heterogeneity matrix as a measure of chemical diversity,
+        returning a vector that spans the sequence length minus region size plus 1.
+
+        Parameters
+        ----------
+        sequence : str
+            The amino acid sequence to analyze
+
+        region_size : int
+            Size of the sliding window used for analysis
+
+        Returns
+        -------
+        np.ndarray
+            1D array containing chemical heterogeneity values for each window position
+        """
+        # compute the interaction heterogeneity
+        interaction_het = self.calculate_region_chemical_heterogeneity_mat(sequence=sequence, region_size=region_size)
+
+        # take the norm for each region
+        het_vec = np.linalg.norm(interaction_het, axis = 1)
+
+        # return the heterogeneity over the regions
+        return het_vec
+
+
+
+    def interaction_permiscutivity(self, sequence : str, region_size : int, 
+                                    kernal_type : str = 'flat', **kwargs):
+        """
+        Calculates the interaction permiscutivity for each window position.
+
+        Computes the ratio of chemical heterogeneity to interaction strength,
+        providing a measure of how promiscuous vs specific interactions are in each region.
+
+        Parameters
+        ----------
+        sequence : str
+            The amino acid sequence to analyze
+
+        region_size : int
+            Size of the sliding window used for analysis
+
+        kernal_type : str, optional
+            Type of kernel used for weighted averaging. Options are:
+            - 'flat': Uniform weighting (default)
+            - 'gaussian': Gaussian weighting
+
+        **kwargs : dict
+            Additional arguments passed to the kernel calculation:
+            - std: Standard deviation if using Gaussian kernel
+
+        Returns
+        -------
+        np.ndarray
+            1D array containing permiscutivity values (heterogeneity/strength ratio) 
+            for each window position
+        """
+        # compute the interaction vector
+        interact_vec = self.interaction_strength(sequence=sequence, region_size=region_size, kernal_type=kernal_type, **kwargs)
+
+        # compute the heterogeneity vector
+        het_vec = self.chemical_interaction_heterogeneity(sequence=sequence, region_size=region_size)
+
+        # take the difference
+        return het_vec / interact_vec
+
+
+    def produce_interaction_logos(self, sequence : str, region_size : int, 
+                                kernal_type : str = 'flat', 
+                                st_idx = None, end_idx = None,
+                                logo_threshold : float = 0.0,
+                                seq_splice : bool = False,
+                                warn : bool = True,
+                                **kwargs) -> tuple[list[dict[str, float]], str, list[dict[str, float]], np.ndarray[int]]:
+        """
+        Produce the first four inputs to the interaction logo
+        """
+        # determine if the user is providing a even number region size which cannot be displayed accurately
+        if region_size % 2 == 0 and warn:
+            print(f"WARNING: The region size asked for is even and cannot be localized on the sequence (only on the regions). This means the displayed sequence is inaccurate.")
+        # determine the value of the starting and ending indexes
+        if st_idx is None:
+            st_idx = 0
+        if end_idx is None:
+            end_idx = len(sequence)
+        # check any specified indexes
+        if st_idx < 0 or st_idx > len(sequence) - 1:
+            raise Exception(f"The starting index is not valid. Must be between 0 and {len(sequence) - 1}. It was {st_idx}.")
+        if end_idx < 1 or end_idx > len(sequence):
+            raise Exception(f"The ending index is not valid. Must be between 1 and {len(sequence)}. It was {end_idx}.")
+        
+        # grab the subsequence that the user wants to work with
+        sub_seq = sequence[st_idx:end_idx]
+
+        # lets get the region interaction
+        interaction_mat = self.calculate_region_interactions_mat(sequence=sub_seq, region_size=region_size, kernal_type=kernal_type, **kwargs)
+
+        # perform the needed logo manipulations
+        # get the attractive portion
+        attract_dict = self.IMC_object.determine_region_logo_manipulation(avg_vec_seq = interaction_mat, threshold = logo_threshold, 
+                                                                            operation = 'lt')
+        # get the repulsive portion
+        repulsive_dict = self.IMC_object.determine_region_logo_manipulation(avg_vec_seq = interaction_mat, threshold = logo_threshold, 
+                                                                            operation = 'gt')
+        
+        # splice the sequence if the user wants that or if it is even as that forces us to splice
+        ret_str = sub_seq
+        if seq_splice and not (region_size % 2 == 0):
+            id_j = region_size-1
+            ret_str = sub_seq[id_j:len(sub_seq)-id_j]
+        elif region_size % 2 == 0:
+            id_j = region_size-1
+            ret_str = sub_seq[0:len(sub_seq)-id_j]
+
+        # get the indexing based on the sequence splicing
+        o_set = st_idx + 1
+        index_scheme = np.arange(o_set, o_set + len(ret_str))
+
+        # return the values so that they can be displayed by display_protein_interaction_logo_visualization
+        # attractive, subsequence of interest, repulsive, index scheme
+        return attract_dict, ret_str, repulsive_dict, index_scheme
 
     
         
