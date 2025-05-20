@@ -1562,12 +1562,16 @@ class FinchesFrontend:
             
 
     def interaction_strength(self, sequence : str, region_size : int, 
-                                    kernal_type : str = 'flat', **kwargs) -> np.ndarray:
+                                    kernal_type : str = 'flat', 
+                                    direction : str = 'lt',
+                                    threshold : float = 0.0,
+                                      **kwargs) -> np.ndarray:
         """
-        Computes the overall interaction strength for each window position.
+        Computes the directional interaction strength for each window position.
 
-        Calculates the norm of the interaction matrix as a measure of bulk interaction
-        strength, returning a vector that spans the sequence length minus region size plus 1.
+        Calculates the norm of a thresholded interaction matrix to measure either attractive
+        or repulsive interaction strength. The direction parameter determines whether to 
+        analyze attractive ('lt') or repulsive ('gt') interactions relative to a threshold.
 
         Parameters
         ----------
@@ -1582,6 +1586,17 @@ class FinchesFrontend:
             - 'flat': Uniform weighting (default)
             - 'gaussian': Gaussian weighting
 
+        direction : str, optional
+            Direction of thresholding. Options are:
+            - 'lt': Analyze attractive interactions (less than threshold)
+            - 'gt': Analyze repulsive interactions (greater than threshold)
+            Default is 'lt'
+
+        threshold : float, optional
+            Value used to threshold interactions. Default is 0.0
+            - For 'lt': Values above threshold are set to threshold
+            - For 'gt': Values below threshold are set to threshold
+
         **kwargs : dict
             Additional arguments passed to the kernel calculation:
             - std: Standard deviation if using Gaussian kernel
@@ -1589,13 +1604,22 @@ class FinchesFrontend:
         Returns
         -------
         np.ndarray
-            1D array containing interaction strength values for each window position
+            1D array containing interaction strength values for each window position,
+            where values represent the norm of thresholded interactions in that window
         """
         # get the interaction matrix
         interaction_mat = self.calculate_region_interactions_mat(sequence=sequence, region_size=region_size, kernal_type=kernal_type, **kwargs)
 
+        # determine if we are lookimg at attraction or repulsion
+        # you will use the opposite size as you jsut have to replace the values that do not match
+        if direction == 'lt': #attraction
+            im1 = interaction_mat
+            im1[im1 > threshold] = threshold
+        if direction == 'gt': #repulsion
+            im1 = interaction_mat
+            im1[im1 < threshold] = threshold
         # compute the interaction strength
-        interaction_strength = np.linalg.norm(interaction_mat,axis=1)
+        interaction_strength = np.linalg.norm(im1,axis=1)
 
         # return the interaction strength
         return interaction_strength
@@ -1636,8 +1660,10 @@ class FinchesFrontend:
         """
         Calculates the interaction permiscutivity for each window position.
 
-        Computes the ratio of chemical heterogeneity to interaction strength,
-        providing a measure of how promiscuous vs specific interactions are in each region.
+        Computes the difference between the overall interaction strength and the maximal 
+        attractive interaction strength. This provides a measure of interaction specificity:
+        - Low values indicate specific interactions (strength similar to max attraction)
+        - High values indicate promiscuous interactions (strength much larger than max attraction)
 
         Parameters
         ----------
@@ -1659,17 +1685,19 @@ class FinchesFrontend:
         Returns
         -------
         np.ndarray
-            1D array containing permiscutivity values (heterogeneity/strength ratio) 
-            for each window position
+            1D array containing permiscutivity values for each window position.
+            Values are computed as: interaction_strength - maximal_attraction_strength.
+            - Positive values indicate more promiscuous interactions
+            - Values near zero indicate specific interactions
         """
+        # compute the most attractive values
+        attrac = self.maximal_attractor(sequence=sequence, region_size=region_size, kernal_type=kernal_type, **kwargs)[1]
+
         # compute the interaction vector
         interact_vec = self.interaction_strength(sequence=sequence, region_size=region_size, kernal_type=kernal_type, **kwargs)
 
-        # compute the heterogeneity vector
-        het_vec = self.chemical_interaction_heterogeneity(sequence=sequence, region_size=region_size)
-
         # take the difference
-        return het_vec / interact_vec
+        return interact_vec - attrac
 
 
     def produce_interaction_logos(self, sequence : str, region_size : int, 
@@ -1726,10 +1754,68 @@ class FinchesFrontend:
         # return the values so that they can be displayed by display_protein_interaction_logo_visualization
         # attractive, subsequence of interest, repulsive, index scheme
         return attract_dict, ret_str, repulsive_dict, index_scheme
+    
+
+
+
+    def produce_heterogeneity_logos(self, sequence : str, region_size : int, 
+                                kernal_type : str = 'flat', 
+                                st_idx = None, end_idx = None,
+                                logo_threshold : float = 0.0,
+                                seq_splice : bool = False,
+                                warn : bool = True,
+                                **kwargs) -> tuple[list[dict[str, float]], str, list[dict[str, float]], np.ndarray[int]]:
+        """
+        Produce the first four inputs to the interaction logo
+        """
+        # determine if the user is providing a even number region size which cannot be displayed accurately
+        if region_size % 2 == 0 and warn:
+            print(f"WARNING: The region size asked for is even and cannot be localized on the sequence (only on the regions). This means the displayed sequence is inaccurate.")
+        # determine the value of the starting and ending indexes
+        if st_idx is None:
+            st_idx = 0
+        if end_idx is None:
+            end_idx = len(sequence)
+        # check any specified indexes
+        if st_idx < 0 or st_idx > len(sequence) - 1:
+            raise Exception(f"The starting index is not valid. Must be between 0 and {len(sequence) - 1}. It was {st_idx}.")
+        if end_idx < 1 or end_idx > len(sequence):
+            raise Exception(f"The ending index is not valid. Must be between 1 and {len(sequence)}. It was {end_idx}.")
+        
+        # grab the subsequence that the user wants to work with
+        sub_seq = sequence[st_idx:end_idx]
+
+        # lets get the region interaction
+        interaction_mat = self.calculate_region_chemical_heterogeneity_mat(sequence=sub_seq, region_size=region_size, kernal_type=kernal_type, **kwargs)
+
+        # perform the needed logo manipulations
+        # get the attractive portion
+        attract_dict = self.IMC_object.determine_region_logo_manipulation(avg_vec_seq = interaction_mat, threshold = logo_threshold, 
+                                                                            operation = 'lt')
+        # get the repulsive portion
+        repulsive_dict = self.IMC_object.determine_region_logo_manipulation(avg_vec_seq = interaction_mat, threshold = logo_threshold, 
+                                                                            operation = 'gt')
+        
+        # splice the sequence if the user wants that or if it is even as that forces us to splice
+        ret_str = sub_seq
+        if seq_splice and not (region_size % 2 == 0):
+            id_j = region_size-1
+            ret_str = sub_seq[id_j:len(sub_seq)-id_j]
+        elif region_size % 2 == 0:
+            id_j = region_size-1
+            ret_str = sub_seq[0:len(sub_seq)-id_j]
+
+        # get the indexing based on the sequence splicing
+        o_set = st_idx + 1
+        index_scheme = np.arange(o_set, o_set + len(ret_str))
+
+        # return the values so that they can be displayed by display_protein_interaction_logo_visualization
+        # attractive, subsequence of interest, repulsive, index scheme
+        return attract_dict, ret_str, repulsive_dict, index_scheme
 
     
         
-        
+    
 
 
 
