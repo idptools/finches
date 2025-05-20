@@ -1656,12 +1656,14 @@ class FinchesFrontend:
 
 
     def interaction_permiscutivity(self, sequence : str, region_size : int, 
-                                    kernal_type : str = 'flat', **kwargs):
+                                    kernal_type : str = 'flat', 
+                                    onlyfrac = False,
+                                    **kwargs):
         """
         Calculates the interaction permiscutivity for each window position.
 
         Computes the difference between the overall interaction strength and the maximal 
-        attractive interaction strength. This provides a measure of interaction specificity:
+        attractive interaction strength divided by the maximal. This provides a measure of interaction specificity:
         - Low values indicate specific interactions (strength similar to max attraction)
         - High values indicate promiscuous interactions (strength much larger than max attraction)
 
@@ -1692,12 +1694,24 @@ class FinchesFrontend:
         """
         # compute the most attractive values
         attrac = self.maximal_attractor(sequence=sequence, region_size=region_size, kernal_type=kernal_type, **kwargs)[1]
+        # take the absolute value of this number
+        attrac = np.abs(attrac)
 
         # compute the interaction vector
         interact_vec = self.interaction_strength(sequence=sequence, region_size=region_size, kernal_type=kernal_type, **kwargs)
 
-        # take the difference
-        return interact_vec - attrac
+        # take the difference and divide to get the fractional value
+        frac = (interact_vec - attrac)/attrac
+
+        # check if the user is only interested in the fractional term
+        if onlyfrac:
+            return frac
+        
+        # apply the affine projection
+        inner = frac + np.ones(len(frac))
+        affine = np.power(inner, 2)
+        
+        return affine
 
 
     def produce_interaction_logos(self, sequence : str, region_size : int, 
