@@ -30,7 +30,7 @@ version = ''
 release = ''
 
 # nb having numpy here breaks cython impot
-autodoc_mock_imports = ["metapredict", "pandas", "matplotlib", "scipy", "tqdm", "afrc"]
+autodoc_mock_imports = ["metapredict", "pandas", "matplotlib", "scipy", "tqdm", "afrc", "finches.utils.matrix_manipulation"]
 
 
 # -- General configuration ---------------------------------------------------
