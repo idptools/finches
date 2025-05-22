@@ -14,9 +14,7 @@ by: Garrett M. Ginell
 
 """
 import numpy as np
-
-
-from .sequence_tools import MASK_n_closest_nearest_neighbors, mask_sequence, get_neighbors_window_of3, calculate_FCR_and_NCPR, calculate_NCPR
+from finches import sequence_tools
 
 # new characters for PIMMS aliphatic groups 
 aliphatic_group1 = {'A':'a', 'L':'l', 'M':'m', 'I':'i', 'V':'v'}
@@ -130,10 +128,10 @@ def get_charge_weighted_mask(sequence1, sequence2):
                                         
                     # this generates a string of max 6 residues (for terminal residues 5 or 4 residues)
                     # which is basically a concatenated fragment 
-                    l_resis = get_neighbors_window_of3(i,sequence1) + get_neighbors_window_of3(j,sequence2)
+                    l_resis = sequence_tools.get_neighbors_window_of3(i,sequence1) + sequence_tools.get_neighbors_window_of3(j,sequence2)
 
                     # for that fragment, calculate the local fcr and ncpr
-                    [local_fcr, local_ncpr] = calculate_FCR_and_NCPR(l_resis)
+                    [local_fcr, local_ncpr] = sequence_tools.calculate_FCR_and_NCPR(l_resis)
 
                     # calculate the charge weight as |NCPR/FRC|. This means in one limit charge_weight goes
                     # to 1 if the fragment is all the same type of charged residues, and goes to 0 if the
@@ -147,11 +145,11 @@ def get_charge_weighted_mask(sequence1, sequence2):
                     # but ALSO SLOWER! Win win!
                     """
 
-                    frag1 = get_neighbors_window_of3(i, sequence1)
-                    frag2 = get_neighbors_window_of3(j, sequence2)
+                    frag1 = sequence_tools.get_neighbors_window_of3(i, sequence1)
+                    frag2 = sequence_tools.get_neighbors_window_of3(j, sequence2)
 
-                    [f1_fcr, f1_ncpr]  = calculate_FCR_and_NCPR(frag1)
-                    [f2_fcr, f2_ncpr]  = calculate_FCR_and_NCPR(frag2)
+                    [f1_fcr, f1_ncpr]  = sequence_tools.calculate_FCR_and_NCPR(frag1)
+                    [f2_fcr, f2_ncpr]  = sequence_tools.calculate_FCR_and_NCPR(frag2)
 
                     # if both fragments contain only one type of charged residue
                     if abs(f1_ncpr) == f1_fcr and abs(f2_ncpr) == f2_fcr:
@@ -232,9 +230,9 @@ def get_charge_weighted_FD_mask(sequence1, sequence2):
         if r1 in charges:
             for j,r2 in enumerate(sequence2):  
                 if r2 in charges: 
-                    l_resis = r1 + get_neighbors_window_of3(j,sequence2) #this line is the difference HERE 
+                    l_resis = r1 + sequence_tools.get_neighbors_window_of3(j,sequence2) #this line is the difference HERE 
                     
-                    [local_fcr, local_ncpr] = calculate_FCR_and_NCPR(l_resis)
+                    [local_fcr, local_ncpr] = sequence_tools.calculate_FCR_and_NCPR(l_resis)
                     chrg_weight = np.abs(local_ncpr / local_fcr)
                     
                     tmp.append(chrg_weight)
@@ -332,10 +330,10 @@ def get_aliphatic_groups(chain):
     """
     
     # get binary mask of aliphatics, so ali_mask is 1 for aliphatics and 0 for non-aliphatics 
-    ali_mask = mask_sequence(chain, ['A','V','I','L','M'])
+    ali_mask = sequence_tools.mask_sequence(chain, ['A','V','I','L','M'])
     
     # count the number of nearest neighbors per aliphatic
-    aliphaticgrouping = MASK_n_closest_nearest_neighbors(ali_mask)
+    aliphaticgrouping = sequence_tools.MASK_n_closest_nearest_neighbors(ali_mask)
     
     # filter aliphatic grouping in 3 groups 
     aliphaticgrouping = [sub_a if sub_a < 4 else 3 for sub_a in aliphaticgrouping]

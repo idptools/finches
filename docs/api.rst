@@ -1,7 +1,23 @@
-API Documentation
-=================
+Frontend Object API
+=====================
 
-.. autosummary::
-   :toctree: autosummary
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents:
 
-   finches.frontend.calvados_frontend.CALVADOS_frontend
+
+
+.. automodule:: finches.frontend.mpipi_frontend
+.. autoclass:: finches.frontend.mpipi_frontend.Mpipi_frontend
+   :members:
+   :undoc-members:
+   :inherited-members:
+   :show-inheritance:
+
+
+.. automodule:: finches.frontend.calvados_frontend
+.. autoclass:: finches.frontend.calvados_frontend.CALVADOS_frontend
+   :members:
+   :undoc-members:
+   :inherited-members:
+   :show-inheritance:

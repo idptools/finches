@@ -1,11 +1,11 @@
-import pytests 
-import un
+import pytest
+#import un
 
 import pandas as pd
 
 import finches 
 
-from finches.forcefields.mPiPi import mPiPi_model
+from finches.forcefields.mpipi import mpipi_model
 from finches.forcefields.calvados import calvados_model
 from finches import epsilon_calculation
 

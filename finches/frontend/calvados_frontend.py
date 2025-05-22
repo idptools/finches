@@ -1,15 +1,11 @@
-from .frontend_base import FinchesFrontend
+from finches.frontend.frontend_base import FinchesFrontend
 
 # for model construction
 from finches.forcefields.calvados import calvados_model
 from finches import epsilon_calculation
 
-# other stuff
-import numpy as np
-
 # needed so we preserve docstrings after decorator is applied...
 from functools import wraps
-
 
 
 ##
@@ -24,12 +20,9 @@ def RNA_check(func):
         # args[1] = seq1
         # args[2] = seq2
         if 'U' in args[1] or 'U' in args[2]:
-            raise ValueError("CALVADOS cannot handled RNA ('U')")
+            raise ValueError("CALVADOS2 cannot handle RNA ('U')")
         return func(*args, **kwargs)
     return wrapper
-
-
-
 
 
 class CALVADOS_frontend(FinchesFrontend):

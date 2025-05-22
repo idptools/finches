@@ -1,0 +1,3 @@
+Intermap caveats and considerations
+====================================
+

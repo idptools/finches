@@ -16,12 +16,16 @@ FINCHES
    
    getting_started
    examples
+   epsilon
    idr_idr
    idr_fd
    phase_diagrams
-   caveats
+   epsilon_caveats
+   intermap_caveats
+   phase_diagram_caveats
    api
    extended_methods
+   acknowledgements
 
 
 

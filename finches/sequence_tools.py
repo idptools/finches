@@ -8,10 +8,6 @@ NOTE - Some of the functions below also exist in housetools but are
 By : Garrett M. Ginell & Alex S. Holehouse 
 2023-3-13
 """
-from IPython.display import display # dependency for showing sequence
-from IPython.display import HTML  # dependency for showing sequence
-
-
 
 def calculate_NCPR(s):
     """
@@ -383,6 +379,11 @@ def show_sequence_HTML(seq, blocksize=10, newline=50, fontsize=14,
     None or str
         If return_raw_string is set to true then an HTML-compatible string is returned.
     """
+
+
+    from IPython.display import display # dependency for showing sequence
+    from IPython.display import HTML  # dependency for showing sequence
+
 
     if blocksize > newline:
         newline = blocksize

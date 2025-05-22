@@ -1,22 +1,20 @@
 import metapredict as meta
-from finches.forcefields.mpipi import Mpipi_model
+
 from finches import epsilon_to_FHtheory
 from finches import epsilon_stateless
 from tqdm import tqdm
-
 import matplotlib.pyplot as plt
+
 import numpy as np
-
 from scipy.signal import savgol_filter
-
 import matplotlib
 
-# ensure text is editable in illustrator
-matplotlib.rcParams['pdf.fonttype'] = 42
-matplotlib.rcParams['ps.fonttype'] = 42
 
+# ensure text is editable in illustrator
+#matplotlib.rcParams['pdf.fonttype'] = 42
+#matplotlib.rcParams['ps.fonttype'] = 42
 # set to define axes linewidths
-matplotlib.rcParams['axes.linewidth'] = 0.5
+#matplotlib.rcParams['axes.linewidth'] = 0.5
 
 
 class FinchesFrontend:

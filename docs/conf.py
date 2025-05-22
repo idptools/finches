@@ -29,7 +29,8 @@ version = ''
 # The full version, including alpha/beta/rc tags
 release = ''
 
-autodoc_mock_imports = ["metapredict"]
+# nb having numpy here breaks cython impot
+autodoc_mock_imports = ["metapredict", "pandas", "matplotlib", "scipy", "tqdm", "afrc"]
 
 
 # -- General configuration ---------------------------------------------------

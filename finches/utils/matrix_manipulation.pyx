@@ -2,6 +2,9 @@ import numpy as np
 cimport numpy as cnp
 cimport cython 
 
+
+np.import_array()
+
 from cpython cimport array
 import array
 

@@ -5,16 +5,14 @@ Class to build Interation Matrix from Mpipi forcefield By
 values : Garrett M. Ginell & Alex S. Holehouse 
 2023-08-06
 """
+
+
 import numpy as np
-import math
+from finches.data import forcefield_dependencies
+from finches import parsing_aminoacid_sequences
 
-from .data import forcefield_dependencies
-from . import parsing_aminoacid_sequences
-
-from .PDB_structure_tools import build_column_mask_based_on_xyz
-
-from .utils import matrix_manipulation
-from . import epsilon_stateless
+from finches.utils import matrix_manipulation
+from finches import epsilon_stateless
 
 # -------------------------------------------------------------------------------------------------
 class InteractionMatrixConstructor:

@@ -1,2 +1,0 @@
-Caveats and considerations
-====================================
