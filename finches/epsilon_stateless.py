@@ -131,7 +131,7 @@ def get_sequence_epsilon_vectors(sequence1,
     the len(returned_vectors)
 
     NOTE this code was previously : get_weighted_sequence_epsilon_value 
-        It is now UPDATED to get_sequence_epsilon_vectors and  get_sequence_epsilon_value
+        It is now UPDATED to get_sequence_epsilon_vectors and get_sequence_epsilon_value
         all weighting is determined by flags. 
     
     Parameters
@@ -184,9 +184,12 @@ def get_sequence_epsilon_vectors(sequence1,
                                                     use_charge_weighting=use_charge_weighting,
                                                     use_aliphatic_weighting=use_aliphatic_weighting)
     
-    # get attractive and repulsive matrix
+    # get attractive and repulsive matrix. The function below takes the w_matrix and separates it out
+    # into two matrices, where elements that are below null_interaction_baseline are in the attractive_matrix
+    # and elements that are above the null_interaction_baseline are in the repulsive_matrix
     attractive_matrix, repulsive_matrix = get_attractive_repulsive_matrices(w_matrix, null_interaction_baseline)
 
+    # subtract off the baselines so that 0 = non-interacting
     attractive_matrix = attractive_matrix - null_interaction_baseline
     repulsive_matrix = repulsive_matrix - null_interaction_baseline
 

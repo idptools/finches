@@ -1,3 +1,0 @@
-Epsilon caveats and considerations
-=====================================
-

@@ -1048,9 +1048,6 @@ class FinchesFrontend:
             plt.savefig(fname, dpi=350)
 
         return fig, ax
-        
-        
-    
 
 
     # ....................................................................................
@@ -1061,8 +1058,6 @@ class FinchesFrontend:
         Function to build a homotypic phase diagram for a given sequence. This is done by
         calculating the overall epsilon for the sequence, and then combining this with 
         closed-form expressions for the binodal and spinodal lines.
-
-        The return 
 
         Parameters
         ----------
@@ -1079,27 +1074,29 @@ class FinchesFrontend:
         -------
         tuple of np.arrays
 
-            [0] - Dilute phase concentrations (array of len=N) in Phi
-            [1] - Dense phase concentrations (array of len=N) in Phi
-            [2] - List with [0]: critical Phi and [1]: Critical T
-            [3] - List of temperatures that match with the dense and dilute phase concentrations
-            [4] - Dilute phase concentrations (array of len=N) in Phi for spinodal
-            [5] - Dense phase concentrations (array of len=N) in Phi for spinodal
-            [6] - List with [0]: critical Phi and [1]: Critical T for spinodal
-            [7] - List of temperatures that match with the dense and dilute phase concentrations for spinodal
+            * [0] - Dilute phase concentrations (array of len=N) in Phi
+            * [1] - Dense phase concentrations (array of len=N) in Phi
+            * [2] - List with [0]: critical Phi and [1]: Critical T
+            * [3] - List of temperatures that match with the dense and dilute phase concentrations
+            * [4] - Dilute phase concentrations (array of len=N) in Phi for spinodal
+            * [5] - Dense phase concentrations (array of len=N) in Phi for spinodal
+            * [6] - List with [0]: critical Phi and [1]: Critical T for spinodal
+            * [7] - List of temperatures that match with the dense and dilute phase concentrations for spinodal
 
-        This seems somewhat overwhelming, but to plot the resulting binodal we just need to do:
+        Examples
+        --------
+        This seems somewhat overwhelming, but to plot the resulting binodal we just need to do::
 
-        # assuming mf = is a frontend object
-        B = mf.build_phase_diagram(seq)
+            # assuming mf = is a frontend object
+            B = mf.build_phase_diagram(seq)
 
-        # binodal low arm
-        plt.plot(B[0], B[3], 'blue', label='sequence name')
+            # binodal low arm
+            plt.plot(B[0], B[3], 'blue', label='sequence name')
 
-        # binodal high arm
-        plt.plot(B[1], B[3], 'blue')
+            # binodal high arm
+            plt.plot(B[1], B[3], 'blue')
 
-        plt.legend()
+            plt.legend()
 
         """
         eps = self.epsilon(seq, seq, use_aliphatic_weighting=use_aliphatic_weighting, use_charge_weighting=use_charge_weighting)
