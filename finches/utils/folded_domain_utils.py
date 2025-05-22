@@ -853,8 +853,15 @@ class FoldedDomain:
     def write_epsilon_vis_file(self, surface_epsilon, filename='surface_epsilon.txt'):
         """
         This function will write a file that can be used to visualize the surface 
-        residues in a protein. Specifically this assigns a "1" to solvent exposed
-        residues and a "0" to buried residues.
+        residues epislon values in a protein. Specifically this assigns the epsilon
+        value to each residue in the protein. The file is formatted as a list of
+        residue indices and their corresponding epsilon values. The file is
+        formatted as follows:
+
+            <residue index> A <epsilon value>
+        
+        where <residue index> is the index of the residue in the protein and
+        <epsilon value> is the epsilon value for that residue. 
 
         Parameters
         ----------
