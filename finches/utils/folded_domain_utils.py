@@ -903,7 +903,7 @@ class FoldeDomain:
         
         #get the mask for the interaction values
         contraint_mask_list = []
-        for idr_idx, fd_idx in zip(pinned_idr_residue_index, pinned_idr_residue_index):
+        for idr_idx, fd_idx in zip(pinned_idr_residue_index, pinned_surface_index):
             #produce a mask for each pairing of pinned residues
             interaction_mask = self.get_distance_mask(input_sequence, idr_idx,distance_constraint, fd_idx)
             #append this to the list of masks
