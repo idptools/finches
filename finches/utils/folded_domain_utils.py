@@ -975,7 +975,412 @@ class FoldedDomain:
 
         vector_mean = np.array([x['idr_epsilon_vector'] for x in interaction_dict.values()]).mean(axis=0)
         
-        return [interaction_dict, np.array(collect_epsilon_vectors), vector_mean]            
+        return [interaction_dict, np.array(collect_epsilon_vectors), vector_mean]
+    
+
+    def _guassian_filter_vectors(self, vectors : np.ndarray, dist : np.ndarray, stdev : float = 2.2):
+        """
+        This function calculates a guassian filter for the values in the vector set.
+        """
+        # compute out the weights vector
+        weights = np.exp(-0.5 * (dist / stdev) ** 2)
+
+        # normalize the weights
+        weights = weights / np.sum(weights)
+
+        # apply the weights to the vectors
+        filtered_vectors = np.matmul(vectors.T, weights).T
+
+        # return the filtered vectors
+        return filtered_vectors
+
+
+
+    def compute_context_interaction_vectors(self, 
+                                            IMCObject,
+                                            patch_radius : float = 12.0,
+                                            filter_std : float = 2.2) -> np.ndarray:
+        """
+        Computes interaction vectors for each surface residue taking local context into consideration.
+    
+        This function calculates how each surface patch interacts with amino acids by considering
+        the local chemical environment around each residue within the specified patch radius.
+        The interactions are weighted using a Gaussian filter based on distance from the patch center.
+
+        Parameters
+        ----------
+        IMCObject : IMCObject
+            Object containing methods for sequence encoding and interaction calculations
+        patch_radius : float, optional
+            Radius in Angstroms to define the local patch size, by default 12.0
+        filter_std : float, optional
+            Standard deviation for Gaussian distance weighting, by default 2.2
+
+        Returns
+        -------
+        np.ndarray
+            Array of interaction vectors for each surface patch
+        """
+
+        # check to ensure out inputs were valid
+
+        # get nearest neighbors and surface neighbors
+        self.get_nearest_neighbour_res(distance_thresh=patch_radius)
+
+        # get the patch neighborhoods
+        neighbors = self.surface_neighbours
+
+        # get the sequence for the surface
+        aa_seq = self.sequence
+
+        # encode the sequence into a number based on its amino acid positions
+        vector_encoded_seq = IMCObject.vector_encode_seq(aa_seq)
+
+        # iterate over every patch
+        patch_vectors = []
+        for patch_ind_center in neighbors:
+            # rescinds is for the residue index in the sequence and the distance from the center point
+            resinds = neighbors[patch_ind_center]
+
+            # pull the vector encodings and distances (residue index, distance)
+            vector_patch = np.array([vector_encoded_seq[idx] for idx, r in resinds])
+
+            # pull the distance away from the center residue
+            distance_path = np.array([r for idx,r in resinds])
+
+            # filter the data points 
+            patch_spec_vec = self._guassian_filter_vectors(vector_patch, distance_path, filter_std)
+
+            # add it to the patch list
+            patch_vectors.append(patch_spec_vec)
+
+        # return the patch vectors as a numpy array
+        return np.array(patch_vectors)
+    
+
+    def compute_context_interaction_dict(self, 
+                                   IMCObject,
+                                   patch_radius: float = 12.0,
+                                   filter_std: float = 2.2) -> list[dict[str,float]]:
+        """
+        Converts patch interaction vectors into dictionaries mapping amino acids to interaction values.
+
+        Parameters
+        ----------
+        IMCObject : IMCObject
+            Object containing methods for sequence encoding and interaction calculations
+        patch_radius : float, optional
+            Radius in Angstroms to define the local patch size, by default 12.0
+        filter_std : float, optional
+            Standard deviation for Gaussian distance weighting, by default 2.2
+
+        Returns
+        -------
+        list[dict[str,float]]
+            List of dictionaries where each dictionary maps amino acid letters to their 
+            interaction values for a given patch
+        """
+
+        # compute the interaction vectors
+        interaction_mat = self.compute_context_interaction_vectors(IMCObject=IMCObject,
+                                                                   patch_radius=patch_radius,
+                                                                   filter_std=filter_std)
+
+
+
+        # transform the matrix into a list of dictionaries for the interaction
+        interaction_dict = IMCObject.vector_decode_seq(interaction_mat)
+
+        # return the interaction dictionary 
+        return interaction_dict
+    
+
+    def compute_maximal_attractor(self, IMCObject,
+                            patch_radius: float = 12.0,
+                            filter_std: float = 2.2) -> tuple[list[str], np.ndarray]:
+        """
+        Identifies the amino acids that would interact most favorably with each surface patch.
+
+        For each patch, determines which amino acid would have the strongest attractive
+        interaction based on the local chemical environment.
+
+        Parameters
+        ----------
+        IMCObject : IMCObject
+            Object containing methods for sequence encoding and interaction calculations
+        patch_radius : float, optional
+            Radius in Angstroms to define the local patch size, by default 12.0
+        filter_std : float, optional
+            Standard deviation for Gaussian distance weighting, by default 2.2
+
+        Returns
+        -------
+        tuple[list[str], np.ndarray]
+            Two-element tuple containing:
+            - List of amino acid letters that maximize attraction for each patch
+            - Array of the corresponding interaction values
+        """
+
+        # compute the interaction vectors for each patch
+        interact_mat = self.compute_context_interaction_vectors(IMCObject=IMCObject,
+                                                                patch_radius=patch_radius,
+                                                                filter_std=filter_std)
+        
+        # find the locations of the strongest interacting values and the values themselves
+        max_vals = np.min(interact_mat, axis=1)
+        max_idx = np.argmin(interact_mat, axis=1)
+
+        # convert the indexes into amino acids
+        strong_interact_seq = self.IMC_object.position_decode_seq(max_idx)
+
+        #return the values
+        return strong_interact_seq, max_vals 
+    
+    def compute_maximal_repulsor(self, IMCObject,
+                                  patch_radius: float = 12.0,
+                                  filter_std: float = 2.2) -> tuple[list[str], np.ndarray]:
+        """
+        Identifies the amino acids that would interact least favorably with each surface patch.
+
+        For each patch, determines which amino acid would have the strongest repulsive
+        interaction based on the local chemical environment.
+
+        Parameters
+        ----------
+        IMCObject : IMCObject
+            Object containing methods for sequence encoding and interaction calculations
+        patch_radius : float, optional
+            Radius in Angstroms to define the local patch size, by default 12.0
+        filter_std : float, optional
+            Standard deviation for Gaussian distance weighting, by default 2.2
+
+        Returns
+        -------
+        tuple[list[str], np.ndarray]
+            Two-element tuple containing:
+            - List of amino acid letters that maximize repulsion for each patch
+            - Array of the corresponding interaction values
+        """
+
+        # compute the interaction vectors for each patch
+        interact_mat = self.compute_context_interaction_vectors(IMCObject=IMCObject,
+                                                                patch_radius=patch_radius,
+                                                                filter_std=filter_std)
+        
+        # find the locations of the strongest interacting values and the values themselves
+        max_vals = np.max(interact_mat, axis=1)
+        max_idx = np.argmax(interact_mat, axis=1)
+
+        # convert the indexes into amino acids
+        strong_interact_seq = self.IMC_object.position_decode_seq(max_idx)
+
+        #return the values
+        return strong_interact_seq, max_vals 
+    
+    def compute_interaction_strength(self, 
+                               IMCObject,
+                               patch_radius: float = 12.0,
+                               filter_std: float = 2.2,
+                               direction: str = 'lt',
+                               threshold: float = 0.0) -> np.ndarray:
+        """
+        Calculates the strength of attractive or repulsive interactions for each surface patch.
+
+        Parameters
+        ----------
+        IMCObject : IMCObject
+            Object containing methods for sequence encoding and interaction calculations
+        patch_radius : float, optional
+            Radius in Angstroms to define the local patch size, by default 12.0
+        filter_std : float, optional
+            Standard deviation for Gaussian distance weighting, by default 2.2
+        direction : str, optional
+            Direction of interaction to measure - 'lt' for attraction, 'gt' for repulsion,
+            by default 'lt'
+        threshold : float, optional
+            Threshold value for considering interactions, by default 0.0
+
+        Returns
+        -------
+        np.ndarray
+            Array of interaction strength values for each patch
+        """
+
+        # lets calculate the interaction vectors
+        interaction_mat = self.compute_context_interaction_vectors(IMCObject=IMCObject,
+                                                                   patch_radius=patch_radius,
+                                                                   filter_std=filter_std)
+
+        # determine if we are lookimg at attraction or repulsion
+        # you will use the opposite size as you jsut have to replace the values that do not match
+        if direction == 'lt': #attraction
+            im1 = interaction_mat
+            im1[im1 > threshold] = threshold
+        if direction == 'gt': #repulsion
+            im1 = interaction_mat
+            im1[im1 < threshold] = threshold
+        # compute the interaction strength
+        interaction_strength = np.linalg.norm(im1,axis=1)
+
+        # return the interaction strength
+        return interaction_strength
+    
+    def interaction_permiscutivity(self, IMCObject,
+                             patch_radius: float = 12.0,
+                             filter_std: float = 2.2,
+                             onlyfrac: bool = False) -> np.ndarray:
+        """
+        Calculates the interaction permiscutivity for each surface patch.
+
+        Permiscutivity measures how promiscuous a patch is in its interactions by comparing
+        the overall interaction strength to the maximal attractive interaction.
+
+        Parameters
+        ----------
+        IMCObject : IMCObject
+            Object containing methods for sequence encoding and interaction calculations
+        patch_radius : float, optional
+            Radius in Angstroms to define the local patch size, by default 12.0
+        filter_std : float, optional
+            Standard deviation for Gaussian distance weighting, by default 2.2
+        onlyfrac : bool, optional
+            If True, returns only the fractional term without affine projection, by default False
+
+        Returns
+        -------
+        np.ndarray
+            Array of permiscutivity values for each patch
+        """
+
+        # compute the most attractive values
+        attrac = self.compute_maximal_attractor(IMCObject=IMCObject, patch_radius=patch_radius, filter_std=filter_std)[1]
+        # take the absolute value of this number
+        attrac = np.abs(attrac)
+
+        # compute the interaction vector (this is the attractive interaction)
+        # this will always be positive in value since we take a norm
+        interact_vec = self.compute_interaction_strength(IMCObject=IMCObject,
+                                                         patch_radius=patch_radius,
+                                                         filter_std=filter_std,
+                                                         direction='lt',
+                                                         threshold=0.0)
+
+        # take the difference and divide to get the fractional value
+        frac = (interact_vec - attrac)/attrac
+
+        # check if the user is only interested in the fractional term
+        if onlyfrac:
+            return frac
+        
+        # apply the affine projection
+        inner = frac + np.ones(len(frac))
+        affine = np.power(inner, 2)
+        
+        return affine
+    
+    def compute_patch_heterogeneity_vectors(self, IMCObject, patch_radius : float = 12.0) -> np.ndarray:
+        """Computes the the heterogeneity of amino acids over different patches on the surface."""
+
+        # get nearest neighbors and surface neighbors
+        self.get_nearest_neighbour_res(distance_thresh=patch_radius)
+
+        # get the patch neighborhoods
+        neighbors = self.surface_neighbours
+
+        # get the sequence for the surface
+        aa_seq = self.sequence
+
+        # iterate over every patch
+        patch_heterogeneity_vecs = []
+        for patch_ind_center in neighbors:
+            # rescinds is for the residue index in the sequence and the distance from the center point
+            resinds = neighbors[patch_ind_center]
+
+            # get the string of amino acid characters (residue index, distance)
+            aa_list = [aa_seq[idx] for idx, r in resinds]
+
+            # compute out what the residues are in this region (no filtering is done so the order does not matter)
+            subseq = "".join(aa_list)
+
+            # compute the heterogeneity of the patch (set the window size to the length of the sub sequence to get back one vector)
+            patch_het_vec = IMCObject.compute_region_chemical_heterogeneity_vectors(subseq, len(subseq))
+
+            # add the patch vector to the list of the rest of them
+            patch_heterogeneity_vecs.append(patch_het_vec)
+
+        # return the patch heterogeneity vectors as a numpy array like we did before
+        return np.array(patch_heterogeneity_vecs)
+    
+    def compute_patch_heterogeneity_dict(self, IMCObject, patch_radius : float = 12.0) -> list[dict[str,float]]:
+        """Computes the context dependant heterogeniety for each amino acid on each patch"""
+        # compute the heterogeneity vectors for each patch
+        het_vecs = self.compute_patch_heterogeneity_vectors(IMCObject=IMCObject,
+                                                            patch_radius=patch_radius)
+        
+        # transform the matrix into a list of dictionaries for the heterogeneity
+        het_dict = IMCObject.vector_decode_seq(het_vecs)
+
+        # return the heterogeneity dictionary 
+        return het_dict
+    
+    def compute_interaction_heterogeneity(self, IMCObject, patch_radius : float = 12.0) -> np.ndarray:
+        """Computes a single number for the interactioin heterogeneity by taking the L2 norm of the vectors
+        at each location.
+        """
+        # compute the heterogeneity vectors for each patch
+        het_vectors = self.compute_patch_heterogeneity_vectors(IMCObject=IMCObject,
+                                                               patch_radius=patch_radius)
+        
+        # compute the L2 norm of the heterogeneity vectors
+        interaction_heterogeneity = np.linalg.norm(het_vectors, axis=1)
+
+        # return the interaction heterogeneity
+        return interaction_heterogeneity
+    
+    def get_patch_sequence_logo(self, IMCObject,
+                            patch_radius: float = 12.0,
+                            filter_std: float = 2.2,
+                            threshold: float = 0.0) -> tuple[dict[str,float], str, dict[str,float], np.ndarray]:
+        """Computes the info for a sequence logo"""
+        # find the psuedo sequence that corresponds to each patch
+        # get the patch neighborhoods
+        neighbors = self.surface_neighbours
+        # get the sequence for the surface
+        aa_seq = self.sequence
+        # iterate over every patch
+        patch_seq = []
+        for patch_ind_center in neighbors:
+            # rescinds is for the residue index in the sequence and the distance from the center point
+            patch_aa = aa_seq[patch_ind_center]
+            patch_seq.append(patch_aa)
+
+        # combine to patch sequence together
+        patch_seq = ''.join(patch_seq)
+
+        # start by computing the interaction
+        interaction_mat = self.compute_context_interaction_vectors(IMCObject=IMCObject,
+                                                                   patch_radius=patch_radius,
+                                                                   filter_std=filter_std)
+        
+        # now produce a split of attracting and repulsive values into their own unique interaction matrixes
+        attract_mat = interaction_mat.copy()
+        attract_mat[attract_mat > threshold] = 0
+        attract_mat = np.abs(attract_mat)
+        repulse_mat = interaction_mat.copy()
+        repulse_mat[repulse_mat < threshold] = 0
+        repulse_mat = np.abs(repulse_mat)
+        
+
+        # convert the matrixes to dictionaries
+        attract_dict = IMCObject.vector_decode_seq(attract_mat)
+        repulse_dict = IMCObject.vector_decode_seq(repulse_mat)
+
+        # now get the residue numbers
+        res_nums = np.arange(1,len(patch_seq)+1)
+
+        # return the data
+        return attract_dict, patch_seq, repulse_dict, res_nums
+        
         
         
 

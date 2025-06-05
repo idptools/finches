@@ -499,6 +499,8 @@ class InteractionMatrixConstructor:
                 temp[aa] = vec[j]
             # add the value tp the return list
             ret_val.append(temp)
+        
+        return ret_val
     
     def position_encode_seq(self, sequence : str) -> list[int]:
         """
