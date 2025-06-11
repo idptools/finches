@@ -1826,6 +1826,107 @@ class FinchesFrontend:
         # return the values so that they can be displayed by display_protein_interaction_logo_visualization
         # attractive, subsequence of interest, repulsive, index scheme
         return attract_dict, ret_str, repulsive_dict, index_scheme
+    
+
+    def convert_vec_to_nearest_letter(self, seq_of_vecs : np.ndarray, nearest_conversion_mat : dict[str,np.ndarray] = None) -> str:
+        """Converts a matrix that represents a sequence of vectors into a sequences of characters based on the nearested_conversion_mat.
+        
+        The default is the interaction vectors that come out of the interaction for this frontend
+        """
+        # convert for the default
+        if nearest_conversion_mat is None:
+            # get the canonical amino acid order
+            canon_order = self.IMC_object._get_canonical_amino_acid_order()
+
+            # Encode this to get a dictionary we can use to decode the sequence with the nearest vector
+            encoded_matrix = self.IMC_object.vector_encode_seq(canon_order)
+
+            #create the decoding dictionary 
+            decode_dict = {key : vec for key, vec in zip(canon_order, encoded_matrix)}
+
+            # override the nearest conversion matrix
+            nearest_conversion_mat = decode_dict
+
+        # pull out the index paired keys and values from the conversion dictionary
+        all_keys = list(nearest_conversion_mat.keys())
+        all_vals = [val for key, val in nearest_conversion_mat.items()]
+
+        # determine the closest letter for each vector in the sequence
+        nearest_letter = []
+        for vec in seq_of_vecs:
+            # loop over each possible letter it could be
+            distances = []
+            for val in all_vals:
+                #take the difference between them and compute the L2 norm
+                temp_dist = np.linalg.norm(vec - val)
+
+                #append the distance
+                distances.append(temp_dist)
+
+            # find the index with the smalles distance
+            distances = np.array(distances)
+            min_idx = np.argmin(distances)
+
+            # put the min id into the keys to get teh next letter
+            next_let = all_keys[int(min_idx)]
+            nearest_letter.append(next_let)
+
+        # return the characters as a string
+        return ''.join(nearest_letter)
+
+
+
+
+    
+
+    def produce_barycenter_logos(self, barycenter_vec_seq : np.ndarray,
+                                 st_idx = None, end_idx = None,
+                                logo_threshold : float = 0.0,
+                                nearest_conversion_mat : np.ndarray = None,
+                                **kwargs) -> tuple[list[dict[str, float]], str, list[dict[str, float]], np.ndarray[int]]:
+        """this function produces a barycenter logo
+        
+        the barycenter_vec_seq is a matrix that is really the sequence of vectors
+
+        st_idx and end_idx are the indexes you want to use in the logo (defaults to the whole thing)
+
+
+        """
+
+        # determine the value of the starting and ending indexes
+        if st_idx is None:
+            st_idx = 0
+        if end_idx is None:
+            end_idx = len(barycenter_vec_seq)
+        # check any specified indexes
+        if st_idx < 0 or st_idx > len(barycenter_vec_seq) - 1:
+            raise Exception(f"The starting index is not valid. Must be between 0 and {len(barycenter_vec_seq) - 1}. It was {st_idx}.")
+        if end_idx < 1 or end_idx > len(barycenter_vec_seq):
+            raise Exception(f"The ending index is not valid. Must be between 1 and {len(barycenter_vec_seq)}. It was {end_idx}.")
+        
+        # grab the subsequence that the user wants to work with
+        sub_seq = barycenter_vec_seq[st_idx:end_idx]
+
+        # get the index scheme
+        index_scheme = np.arange(1, 1 + len(sub_seq))
+
+        #convert the matrix into a sequence of characters
+        ret_str = self.convert_vec_to_nearest_letter(sub_seq)
+
+        # perform the needed logo manipulations
+        # get the attractive portion
+        attract_dict = self.IMC_object.determine_region_logo_manipulation(avg_vec_seq = sub_seq, threshold = logo_threshold, 
+                                                                            operation = 'lt')
+        # get the repulsive portion
+        repulsive_dict = self.IMC_object.determine_region_logo_manipulation(avg_vec_seq = sub_seq, threshold = logo_threshold, 
+                                                                            operation = 'gt')
+        
+
+
+        # return the values so that they can be displayed by display_protein_interaction_logo_visualization
+        # attractive, subsequence of interest, repulsive, index scheme
+        return attract_dict, ret_str, repulsive_dict, index_scheme
+
 
     
         

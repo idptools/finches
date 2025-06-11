@@ -577,7 +577,7 @@ class FoldedDomain:
                 reordered_seq = self._surface_seq[idx]
                 
             # initial value 
-            tmp = IMCObject.calculate_epsilon_value(reordered_seq, input_sequence)/len(reordered_seq)
+            tmp = IMCObject.epsilon(reordered_seq, input_sequence)/len(reordered_seq)
             
             surface_eps[idx] = [center_resid, reordered_seq, tmp]
             

@@ -1,4 +1,6 @@
 from IPython.display import display, HTML
+from matplotlib import pyplot as plt
+import numpy as np
 
 def display_char_dtw_alignment(s1: str, s2: str, path: list):
     """
@@ -66,3 +68,50 @@ def display_char_dtw_alignment(s1: str, s2: str, path: list):
     """
     
     display(HTML(html_string))
+
+
+
+
+
+
+
+def plot_multidimensional_barycenter_magnitude(sequences, barycenter):
+    """
+    Visualizes the vector magnitude of multi-dimensional time series and their barycenter.
+
+    Args:
+        sequences (list of np.ndarray): A list of the original multi-dimensional
+            sequences. Each sequence should have shape (n_timestamps, n_dimensions).
+        barycenter (np.ndarray): The computed multi-dimensional barycenter, with
+            shape (m_timestamps, n_dimensions).
+    """
+    plt.style.use('seaborn-v0_8-whitegrid')
+    plt.figure(figsize=(14, 8))
+
+    # --- Plot the magnitude of each original sequence ---
+    for i, s in enumerate(sequences):
+        # Calculate the Euclidean norm (magnitude) along the dimension axis (axis=1)
+        if s.shape[1] == 1:
+            magnitude = s
+        else:
+            magnitude = np.linalg.norm(s, axis=1)
+        plt.plot(magnitude, "o-", label=f"Sequence {i+1} Mag.", alpha=0.5, markersize=4)
+
+    # --- Plot the magnitude of the barycenter ---
+    if barycenter is not None:
+        # Calculate the magnitude for the barycenter sequence
+        barycenter_magnitude = np.linalg.norm(barycenter, axis=1)
+        plt.plot(
+            barycenter_magnitude, 
+            "k-",  # 'k' for black
+            label=f"Barycenter Magnitude", 
+            linewidth=3
+        )
+
+    plt.title("Vector Magnitude of Multi-Dimensional Sequences and their Barycenter", fontsize=16)
+    plt.xlabel("Time (Index)", fontsize=12)
+    plt.ylabel("Vector Magnitude (Euclidean Norm)", fontsize=12)
+    # plt.legend(fontsize=10)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()

@@ -202,6 +202,11 @@ class InteractionMatrixConstructor:
     ## ................................................................................... ##
     ##
     ##
+    def _get_canonical_amino_acid_order(self):
+        """Returns the canonical amino acid order that the interaction matrix is constructed with."""
+        return CANONICAL_AMINOACID_ORDERED
+
+
     def _update_lookup_vec_dif(self) -> None:
         """
         Function which wipes any previous inter-residue interaction difference vector representation
