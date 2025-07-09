@@ -983,14 +983,6 @@ class FoldedDomain:
         vector_mean = np.array([x['idr_epsilon_vector'] for x in interaction_dict.values()]).mean(axis=0)
         
         return [interaction_dict, np.array(collect_epsilon_vectors), vector_mean]            
-        
-        
-
-
-
-        
-    
-        
 
 # < end of class> - note we define this here because we actually want to alias the old
 # name to the new name....

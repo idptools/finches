@@ -32,7 +32,7 @@ As of the spring of 2025 we re-implemented how IDR:FD surfaces are calculated to
 
     # initialize a FoldedDomain using a PDB file. This initialize will under the hood do a bunch
     # of things needed to map surface:IDR intermaps
-    FD = folded_domain_utils.FoldeDomain('ADBD1.pdb')
+    FD = folded_domain_utils.FoldedDomain('ADBD1.pdb')
 
 
     # set window size, we recommend 31 for consistencty with IDR:IDR intermaps but this value may need
