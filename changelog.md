@@ -1,5 +1,10 @@
 # Changelog
 
+
+### Version 0.1.3 (beta; July 2025)
+* Version 0.1.3 includes a number of minor bug fixes as well as updates to readme   post publication.
+* Documentation added at [https://finches.readthedocs.io/en/stable/](https://finches.readthedocs.io/en/stable/)
+
 ### Version 0.1.2 (beta; Dec 2024)
 * Version 0.1.2 brings a number of new features that are fully implemented but limited in their using facing capacity. This will be addressed over the coming weeks (i.e. by end of 2024).
 * A new approach for automating IDR-associated domain decomposition. This domain decomposition approach was developed by Alex Keeley. 
