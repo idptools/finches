@@ -432,12 +432,9 @@ class FinchesFrontend:
                 folded_1 = meta.predict_disorder_domains(seq1).folded_domain_boundaries
                 folded_2 = meta.predict_disorder_domains(seq2).folded_domain_boundaries
 
-                
-
             except Exception as e:
                 folded_1 = []
                 folded_2 = []
-
 
         else:
             folded_1 = []
@@ -450,6 +447,7 @@ class FinchesFrontend:
         for i in range(B[1][0]-1, B[1][-1]):
             for j in range(B[2][0]-1, B[2][-1]):
                 
+                # if we are zeroing out folded regions, do that here
                 for fd in folded_1:
                     if i >= fd[0] and i <= fd[1]:
                         
@@ -474,16 +472,24 @@ class FinchesFrontend:
         # note we need that +1
         im = ax_main.imshow(matrix.T, extent=[B[1][0], B[1][-1]+1, B[2][0], B[2][-1]+1], origin='lower', aspect='auto', vmax=vmax, vmin=vmin, cmap=cmap)
             
-        # edt here to change tickmarks;  note again the tic_frequency, this again
+        # edit here to change tickmarks;  note again the tic_frequency, this again
         # probably can be edited manually depending on the system       
         ax_main.set_xticks(np.arange(B[1][0],B[1][-1]+1, tic_frequency))
         ax_main.set_yticks(np.arange(B[2][0],B[2][-1]+1, tic_frequency))
         ax_main.tick_params(axis='x', rotation=45)  # Rotates the x-tick labels by 45 degrees
 
+
+        # add any lines onto the main axis as vertical (seq1) or horizontal (seq2) lines
+        for line in seq1_lines:
+            ax_main.axvline(line, color='k', linewidth=linewidth)
+    
+        for line in seq2_lines:
+            ax_main.axhline(line, color='k', linewidth=linewidth)
+
+
         if no_disorder:
             pass
         else:
-            
     
             ## .....................................................................
             # Bar plot for X protein 
@@ -497,13 +503,6 @@ class FinchesFrontend:
 
             # disorder goes 0 to 1
             ax_top.set_ylim(0,1.05)
-
-            # add lines for seq1
-            for line in seq1_lines:
-                ax_main.axvline(line, color='k', linewidth=linewidth)
-        
-            for line in seq2_lines:
-                ax_main.axhline(line, color='k', linewidth=linewidth)
     
             # highlight some specific regions manually
             for r in seq1_domains:
@@ -550,7 +549,9 @@ class FinchesFrontend:
                                                                facecolor='none',
                                                                **kwargs))
                                                                
-
+        # add this to ensure the main axes do not extend beyond the data limits
+        ax_main.set_xlim(B[1][0], B[1][-1]+1)
+        ax_main.set_ylim(B[2][0], B[2][-1]+1)
         plt.tight_layout()
         
         # finally save the figure
