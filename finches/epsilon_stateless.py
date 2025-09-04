@@ -1,5 +1,6 @@
 import numpy as np
-
+from finches.PDB_structure_tools import build_column_mask_based_on_xyz
+from finches import parsing_aminoacid_sequences
 # Stateless functions that can then be freely imported 
     
 
