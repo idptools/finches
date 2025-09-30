@@ -78,6 +78,7 @@ class FoldedDomain:
                  sasa_mode='v1',
                  ignore_warnings=False,
                  SASA_ONLY=False,
+                 SASA_override=None,
                  ):
         """
         Class to handle folded domains and perform folded domain structure 
@@ -146,6 +147,14 @@ class FoldedDomain:
             Only calculate SASA and return (default False). If this is set, all other
             functionality will fail.
 
+        SASA_override: dict
+            Dictionary to override the SASA values calculated from the structure. Lets you map
+            residue indices to SASA values. This is useful if you want to manually set the SASA
+            values for certain residues. The dictionary should be in the form {residue_index: SASA_value}
+            where residue_index is the index of the residue in the sequence (0-indexed) and SASA_value
+            is the SASA value you want to set for that residue. To ensure a residue is counted as solvent
+            exposed, set the SASA value to be greater than 250. To ensure a residue is counted as buried,
+            set the SASA value to be 0.
         """
 
         if sasa_mode not in ['v1', 'v2']:
@@ -159,7 +168,12 @@ class FoldedDomain:
 
             
         # parse pdbfile
-        p = md.load_pdb(pdbfilename)
+        try:
+            p = md.load_pdb(pdbfilename)
+        except Exception as e:          
+            print(f'Error loading PDB file {pdbfilename} with mdtraj load_pdb function, trying load function instead.\nError was: {e}\n')   
+            p = md.load(pdbfilename)
+            
 
         # handle start/end residues if passed
         if start is not None and end is not None:
@@ -174,6 +188,11 @@ class FoldedDomain:
         # calculate SASA of residues;
         # 100* to convert from nm^2 to A^2, and *0.1 for probe radius to convert from A to nm
         self.sasa = 100*md.shrake_rupley(p, mode='residue', probe_radius=probe_radius*0.1)[0]
+
+        # override SASA if passed        
+        if SASA_override is not None:
+            for k in SASA_override:
+                self.sasa[k] = SASA_override[k]
 
         # create full amino acid sequence
         s = ''
