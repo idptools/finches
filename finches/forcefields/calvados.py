@@ -233,6 +233,8 @@ class calvados_model:
         # Set the charge on HIS based on the pH of the protein solution? Not needed if pH=7.4
         # NOTE this throws a warning but seems to work okay - basically this is calculating
         # the charge (q) for residue 'H' at the given pH using 1/1(1+10^(pH-6))
+        
+        r['q'] = r['q'].astype(float)  # Convert column to float dtype first
         r.loc['H','q'] = 1. / ( 1 + 10**(self.pH-6) )
         
         fepsw = lambda T : 5321/T+233.76-0.9297*T+0.1417*1e-2*T*T-0.8292*1e-6*T**3
