@@ -115,3 +115,4 @@ ENV/
 
 # In-tree generated files
 */_version.py
+epsilon_calculation_old.py

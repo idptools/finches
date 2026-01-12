@@ -24,321 +24,210 @@ aliphatic_group2 = {'A':'b', 'L':'o', 'M':'x', 'I':'y', 'V':'z'}
 ##
 def get_charge_weighted_mask(sequence1, sequence2):
     """
-    Function to get the charge-weighted mask of the inter-residue interaction
-    matrix.
+    Compute a charge-weighted mask for the inter-residue interaction matrix.
 
-    Specifically, this function loops over all cross-interacting residues from
-    the two sequences (i.e. every pair of r1:r2 (where r1 is from seq1 and r2 
-    is from seq1), and if BOTH residues are charged, then a 'charge weight' is
-    calculated whereby the +/- 1 residues around those two residues are extracted
-    and the |NCPR|/FCR of the resulting concatenated sequence is a weighting factor.
+    For each pair of charged residues (one from each sequence), calculates a 
+    weight based on the local charge environment. The weight is |NCPR|/FCR of 
+    a 6-residue fragment formed by concatenating a ±1 window around each residue.
 
-    What does this mean, practically?
+    This weighting allows clusters of like-charged residues to be weighted up,
+    which is then used to reduce like-charge repulsion in the interaction matrix.
 
-    If I have two fragments that are KKK and EEE then my charge weighting will be
+    Examples:
+        - Fragments KKK + EEE → |NCPR|/FCR = |0|/1 = 0.0 (no weight, mixed charges)
+        - Fragments EEE + EEE → |NCPR|/FCR = |-1|/1 = 1.0 (max weight, all same charge)
 
-    |NCPR/FCR| = 0/1 = 0.0 - NO WEIGHT
-
-    If I have two fragments that are EEE and EEE, then my charge weighting will be
-    
-    |NCPR/FCR| = |-1/1| = 1.0 - MAX POSSIBLE WEIGHT
-
-    In this way, clusters of like-charged residues are weighted up, and then
-    subtracted off the repulsive cross terms to weaken like-charge repulsion.
-
-    This means we ONLY generate a so-called repulsive matrix.
-
-    BONUS CONTENT:
-
-    We ALSO tested a version where charge weight was done by determining if 
-    the local context of a charged residue is expected to enhance attractive 
-    interactions or suppress repulsive interactions compared to an unweighted 
-    value. Specifically, for each unique pair of residues in sequence 
-    1 and sequence 2 we ask:
-    
-    1. Are both residues charged? If yes, continue.
-
-    2. In the +1/-1 window around the two residues, are any charged residues 
-       found the same sign as the central residue? If yes, for both residues,
-       continue.
-
-    3. Charge weight is calculated as the product of the NCPR from the two
-       fragments. If these are the same sign, this is a repulsive weight, whereas
-       if the opposite sign, this is an attractive weight.
-
-    Note that attractive weights make oppositely-attractive residues MORE 
-    attractive, whereas repulsive weights make like-charged residues LESS 
-    repulsive. The result from this is two matrices that can be used to add 
-    or subtract values from the overall interaction matrix. HOWEVER, we found
-    this implementation just worked less well across the board, so the final
-    implementation is the simpler |NCPR/FCR| weighting.
-    
     Parameters
-    --------------
-    sequence1 : str 
-        Input sequence 1 on y axis of matrix 
+    ----------
+    sequence1 : str
+        First amino acid sequence (y-axis of matrix)
 
-    sequence2 : str 
-        Input sequence 2 on x axis of matrix
+    sequence2 : str
+        Second amino acid sequence (x-axis of matrix)
 
     Returns
-    ---------------
-    Tuple 
+    -------
+    tuple of (np.ndarray, np.ndarray)
+        Two matrices of shape (len(sequence1), len(sequence2)):
+        - attractive_matrix: Currently all zeros (not used, kept for compatibility)
+        - repulsive_matrix: Charge weights at intersections of charged residues
 
-        This returns a tuple of two np.arrays (matrices) that are weighted 
-        masks of the same  shape of (len(sequence1), len(sequence2)) where 
-        at intersections of charged residues between the two sequences we 
-        get a charge weighting factor. 
-    
-        Matrix 1 is the attractive matrix and matrix 2 is the repulsive 
-        matrix. NOTE that we currently do not actually use the attractive 
-        matrix here, but this function does return
     """
-    
-    #
-    # NB - this could be rewritten in Cython for improved performance...
-    #
+    CHARGED_RESIDUES = {'R', 'K', 'E', 'D'}
+    POSITIVE = {'R', 'K'}
+    NEGATIVE = {'E', 'D'}
 
-    # nb - hardcoded for now but could and probably should be altered to enable
-    # pH-dependent effects in the future
-    charges = ['R','K','E','D']
+    n1, n2 = len(sequence1), len(sequence2)
 
-    attractive_matrix = []
-    repulsive_matrix = []
-    
-    n2 = len(sequence2)
+    # Pre-compute: which positions are charged in each sequence
+    charged_mask1 = np.array([r in CHARGED_RESIDUES for r in sequence1])
+    charged_mask2 = np.array([r in CHARGED_RESIDUES for r in sequence2])
 
-    # cycle through each residue
-    for i,r1 in enumerate(sequence1):
-        tmp_attractive = []
-        tmp_repulsive = []
+    # Pre-compute: the ±1 window fragment for each position in both sequences
+    # This avoids calling get_neighbors_window_of3() inside the loop
+    def get_window(i, seq):
+        """Get residues at positions i-1, i, i+1 (clipped to sequence bounds)."""
+        start = max(0, i - 1)
+        end = min(len(seq), i + 2)
+        return seq[start:end]
 
-        # if r1 is charged
-        if r1 in charges:
+    windows1 = [get_window(i, sequence1) for i in range(n1)]
+    windows2 = [get_window(j, sequence2) for j in range(n2)]
 
-            # cycle through each residue in sequence 2
-            for j,r2 in enumerate(sequence2):
+    # Pre-compute: FCR and NCPR components for each window
+    # For a fragment, FCR = (n_pos + n_neg) / len, NCPR = (n_pos - n_neg) / len
+    def count_charges(fragment):
+        """Count positive and negative residues in a fragment."""
+        n_pos = sum(1 for r in fragment if r in POSITIVE)
+        n_neg = sum(1 for r in fragment if r in NEGATIVE)
+        return n_pos, n_neg
 
-                # initialize
-                w_attractive = 0
-                w_repulsive = 0
+    # Pre-compute charge counts for all windows
+    charges1 = [count_charges(w) for w in windows1]  # list of (n_pos, n_neg)
+    charges2 = [count_charges(w) for w in windows2]
 
-                # if the second residue is charged
-                if r2 in charges: 
-                                        
-                    # this generates a string of max 6 residues (for terminal residues 5 or 4 residues)
-                    # which is basically a concatenated fragment 
-                    l_resis = sequence_tools.get_neighbors_window_of3(i,sequence1) + sequence_tools.get_neighbors_window_of3(j,sequence2)
+    # Initialize output matrices
+    repulsive_matrix = np.zeros((n1, n2), dtype=float)
+    # attractive_matrix is always zeros in current implementation
 
-                    # for that fragment, calculate the local fcr and ncpr
-                    [local_fcr, local_ncpr] = sequence_tools.calculate_FCR_and_NCPR(l_resis)
+    # Get indices where residues are charged
+    charged_indices1 = np.where(charged_mask1)[0]
+    charged_indices2 = np.where(charged_mask2)[0]
 
-                    # calculate the charge weight as |NCPR/FRC|. This means in one limit charge_weight goes
-                    # to 1 if the fragment is all the same type of charged residues, and goes to 0 if the
-                    # if the fragment is neutral, regardless of the fraction of charged residues.
-                    chrg_weight = np.abs(local_ncpr / local_fcr)
+    # Only compute weights where BOTH residues are charged
+    for i in charged_indices1:
+        pos1, neg1 = charges1[i]
+        len1 = len(windows1[i])
 
-                    w_repulsive = chrg_weight
+        for j in charged_indices2:
+            pos2, neg2 = charges2[j]
+            len2 = len(windows2[j])
 
-                    
-                    # alternative implementation - to move elsewhere at some point, but TL/DR was worse
-                    # but ALSO SLOWER! Win win!
-                    """
+            # Combined fragment stats (6 residues max)
+            total_pos = pos1 + pos2
+            total_neg = neg1 + neg2
+            total_len = len1 + len2
 
-                    frag1 = sequence_tools.get_neighbors_window_of3(i, sequence1)
-                    frag2 = sequence_tools.get_neighbors_window_of3(j, sequence2)
+            # Calculate FCR and NCPR of combined fragment
+            fcr = (total_pos + total_neg) / total_len
+            ncpr = (total_pos - total_neg) / total_len
 
-                    [f1_fcr, f1_ncpr]  = sequence_tools.calculate_FCR_and_NCPR(frag1)
-                    [f2_fcr, f2_ncpr]  = sequence_tools.calculate_FCR_and_NCPR(frag2)
+            # Charge weight = |NCPR| / FCR
+            # fcr > 0 is guaranteed since both central residues are charged
+            repulsive_matrix[i, j] = abs(ncpr) / fcr
 
-                    # if both fragments contain only one type of charged residue
-                    if abs(f1_ncpr) == f1_fcr and abs(f2_ncpr) == f2_fcr:
-
-                        # calculate charge weight 
-                        q1q2 = f1_ncpr*f2_ncpr
-
-                        # opposite charge clusters
-                        if q1q2 < 0:
-
-                            # negative value (attractive) - max value = 1 (|q1| and |q2| <= 1)
-                            w_attractive = abs(q1q2)
-                                                        
-                        else:
-                        
-                            # positive value (repulsive) -  max value = 1 (|q1| and |q1| <= 1)
-                            w_repulsive = q1q2 
-                    """
-
-                # w_attractive and w_repulsive are 0 unless both fragements only possess the same
-                # type of charged residues
-                tmp_attractive.append(w_attractive)
-                tmp_repulsive.append(w_repulsive)
-            
-                    
-        else:
-
-            # if r1 was not charged, create an empty vector
-            tmp_attractive = [0]*n2
-            tmp_repulsive = [0]*n2
-            
-        attractive_matrix.append(tmp_attractive)
-        repulsive_matrix.append(tmp_repulsive)
-
-    # Assert matrices are the right shape
-    attractive_matrix = np.array(attractive_matrix)
-    repulsive_matrix = np.array(repulsive_matrix)
-
-    assert attractive_matrix.shape == (len(sequence1), len(sequence2))
-    assert repulsive_matrix.shape == (len(sequence1), len(sequence2))
+    # attractive_matrix is all zeros (kept for API compatibility)
+    attractive_matrix = np.zeros((n1, n2), dtype=float)
 
     return attractive_matrix, repulsive_matrix
-
-
-
-## ---------------------------------------------------------------------------
-##
-def get_charge_weighted_FD_mask(sequence1, sequence2):
-    """
-    Function to get the charge-weighted mask of a Matrix EXCEPT 
-    that residues in sequence 1 are treated in isolation. 
-
-    Here sequence1 is the SAFD sequence, so weighting is computed 
-    between the 1FD residue and the normal three residues in the IDR
-
-    Parameters
-    --------------
-    sequence1 : str 
-        Input sequence 1 on y axis of the matrix (this is the SAFD sequence)
-        the sequence that represents the solvent-accessible residues on 
-        the surface of the folded domain of interest.
-
-    sequence2 : str 
-        Input sequence 2 on x axis of the matrix
-
-    Returns
-    ---------------
-    np.array 
-        returns a 2D mask the same shape of (len(sequence1), len(sequence2))
-
-    """
-    charges = ['R','K','E','D']
-
-    matrix = []
-    n2 = len(sequence2)
-    for i,r1 in enumerate(sequence1):
-        tmp = []
-        if r1 in charges:
-            for j,r2 in enumerate(sequence2):  
-                if r2 in charges: 
-                    l_resis = r1 + sequence_tools.get_neighbors_window_of3(j,sequence2) #this line is the difference HERE 
-                    
-                    [local_fcr, local_ncpr] = sequence_tools.calculate_FCR_and_NCPR(l_resis)
-                    chrg_weight = np.abs(local_ncpr / local_fcr)
-                    
-                    tmp.append(chrg_weight)
-                else:
-                    tmp.append(0)
-        else:
-            tmp = [0]*n2
-            
-        matrix.append(tmp)
-
-    return np.array(matrix)
-
 
 
 ## ---------------------------------------------------------------------------
 ##  
 def get_aliphatic_weighted_mask(sequence1, sequence2):
     """
-    Function to get the aliphatic weighted mask of a Matrix. This is am emprical
-    approximation to the fact that in an implicit solvent approximation aliphatic/
-    hydrophobic residues aren't sticky for one another because they like each other,
-    but because water release is entropically favourable. Because water is quantized 
-    two leucines next to each other may not create a sufficiently large interface
-    to release many water molecules, whereas two clusters of leucines can and do. To
-    approximate this phenomenon, we up-weight the attractive interactions between 
-    clusters of aliphatic residues for themselves. In this way, clusters of aliphatic
-    residues are actually more "hydrophobic" than the same number of individually
-    spaced aliphatic residues.
-    
-    Tentatively - this is probably true for aromatic residues as well, but we plan
-    to investigate this more systematically going forward...
+    Compute an aliphatic clustering weight mask for the interaction matrix.
+
+    Approximates the cooperative hydrophobic effect: isolated aliphatic residues
+    may not create a large enough interface to release water molecules, but 
+    clusters of aliphatics can. This up-weights interactions between aliphatic
+    clusters to make them effectively more "hydrophobic".
+
+    Weight scheme based on cluster size (1=isolated, 2=pair, 3=cluster of 3+):
+        - Both isolated (1) or one isolated: weight = 1.0 (no boost)
+        - Both in small clusters (2-2, 2-3, 3-2): weight = 1.5
+        - Both in large clusters (3-3): weight = 3.0
 
     Parameters
-    --------------
-    sequence1 : str 
-        Input sequence 1 on y axis of the matrix (this is the SAFD sequence)
-        the sequence that represents the solvent accessable resisues on 
-        surface of the folded domain of itrest.
+    ----------
+    sequence1 : str
+        First amino acid sequence (y-axis of matrix)
 
-    sequence2 : str 
-        Input sequence 2 on x axis of matrix
+    sequence2 : str
+        Second amino acid sequence (x-axis of matrix)
 
     Returns
-    ---------------
-    np.array 
-        returns a 2D MATRIX mask the same shape of (len(sequence1), len(sequence2))
-   
+    -------
+    np.ndarray
+        2D weight matrix of shape (len(sequence1), len(sequence2)).
+        Values are 1.0, 1.5, or 3.0 depending on aliphatic clustering.
+
     """
-    multiplier_weighting = {'1_1':1, '1_2':1, '1_3':1, '2_1':1, '3_1':1,
-                            '2_2':1.5, '2_3':1.5, '3_2':1.5, 
-                            '3_3':3}
+    # Get clustering group (0, 1, 2, or 3) for each position
+    groups1 = np.array(get_aliphatic_groups(sequence1))
+    groups2 = np.array(get_aliphatic_groups(sequence2))
 
-    
-    ali_mask1 = get_aliphatic_groups(sequence1)
-    ali_mask2 = get_aliphatic_groups(sequence2)
-    n2 = len(sequence2)
-    matrix = []
-    for i,v1 in enumerate(ali_mask1):
-        tmp = [] 
-        if v1 > 0:
-            for j,v2 in enumerate(ali_mask2):  
-                if v2 > 0: 
-                    tmp.append(multiplier_weighting[f'{v1}_{v2}'])
-                else:
-                    tmp.append(1)
-        else:
-            tmp = [1]*n2
-            
-        matrix.append(tmp)
+    # Create 2D matrix of minimum group values using broadcasting
+    # min_groups[i,j] = min(groups1[i], groups2[j])
+    min_groups = np.minimum.outer(groups1, groups2)
 
-    return np.array(matrix) 
+    # Apply weight scheme based on minimum cluster size:
+    #   min >= 3 → 3.0
+    #   min == 2 → 1.5  
+    #   min <= 1 → 1.0
+    weights = np.ones_like(min_groups, dtype=float)
+    weights[min_groups == 2] = 1.5
+    weights[min_groups >= 3] = 3.0
+
+    return weights 
 
 
 ## ---------------------------------------------------------------------------
 ##
-def get_aliphatic_groups(chain):
+def get_aliphatic_groups(sequence):
     """
-    Function to get groups of aliphatic residues based on their 
-    local clustering relative to each other. Returns a 1D SEQUENCE 
-    mask of the passed sequence.
+    Classify each residue by its local aliphatic clustering level.
+
+    For each position in the sequence, determines how "clustered" aliphatic
+    residues are in that local region. Non-aliphatic residues get 0, while
+    aliphatic residues get 1, 2, or 3 based on how many nearby aliphatics
+    they have.
+
+    Clustering levels:
+        0 = Not an aliphatic residue
+        1 = Isolated aliphatic (no nearby aliphatics)
+        2 = Small cluster (1-2 nearby aliphatics)  
+        3 = Large cluster (3+ nearby aliphatics)
+
+    Aliphatic residues: A, V, I, L, M
 
     Parameters
-    --------------
-    chain : str 
-        sequence that contains aliphatics residues grouped by their 
-        nearest neighbors to note local aliphatic surfaces in a chain
-    
+    ----------
+    sequence : str
+        Amino acid sequence
+
     Returns
-    ---------------
-    list 
-        1D mask of sequence where aliphatic residues are grouped 
-        groups 1, 2, or 3 based on their local clustering. Non-aliphatics 
-        in the mask are returned as a 0. 
+    -------
+    list of int
+        Per-residue clustering level (0, 1, 2, or 3) for each position.
+
+    Examples
+    --------
+    >>> get_aliphatic_groups("GGGAGG")  # isolated A
+    [0, 0, 0, 1, 0, 0]
+    
+    >>> get_aliphatic_groups("GGAAGG")  # pair of A's
+    [0, 0, 2, 2, 0, 0]
+    
+    >>> get_aliphatic_groups("GAAAAG")  # cluster of A's
+    [0, 3, 3, 3, 3, 0]
 
     """
-    
-    # get binary mask of aliphatics, so ali_mask is 1 for aliphatics and 0 for non-aliphatics 
-    ali_mask = sequence_tools.mask_sequence(chain, ['A','V','I','L','M'])
-    
-    # count the number of nearest neighbors per aliphatic
-    aliphaticgrouping = sequence_tools.MASK_n_closest_nearest_neighbors(ali_mask)
-    
-    # filter aliphatic grouping in 3 groups 
-    aliphaticgrouping = [sub_a if sub_a < 4 else 3 for sub_a in aliphaticgrouping]
-    
-    return aliphaticgrouping
+    ALIPHATIC_RESIDUES = ['A', 'V', 'I', 'L', 'M']
+
+    # Step 1: Create binary mask (1 = aliphatic, 0 = not aliphatic)
+    aliphatic_mask = sequence_tools.mask_sequence(sequence, ALIPHATIC_RESIDUES)
+
+    # Step 2: For each aliphatic, count how many aliphatics are nearby
+    # This returns: 0 for non-aliphatics, N for aliphatics (where N = count of
+    # aliphatics in local window including self)
+    neighbor_counts = sequence_tools.count_nearby_hits(aliphatic_mask, max_gap=1, window_size=4)
+
+    # Step 3: Bin into clustering levels (cap at 3 for "large cluster")
+    # neighbor_count=1 means isolated (just itself), 2 means one neighbor, etc.
+    clustering_levels = [min(count, 3) for count in neighbor_counts]
+
+    return clustering_levels
 
 ## ---------------------------------------------------------------------------
 ##

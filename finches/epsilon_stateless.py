@@ -1,18 +1,11 @@
 import numpy as np
 
 # Stateless functions that can then be freely imported 
-    
 
-######################################################################
-##                                                                  ##
-##                                                                  ##
-##              FUNCTIONS FOR MATRIX MANIPULATION                   ##
-##                                                                  ##
-##                                                                  ##
-######################################################################
+# ============================================================================
+#                    FUNCTIONS FOR MATRIX MANIPULATION                   
+# ============================================================================
 
-## ---------------------------------------------------------------------------
-##
 def get_attractive_repulsive_matrices(matrix, null_interaction_baseline):
     """
     Take interaction array, descritize it by above or below interaction baseline,
@@ -43,14 +36,9 @@ def get_attractive_repulsive_matrices(matrix, null_interaction_baseline):
         null_interaction_baseline
 
     """
-    attractive_matrix = (matrix < null_interaction_baseline)*matrix
-    repulsive_matrix =  (matrix > null_interaction_baseline)*matrix
-
-    return attractive_matrix, repulsive_matrix
+    return (matrix < null_interaction_baseline) * matrix, (matrix > null_interaction_baseline) * matrix
 
 
-## ---------------------------------------------------------------------------
-##
 def mask_matrix(matrix, column_mask):
     """
     Function to take matrix and multipy it by a mask. This 
@@ -71,55 +59,17 @@ def mask_matrix(matrix, column_mask):
         where the out_matrix = matrix*column_mask
 
     """
-    # check to ensure matrix and mask are same shape 
-    if matrix.shape == column_mask.shape:
-        return matrix*column_mask
-    else:
-        raise Exception('column_mask and matrix are not the same shape')
-
-    
-## ---------------------------------------------------------------------------
-##
-
-# commented out and to remove
-"""
-def flatten_matrix_to_vector(matrix, orientation=[0,1]):
-
-    Function to convert matrix into interaction vectors.
-
-    Parameters
-    ---------------
-    matrix : array 
-        A 2D matrix as an array with the shape of (seqence1, seqence2)
-    
-    orientation : int
-        Flag to specify whether to flatten to matrix along the X or Y axis. 
-        1 refers to X axis (mean of rows) (vector relative to sequence1)
-        0 refers to Y axis (mean of columns) (vector relative to sequence2)
+    if matrix.shape != column_mask.shape:
+        raise ValueError(f'Shape mismatch: matrix {matrix.shape} vs mask {column_mask.shape}')
+    return matrix * column_mask
 
 
-    Returns
-    ------------------
-    vector : array 
-        A 1D array the length of the columns in input matrix. This vector of 
-        ist the mean along the vertical axis for each column in the matrix and 
-        is normalized by the model specific null_interaction_baseline.
+# ============================================================================
+#                  BUILDING VECTORS & COMPUTING EPSILON               
+# ============================================================================
 
-    return np.mean(matrix, axis=orientation)
-    """
-
-######################################################################
-##                                                                  ##
-##                                                                  ##
-##               BUILDING VECTORS & COMPUTING EPSILON               ## 
-##                                                                  ##
-##                                                                  ##
-######################################################################
-
-## ---------------------------------------------------------------------------
-##
-def get_sequence_epsilon_vectors(sequence1,
-                                 sequence2,
+def get_sequence_epsilon_vectors(sequence1, 
+                                 sequence2, 
                                  X,
                                  charge_prefactor=None,
                                  null_interaction_baseline=None,
@@ -171,40 +121,28 @@ def get_sequence_epsilon_vectors(sequence1,
         repulsive epsilon vector of sequence1 relative to sequence2 
     
     """
-
-    # check for baseline 
-    if not null_interaction_baseline:
-        null_interaction_baseline = X.null_interaction_baseline
+    baseline = null_interaction_baseline or X.null_interaction_baseline
 
     # get interaction matrix for said sequence
-    w_matrix = X.calculate_weighted_pairwise_matrix(sequence1,
-                                                    sequence2,
-                                                    convert_to_custom=True, 
-                                                    charge_prefactor=charge_prefactor,
-                                                    use_charge_weighting=use_charge_weighting,
-                                                    use_aliphatic_weighting=use_aliphatic_weighting)
+    w_matrix = X.calculate_weighted_pairwise_matrix(
+        sequence1, sequence2,
+        convert_to_custom=True, 
+        charge_prefactor=charge_prefactor,
+        use_charge_weighting=use_charge_weighting,
+        use_aliphatic_weighting=use_aliphatic_weighting
+    )
     
     # get attractive and repulsive matrix. The function below takes the w_matrix and separates it out
     # into two matrices, where elements that are below null_interaction_baseline are in the attractive_matrix
     # and elements that are above the null_interaction_baseline are in the repulsive_matrix
-    attractive_matrix, repulsive_matrix = get_attractive_repulsive_matrices(w_matrix, null_interaction_baseline)
+    attractive_matrix, repulsive_matrix = get_attractive_repulsive_matrices(w_matrix, baseline)
 
-    # subtract off the baselines so that 0 = non-interacting
-    attractive_matrix = attractive_matrix - null_interaction_baseline
-    repulsive_matrix = repulsive_matrix - null_interaction_baseline
-
-    # take average over the matrix rows to get attractive and repulsive values
-    attractive_vector = np.mean(attractive_matrix, axis=1) 
-    repulsive_vector = np.mean(repulsive_matrix, axis=1)   
-
-    # return attractive and repulsive vectors
-    return attractive_vector, repulsive_vector
+    # subtract off the baselines so that 0 = non-interacting, then take row means
+    return np.mean(attractive_matrix - baseline, axis=1), np.mean(repulsive_matrix - baseline, axis=1)
 
 
-## ---------------------------------------------------------------------------
-##
-def get_sequence_epsilon_value(sequence1,
-                               sequence2,
+def get_sequence_epsilon_value(sequence1, 
+                               sequence2, 
                                X,
                                charge_prefactor=None,
                                null_interaction_baseline=None,
@@ -250,282 +188,13 @@ def get_sequence_epsilon_value(sequence1,
         sequence epsilon value as computed between sequence1 and sequence2 
     
     """
+    attractive_vector, repulsive_vector = get_sequence_epsilon_vectors(
+        sequence1, sequence2, X,
+        charge_prefactor=charge_prefactor,
+        null_interaction_baseline=null_interaction_baseline,
+        use_charge_weighting=use_charge_weighting,
+        use_aliphatic_weighting=use_aliphatic_weighting
+    )
+    return np.sum(attractive_vector) + np.sum(repulsive_vector)
 
-    # get attractive and repulsive vectors 
-    attractive_vector, repulsive_vector = get_sequence_epsilon_vectors(sequence1,
-                                                                       sequence2,
-                                                                       X,
-                                                                       charge_prefactor=charge_prefactor,
-                                                                       null_interaction_baseline=null_interaction_baseline,
-                                                                       use_charge_weighting=use_charge_weighting,
-                                                                       use_aliphatic_weighting=use_aliphatic_weighting)
-
-    # sum vectors to get attractive and repulsive values
-    attractive_value = np.sum(attractive_vector)
-    repulsive_value = np.sum(repulsive_vector)
-
-    # sum attractive and repulsive values
-    return attractive_value + repulsive_value
-
-
-## ---------------------------------------------------------------------------
-##
-def get_interdomain_epsilon_vectors(sequence1,
-                                    sequence2,
-                                    X,
-                                    SAFD_cords,
-                                    charge_prefactor=None,
-                                    null_interaction_baseline=None,
-                                    use_charge_weighting=True,
-                                    IDR_positon=['Cterm','Nterm','CUSTOM'],
-                                    origin_index=None, 
-                                    sequence_of_ref='sequence1'):
-    """
-    Function to epsilon vectors between the surface of a folded domain 
-    and a directly ajoining attached IDR sequence. This epsilon value is weighted by
-    the local sequence context and the likly reachable Solvent Accessable esidues on 
-    the surface of the folded domain.
-
-    NOTE this was previously part of : get_XYZ_weighted_sequence_epsilon_value 
-        It is now UPDATED to get_interdomain_epsilon_value and all weighting is determined by flags. 
-    
-    Parameters
-    -----------
-    sequence1 : str
-w        the first sequence (FOLDED DOMAIN) and only SAFD residues.
-        everyresidue in this sequence should be SA and in FD. 
-        
-        To generate this from a PDB see:
-            PDB_structure_tools.pdb_to_SDFDresidues_and_xyzs 
-        
-        sequence1 is the first output of the above function.
-
-    sequence2 : str
-        The second sequence to compare (the IDR)
-
-    X : obj 
-        An instance of the InteractionMatrixConstructor class with initialized pairwise
-        interactions and model-specific parameters 
-
-    SAFD_cords : list 
-        Sequence mask of sequence1 containing the solvent-accessible folded domain (SAFD)
-        residue coordinates where len(SAFD_cords) == len(sequence1) 
-
-        This list should be organized such that: 
-          values that are NOT solvent accessible and NOT in a folded domain = 0 
-          values that are solvent accessible and NOT in a folded domain = [x, y, z]
-        
-        This SAFD_cords can be returned by PDB_structure_tools.pdb_to_SDFDresidues_and_xyzs
-
-        SAFD_cords is the third output of the above function in PDB_structure_tools.
-
-    IDR_positon : str 
-        Flag to denote whether the IDR sequence (sequence2) is directly 'C-terminal' or 'N-terminal'
-        of the input Folded Domain (sequence1). If 'CUSTOM', the origin_index flag must be set to 
-        a specific index in SAFD_cords.
-
-    origin_index : int 
-        Optional value formatted like on of indexes in the SAFD_cords list that will be used as the 
-        point of origin for where the IDR is attached to the folded domain. Default here is None.  
-
-        NOTE - IF THIS IS PASSED, IDR_positon must be set to CUSTOM)
-
-    sequence_of_ref : str 
-        Flag to denote whether to build the interaction vectors relative to 'sequence1' or 'sequence2'
-
-    Optional Parameters
-    -------------------
-    null_interaction_baseline : float  
-        threshold to differentiate between attractive and repulsive interactions
-
-    charge_prefactor : float 
-        Model specific value to plug into the local charge weighting of 
-        the matrix
-
-    use_charge_weighting : bool
-        Flag to select whether weight the matrix by local sequence charge 
-
-        NOTE - NO weighting of aliphatics is conducted here because aliphatic weighting is 
-        only performed between groups of local aliphatic residues, and no groups are caluculated 
-        on the surface of folded domains, therefor all aliphatics who still be treated as if they 
-        they are in isolation. 
-    
-    Returns
-    --------
-    epsilon : float 
-        sequence epsilon value as computed between sequence1 and sequence2 
-    
-    """
-    if IDR_positon not in ['Cterm','Nterm','CUSTOM']:
-        raise Exception(f'INVALID IDR_positon passed')
-    
-    if sequence_of_ref not in ['sequence1','sequence2']:
-        raise Exception(f'INVALID sequence_of_ref passed')
-
-    # check for charge_prefactor  
-    if not charge_prefactor:
-        charge_prefactor = X.charge_prefactor
-
-    # check for baseline 
-    if not null_interaction_baseline:
-        null_interaction_baseline = X.null_interaction_baseline
-
-    # check origin location 
-    if IDR_positon == 'CUSTOM':
-        if not origin_index:
-            raise Exception('When IDR_positon is set to CUSTOM the origin_index must be set an index in (X,Y,Z) the cordinate')
-        try:
-            list(map(lambda a: float(a)), origin_index)
-        except:
-            raise Exception('origin_index must be set to (X,Y,Z) cordinate where XYZ can be floats')
-
-    # parse sequence_of_ref flag 
-    orientation = {'sequence1':1,'sequence2':0}[sequence_of_ref] 
-
-    # check to make sure sequence1 is the Folded Domain
-    if len(sequence1) != len(SAFD_cords):
-        raise Exception('Length of sequence1 does not match length of SAFD cordinates \n sequence1 should be the fold domain sequence')
-
-    # get interaction matrix for said sequence
-    matrix = X.calculate_pairwise_heterotypic_matrix(sequence1, sequence2, convert_to_custom=True)
-    
-    # get mask for IDR residues relative resisdues on FD
-    # just returns bionary mask
-    w_xyz_mask = build_column_mask_based_on_xyz(matrix, SAFD_cords, IDR_positon=IDR_positon, origin_index=origin_index)
-
-    # NOTE - NO weighting of aliphatics is conducted here because aliphatic weighting is 
-    #   only performed between groups of local aliphatic residues, and no groups are calculated 
-    #   on the surface of folded domains, therefor all aliphatics who still be treated as if they 
-    #   they are in isolation.  
-
-    #  only occurs between on surface residue and IDR window.
-    w_mask = parsing_aminoacid_sequences.get_charge_weighted_FD_mask(sequence1, sequence2) 
-    w_matrix = matrix - (matrix*w_mask*charge_prefactor)
-
-    # get attractive and repulsive matrix
-    attractive_matrix, repulsive_matrix = get_attractive_repulsive_matrices(w_matrix, null_interaction_baseline)
-
-    # NOTE - filtering the matrix is done after the matrix is split give filtering just multiplys 
-    #        by 0 and null_interaction_baseline may fluctuate and is likly not zero 
-
-    # multiply matrix by 1&0s to screen out IDRs residues that cant reach
-    wXYZ_attractive_matrix = mask_matrix(attractive_matrix - null_interaction_baseline, w_xyz_mask) 
-    wXYZ_repulsive_matrix = mask_matrix(repulsive_matrix - null_interaction_baseline, w_xyz_mask) 
-
-    # original code left here...
-    #attractive_vector = flatten_matrix_to_vector(wXYZ_attractive_matrix, orientation=orientation)
-    #repulsive_vector = flatten_matrix_to_vector(wXYZ_repulsive_matrix, orientation=orientation)
-    attractive_vector = np.mean(wXYZ_attractive_matrix, axis=orientation)
-    repulsive_vector = np.mean(wXYZ_repulsive_matrix, axis=orientation)
-
-    # return attractive and repulsive vectors
-    return attractive_vector, repulsive_vector
-
-
-## ---------------------------------------------------------------------------
-##
-def get_interdomain_epsilon_value(sequence1,
-                                  sequence2,
-                                  X,
-                                  SAFD_cords,
-                                  charge_prefactor=None,
-                                  null_interaction_baseline=None,
-                                  use_charge_weighting=True,
-                                  IDR_positon=['Cterm','Nterm', 'CUSTOM'],
-                                  origin_index=None,
-                                  sequence_of_ref='sequence1'):
-    """
-    Function to compute epsilon value between the surface of a folded domain 
-    and a directly ajoining attached IDR sequence. This epsilon value is weighted by
-    the local sequence context and the likly reachable Solvent Accessable esidues on 
-    the surface of the folded domain.
-
-    NOTE this was previously : get_XYZ_weighted_sequence_epsilon_value 
-        It is now UPDATED to get_interdomain_epsilon_value and all weighting is determined by flags. 
-    
-    Parameters
-    -----------
-    sequence1 : str
-        the first sequence (FOLDED DOMAIN) and only SAFD residues.
-        Every residue in this sequence should be SA and FD. 
-        
-        To generate this from a PDB see:
-            PDB_structure_tools.pdb_to_SDFDresidues_and_xyzs 
-        
-        sequence1 is the first output of the above function.
-
-    sequence2 : str
-        The second sequence to compare (the IDR)
-
-    X : obj 
-        An instance of the InteractionMatrixConstructor class with initialized pairwise
-        interactions and model-specific parameters 
-
-    SAFD_cords : list 
-        Sequence mask of sequence1 containing the solvent-accessible folded domain (SAFD)
-        residue coordinates where len(SAFD_cords) == len(sequence1) 
-
-        This list should be organized such that: 
-          values that are NOT solvent accessible and NOT in a folded domain = 0 
-          values that are solvent accessible and NOT in a folded domain = [x, y, z]
-        
-        This SAFD_cords can be returned by PDB_structure_tools.pdb_to_SDFDresidues_and_xyzs
-
-        SAFD_cords is the third output of the above function in PDB_structure_tools.
-
-    IDR_positon : str 
-        Flag to denote whether the IDR sequence (sequence2) is directly 'C-terminal' or 'N-terminal'
-        of the input Folded Domain (sequence1). If 'CUSTOM', the origin_index flag must be set to 
-        a specific index in SAFD_cords.
-
-    origin_index : int 
-        Optional value formatted like these indices in the SAFD_cords list that will be used as the 
-        point of origin for where the IDR is attached to the folded domain. The default here is None. 
-
-        NOTE - IF THIS IS PASSED, IDR_positon must be set to CUSTOM
-
-    sequence_of_ref : str 
-        Flag to denote whether to build the interaction vectors relative to 'sequence1' or 'sequence2'
-
-    Optional Parameters
-    -------------------
-    null_interaction_baseline : float  
-        threshold to differentiate between attractive and repulsive interactions
-
-    charge_prefactor : float 
-        Model-specific value to plug into the local charge weighting of 
-        the matrix
-
-    use_charge_weighting : bool
-        Flag to select whether to weight the matrix by local sequence charge 
-
-        NOTE - NO weighting of aliphatics is conducted here because aliphatic weighting is 
-        only performed between groups of local aliphatic residues, and no groups are calculated 
-        on the surface of folded domains, therefor all aliphatics who still be treated as if they 
-        they are in isolation. 
-    
-    Returns
-    --------
-    epsilon : float 
-        sequence epsilon value as computed between sequence1 and sequence2 
-    
-    """
-    # get attractive and repulsive matrixes 
-    attractive_vector, repulsive_vector = get_interdomain_epsilon_vectors(sequence1,
-                                                                          sequence2,
-                                                                          X,
-                                                                          SAFD_cords, 
-                                                                          charge_prefactor=charge_prefactor,
-                                                                          origin_index=origin_index,
-                                                                          null_interaction_baseline=null_interaction_baseline,
-                                                                          use_charge_weighting=use_charge_weighting,
-                                                                          IDR_positon=IDR_positon, 
-                                                                          sequence_of_ref=sequence_of_ref)
-
-    # itegerate under vectors to get attractive and repulsive values
-    attractive_value = np.sum(attractive_vector)
-    repulsive_value = np.sum(repulsive_vector)
-
-    # sum attractive and repulsive vectors to get sequence1 centric vector
-    return attractive_value + repulsive_value
 

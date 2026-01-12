@@ -113,208 +113,253 @@ def calculate_FCR_and_NCPR(s):
     return [(total_pos + total_neg)/len(s), (total_pos - total_neg)/len(s)]
 
 
-
-
-
-
 ## ------------------------------------------------------------------ 
 ##
 def mask_sequence(sequence, target_residues):
     """
-    FUNCTION FROM - housetools.sequence_tools.sequence_masking
+    Convert an amino acid sequence to a binary mask based on target residues.
 
-    Function converts sequence to a binary mask (list where each
-    position is either 1 or 0) based on the residues passed in
-    target_residues.
-
-    Parameters
-    --------------
-    sequence : str
-        Input amino acid sequence
-
-    target_residues : list 
-        A list of residues which will be used to to mask the sequence
-        into 1s and zeros
-    
-    Returns
-    ---------------
-    Mask : list
-        List where every position is either a 0 or a 1, depending on if 
-        the original residue was in the target_residue list or not.
-
-    """
-
-    value_track = []
-
-    #iterate sequence and build track 
-    for i in sequence:
-        if str(i) in target_residues:
-            value_track.append(1)
-        else:
-            value_track.append(0)      
-            
-    #check if track matches len of sequence, if not throw error 
-    if len(value_track) != len(sequence):
-        raise Exception('Masking ERROR - mask legnth does not match sequence length')
-    
-    return value_track
-
-## ---------------------------------------------------------------------------
-##
-def get_neighbors_window_of3(i, sequence):
-    """
-    Function that takes in an index position and sequence and returns 
-    the portion of the sequence based off the index (i) and the 
-    1 neighboring residues before and after that index for a window size 
-    of 3 residues.
-
-    NOTE - if the index is at the begining or end of the sequence, the 
-            returned string may not be a window size of 3.
+    Each position in the output is 1 if that residue is in `target_residues`,
+    otherwise 0.
 
     Parameters
     ----------
-    i : int
-        Set which position in the sequence to reference
+    sequence : str
+        Input amino acid sequence (e.g., "ACDEFGK")
 
-    sequence : string 
-        the sequence to reference
+    target_residues : list or set
+        Residues to mark as 1 in the mask (e.g., ['K', 'R'] for basic residues)
+    
+    Returns
+    -------
+    list of int
+        Binary mask where 1 = residue in target_residues, 0 = not in target
+
+    Examples
+    --------
+    >>> mask_sequence("ACDEFGK", ['A', 'G'])
+    [1, 0, 0, 0, 0, 1, 0]
+    
+    >>> mask_sequence("KKEKK", ['K', 'R'])  # Mark basic residues
+    [1, 1, 0, 1, 1]
+
+    """
+    # Convert to set for O(1) lookup
+    target_set = set(target_residues)
+    
+    # Build mask: 1 if residue is a target, 0 otherwise
+    mask = [1 if residue in target_set else 0 for residue in sequence]
+    
+    return mask
+
+## ---------------------------------------------------------------------------
+##
+def get_neighbors_window_of3(position, sequence):
+    """
+    Extract a 3-residue window centered on the given position.
+
+    Returns the residue at `position` along with its immediate N-terminal 
+    and C-terminal neighbors (i.e., positions -1 and +1).
+
+    At sequence boundaries, the window is truncated:
+    - At position 0: returns only positions 0 and 1 (2 residues)
+    - At last position: returns only the last 2 residues
+
+    Parameters
+    ----------
+    position : int
+        Index of the central residue (0-based)
+
+    sequence : str
+        The amino acid sequence
 
     Returns
     -------
-    s2 : str
-        Portion of sequence which includes and the residues N- 
-        and C-terminal of the index position
+    str
+        Substring of 1-3 residues centered on the given position
+
+    Examples
+    --------
+    >>> get_neighbors_window_of3(5, "ACDEFGHIK")
+    'FGH'  # positions 4, 5, 6
+    
+    >>> get_neighbors_window_of3(0, "ACDEFGHIK")
+    'AC'  # positions 0, 1 (no N-terminal neighbor)
+    
+    >>> get_neighbors_window_of3(8, "ACDEFGHIK")
+    'IK'  # positions 7, 8 (no C-terminal neighbor)
 
     """
-    if i == 0:
-        s2= sequence[:i+2]
-    elif i == len(sequence):
-        s2=sequence[i-1:]
-    else:
-        s2= sequence[i-1:i+2]
-    return s2
+    # Calculate window boundaries
+    # Start: one residue before, but not before position 0
+    window_start = max(0, position - 1)
+    
+    # End: one residue after (exclusive), but not past sequence end
+    window_end = min(len(sequence), position + 2)
+    
+    return sequence[window_start:window_end]
 
 
 
 ##------------------------------------------------------------------ 
 #
-def extract_fragments(mask, max_separation=1):
+def extract_fragments(mask, max_gap=1):
     """
-    Converts a binary mask of 1s and 0s to fragments based on the max_separation
-    (largest gap between two fragments).
+    Extract contiguous fragments from a binary mask, grouping 1s that are 
+    separated by at most `max_gap` zeros.
 
-    For example, if max_separation = 1 then:
-    
-       In:  [0, 0, 1, 1, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1]
-        
-       Out: ['111011', '1', '11', '11', '101101']
-    
+    A "fragment" is a run of 1s (possibly with small gaps of 0s within).
+    Gaps larger than `max_gap` zeros break the sequence into separate fragments.
+
     Parameters
-    --------------
-    mask : list 
-       Binary mask of 0s and 1s
+    ----------
+    mask : list of int
+        Binary mask where 1 = hit, 0 = non-hit
+        Example: [0, 0, 1, 1, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1]
 
-    max_separation : int 
-        Define maximum number of 0s betweens 1s before a new fragment is identified 
+    max_gap : int, optional
+        Maximum consecutive 0s allowed within a fragment. Default is 1.
+        - max_gap=1: A single 0 between 1s keeps them in the same fragment
+        - max_gap=0: Any 0 breaks the fragment (only consecutive 1s stay together)
 
     Returns
-    ---------------
-    list
-        Returns list of strings where each element is a fragment extracted from the
-        input mask
+    -------
+    list of str
+        Each string is a fragment showing the pattern of 1s and 0s.
+        Leading/trailing 0s are stripped from each fragment.
+
+    Examples
+    --------
+    >>> extract_fragments([0, 0, 1, 1, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1], max_gap=1)
+    ['111011', '1', '11', '101101']
+    
+    Breaking down the example above (max_gap=1, so "00" splits):
+      Mask string: "001110110001001100101101"
+                    ^^------^^-^--^^--------
+      Splits at:    00      00 0  00  (but single 0s are allowed within fragments)
+    
+    - '111011': "11101" with the single 0 kept inside
+    - '1': the isolated 1 at position 11
+    - '11': positions 14-15
+    - '101101': positions 18-23, single 0s allowed within
+
+    >>> extract_fragments([1, 1, 0, 0, 1, 1], max_gap=1)
+    ['11', '11']  # Gap of 2 zeros splits into two fragments
+
+    >>> extract_fragments([1, 1, 0, 0, 1, 1], max_gap=2)
+    ['110011']  # Gap of 2 zeros is now allowed, stays as one fragment
 
     """
-
-    mask = [str(s) for s in mask]
-    spliter= ''.join(['0'] * (max_separation+1))
-    frag_list = ''.join(mask).split(spliter)
+    # Convert mask to string for easy splitting
+    # e.g., [1, 0, 0, 0, 1] -> "10001"
+    mask_string = ''.join(str(bit) for bit in mask)
     
-    return [f.strip('0') for f in frag_list if f ]
+    # Build the delimiter: (max_gap + 1) consecutive zeros
+    # This is the pattern that breaks fragments apart
+    # e.g., max_gap=1 means "00" splits, so delimiter = "00"
+    delimiter = '0' * (max_gap + 1)
+    
+    # Split on the delimiter to get candidate fragments
+    # e.g., "1110110001" with delimiter "00" -> ["111011", "01"]
+    raw_fragments = mask_string.split(delimiter)
+    
+    # Clean up each fragment:
+    # - Strip leading/trailing zeros (we only care about the 1s pattern)
+    # - Filter out empty strings
+    fragments = []
+    for fragment in raw_fragments:
+        cleaned = fragment.strip('0')
+        if cleaned:  # Skip empty fragments
+            fragments.append(cleaned)
+    
+    return fragments
 
 ##------------------------------------------------------------------ 
 #
-def MASK_n_closest_nearest_neighbors(mask, max_separation=1, max_distance=4):
+def count_nearby_hits(mask, max_gap=1, window_size=4):
     """
-    FUNCTION FROM - housetools.sequence_tools.sequence_masking
+    Count nearby "hits" (1s) for each hit position in a binary mask.
 
-    Takes in mask and converts this residues to into none binary mask 
-    based on the relative posision for the hit residues to each other 
+    For each position with a 1, counts how many 1s are within a local window,
+    including itself. Positions with 0 remain 0 in the output.
+
+    The counting respects "clusters" - groups of 1s separated by at most 
+    `max_gap` zeros are considered together, while larger gaps break the
+    counting window.
 
     Parameters
-    --------------
-    mask : list 
-        Mask of 1s and 0s 
+    ----------
+    mask : list of int
+        Binary mask where 1 = hit position, 0 = non-hit position
 
-    max_separation : int 
-        Define maximum number of 0s betweens 1s that is allowed when counting the
-        nearest neighbors to the target residue (default = 1) 
+    max_gap : int, optional
+        Maximum number of consecutive 0s allowed within a cluster.
+        Larger gaps split the sequence into separate clusters. Default is 1.        
 
-    max_distance : int 
-        define maximum linear distance that is summed when counting the
-        nearest neighbors to the target residue ie the window size (default = 4) 
+    window_size : int, optional  
+        Maximum distance (in either direction) to look for neighbors.
+        Default is 4.
+        (Old parameter name: max_distance)
 
     Returns
-    ---------------
-    mask : list
-        returns new vector mask where target residues are assigned the sum of there
-        nearest neibors
+    -------
+    list of int
+        Same length as input mask. Each 0 stays 0, each 1 is replaced
+        with the count of 1s in its local window (including itself).
+
+    Examples
+    --------
+    >>> count_nearby_hits([0, 0, 1, 1, 1, 0, 0])
+    [0, 0, 3, 3, 3, 0, 0]  # Each 1 sees all three 1s in cluster
+    
+    >>> count_nearby_hits([1, 0, 0, 0, 1])  # gap > max_gap=1, so separate clusters
+    [1, 0, 0, 0, 1]  # Each 1 only sees itself
+
     """
-    w_half = max_distance    
+    # Handle deprecated parameter names for backward compatibility
+    if not mask or sum(mask) == 0:
+        return mask.copy() if isinstance(mask, list) else list(mask)
+
+    # Step 1: Find clusters of hits (groups of 1s with at most max_gap 0s between)
+    clusters = extract_fragments(mask, max_gap=max_gap)
     
-    # extract fragments per aliphatic residue (IE split mask by mask separator, iterate by aliphatic and get sum within fragment 
-    # for centered window around aliphatic residue
-
-    # frags is a series of sublists where each sublist is a fragment of the mask and contains aliphatics with a max of 
-    # one 'gap' between congigous aliphatics
-    frags = extract_fragments(mask, max_separation=max_separation)
-
-    # this list has an aliphatic fragment for each aliphatic residue in the mask,
-    # ie len(per_ali_frags) == sum(mask)
-    per_ali_frags=[] 
+    # Step 2: For each hit position, determine which cluster it belongs to
+    #         and count hits in its local window within that cluster
+    neighbor_counts = []
+    cluster_idx = 0
+    position_in_cluster = 0
     
-    for frag in frags:
-
-        # get fragment size
-        l = len(frag)
-
-        # if the fragment is equal to or smaller than the window size
-        if l <= w_half:
-
-            # for each residue in the fragment
-            for r in frag:
-
-                # if the residue is an aliphatic, add it to the list
-                if r == '1':
-                    per_ali_frags.append(frag)
-        else: 
-            # parse frags larger than window size
-            l_mask = frag
-            for i,r in enumerate(l_mask):
-
-                # if the residue is an aliphatic...
-                if r == '1':
-
-                    # 
-                    if w_half >= i and i+w_half <= l:
-                        per_ali_frags.append(l_mask[:i+w_half+1])
-                    elif  i+w_half > l:
-                        per_ali_frags.append(l_mask[i-w_half:])
-                    elif w_half <= i <= l-w_half: 
-                        per_ali_frags.append(l_mask[i-w_half:i+w_half+1])
-                    else:
-                        raise Exception('Parsing ERROR')      
-    
-    # get sum of neighbors in fragments
-    nearest_neighbor_sums_mask = []
-    ali_count=0
-    for i in mask:
-        if i == 1:
-            nearest_neighbor_sums_mask.append(sum([int(r) for r in per_ali_frags[ali_count]]))
-            ali_count+=1
+    for value in mask:
+        if value == 0:
+            # Non-hit positions stay 0
+            neighbor_counts.append(0)
         else:
-            nearest_neighbor_sums_mask.append(i)
+            # This is a hit - count neighbors in its cluster window
+            cluster = clusters[cluster_idx]
+            cluster_len = len(cluster)
+            
+            # Define window bounds within this cluster
+            # (centered on current position, extending up to window_size in each direction)
+            window_start = max(0, position_in_cluster - window_size)
+            window_end = min(cluster_len, position_in_cluster + window_size + 1)
+            
+            # Count 1s in this window
+            window = cluster[window_start:window_end]
+            hit_count = sum(1 for char in window if char == '1')
+            neighbor_counts.append(hit_count)
+            
+            # Move to next position within cluster
+            position_in_cluster += 1
+            
+            # Check if we need to advance to next cluster
+            # (we've consumed all 1s in current cluster)
+            ones_in_cluster = cluster.count('1')
+            if position_in_cluster >= ones_in_cluster:
+                cluster_idx += 1
+                position_in_cluster = 0
     
-    return nearest_neighbor_sums_mask
+    return neighbor_counts
+
 
 ##------------------------------------------------------------------ 
 #

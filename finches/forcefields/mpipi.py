@@ -2,6 +2,7 @@ import pickle
 import numpy as np
 import finches
 from os.path import exists
+from finches.forcefields.model_base import ForcefieldModel
 
 ## Code that implements the key forcefield functions in the Mpipi model. For more details on this see
 #     Joseph, J. A., Reinhardt, A., Aguirre, A., Chew, P. Y., Russell, K. O., Espinosa, J. R., Garaizar, A., 
@@ -32,7 +33,7 @@ MPIPI_CONFIGS['Mpipi_GGv1']['null_interaction_baseline'] = -0.128533
 MPIPI_CONFIGS['OLD_Mpipi_GGv1']['charge_prefactor'] = 0.20 #0.216145
 MPIPI_CONFIGS['OLD_Mpipi_GGv1']['null_interaction_baseline'] = -0.128533
 
-class Mpipi_model:
+class Mpipi_model(ForcefieldModel):
 
     def __init__(self, version='Mpipi_GGv1', input_directory='default', dielectric=80.0, salt=0.150):
         """
@@ -100,6 +101,16 @@ class Mpipi_model:
         finches.methods.forcefields.Mpipi object
 
         """
+
+        super().__init__(
+            version=version,
+            dielectric=dielectric,
+            salt=salt,
+            temperature=300,
+            pH=7.4,
+            all_residues_types=[['M', 'G', 'K', 'T', 'Y', 'A', 'D', 'E', 'V', 'L', 'Q', 'W', 'R', 'F', 'S', 'H', 'N', 'P', 'C', 'I'], ['U']],
+            conditions=['salt', 'dielectric']
+        )
 
         # if 'default' is passed, use the default parameters. Note that if in the future
         # we want to add additional precomputed parameters this is easy and we just need
@@ -188,21 +199,6 @@ class Mpipi_model:
 
         # set precomputed forcfield parameters
         self.CONFIGS = MPIPI_CONFIGS[version]
-
-        # initialize object variables
-        self.version =  version
-
-        # intu
-        self.dielectric = dielectric 
-        self.salt = salt
-
-        self.ALL_RESIDUES_TYPES = [['M', 'G', 'K', 'T', 'Y', 'A', 'D', 'E', 'V', 'L', 'Q', 'W', 'R', 'F', 'S', 'H', 'N', 'P', 'C', 'I'],['U']]
-
-        # name the identity of the conditions we've assigned
-        self.conditions = ['salt', 'dielectric']
-
-
-
 
     # .....................................................................................
     #
@@ -404,7 +400,10 @@ class Mpipi_model:
 
         # take the numerical finite integral between 1 and 3 sigma to calculate
         # an interacion parameter
-        interaction_param = np.trapz(combo[s1:s3], x=r[s1:s3])
+        try:
+            interaction_param = np.trapezoid(combo[s1:s3], x=r[s1:s3])
+        except Exception as e:
+            interaction_param = np.trapz(combo[s1:s3], x=r[s1:s3])
 
         return (interaction_param, combo, s1, s3, r)
 
