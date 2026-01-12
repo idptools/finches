@@ -2,7 +2,7 @@ FINCHES
 ==============================
 ![Finches Logo](finches_logo_v1.png)
 
-### Current version: 0.1.3 (beta public)
+### Current version: 0.1.4 (beta public)
 
 ## About
 FINCHES (**F**irst-principle **I**nteractions via **CHE**mical **S**pecificity) is a software package for computing IDR-associated chemical specificity. The FINCHES paper was published in May 2025 [and is available here](https://www.science.org/stoken/author-tokens/ST-2641/full).

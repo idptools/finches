@@ -1,6 +1,15 @@
 # Changelog
 
 
+### Version 0.1.4 (beta; January 2026)
+* Major update to internal code including:
+	* Forcefield module now has a base `ForcefieldModel` class that derived forcefield models inherit from.
+	* `Mpipi_model` implemented in `mpipi.py` inherits from ForcefieldModel
+	* `CALVADOS_model` implemented in `calvados.py` has been completely re-written, also now inherits from ForcefieldModel and has had major improvement in performance. Moved away from Pandas for parsing data to dictionaries as per Mpipi, new data file with CALVADOS parameters `calvados_residues_dict.pickle` replaces odl file (`calvados_residues.pickle`).
+	* Removed a lot (although not all) redudant code
+	* Reworked `epsilon_calculation.py`, `epsilon_stateless.py`, `sequence_tools.py` and `parsing_aminoacid_sequences.py` to improve performance, readability, and documentation.
+	* Added >200 tests for functions in `epsilon_calculation.py`, `epsilon_stateless.py`, `sequence_tools.py`, and `parsing_aminoacid_sequences.py`, as well as created the `generate_data_test_epsilon_calculation.py` which generated input comparison ground truth data for tests.
+
 ### Version 0.1.3 (beta; July 2025)
 * Version 0.1.3 includes a number of minor bug fixes as well as updates to readme   post publication.
 * Documentation added at [https://finches.readthedocs.io/en/stable/](https://finches.readthedocs.io/en/stable/)
