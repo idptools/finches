@@ -11,10 +11,11 @@ import matplotlib
 
 
 # ensure text is editable in illustrator
-#matplotlib.rcParams['pdf.fonttype'] = 42
-#matplotlib.rcParams['ps.fonttype'] = 42
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
+
 # set to define axes linewidths
-#matplotlib.rcParams['axes.linewidth'] = 0.5
+matplotlib.rcParams['axes.linewidth'] = 0.5
 
 
 class FinchesFrontend:
@@ -35,7 +36,7 @@ class FinchesFrontend:
 
         # ensure we don't accidentally instantiate this class!
         if type(self) == FinchesFrontend:
-            raise TypeError("FinchesFrontened class should not be instantiated directly, but instead derived classes should be used.")
+            raise TypeError("FinchesFrontend class should not be instantiated directly, but instead derived classes should be used.")
         # this must be defined in the subclass
         self.IMC_object = None
 
@@ -162,7 +163,7 @@ class FinchesFrontend:
                 shuffle_matrices.append(B_tmp[0])
 
             if seq1 == seq2:
-                # note - we do this to symmetrize the null matrix without introducing atrifacts be 
+                # note - we do this to symmetrize the null matrix without introducing artifacts by 
                 # enforcing shuffled sequences to always be the same
                 new_B_0 = B[0] - (np.mean(shuffle_matrices, axis=0) + np.mean(np.array(shuffle_matrices).swapaxes(1,2), axis=0))/2
 
@@ -417,7 +418,7 @@ class FinchesFrontend:
 
         # note - when this is called from a derived class it's the DERIVED CLASS
         # version of the intermolecular_idr_matrix function that's called, so RNA
-        # is handelled in this correctly
+        # is handled in this correctly
         B, disorder_1, disorder_2 = self.intermolecular_idr_matrix(seq1,
                                                                    seq2,
                                                                    window_size=window_size,
@@ -589,7 +590,7 @@ class FinchesFrontend:
         If return_total is True, the function will return the total sum of attractive
         interactions between the two sequences instead of the average.
 
-        This is (potentially) interesting inasmuch as if we just tak the AVERAGE of
+        This is (potentially) interesting inasmuch as if we just take the AVERAGE of
         a region it may be very attractive in some place but repulsive elsewhere, 
         however, repulsive regions in an IDR can avoid each other while attractive
         things attract, so this allows you to identify the putative 'sticker' regions
@@ -650,7 +651,7 @@ class FinchesFrontend:
         """
 
         # do the thing; note this class from the derived class so model-specific
-        # sanity checking is handled implictly here
+        # sanity checking is handled implicitly here
         B = self.intermolecular_idr_matrix(seq1, seq2, window_size=window_size, use_cython=use_cython, use_aliphatic_weighting=use_aliphatic_weighting, use_charge_weighting=use_charge_weighting)[0]
 
         # extract the raw matrix
@@ -675,7 +676,7 @@ class FinchesFrontend:
         # Avoid division by zero for columns with no attractive values
         attractive_counts[attractive_counts == 0] = 1
 
-        # alculate the average of attractive values in each column
+        # calculate the average of attractive values in each column
         if return_total:
             vals = attractive_sums
         else:
@@ -712,16 +713,16 @@ class FinchesFrontend:
                                       poly_order=3):
         
         """
-        Function to calculate the per-residue  vector for a given pair 
+        Function to calculate the per-residue repulsive vector for a given pair 
         of sequences. This is calculated as the sum of the repulsive interactions 
         for each residue in the first sequence with all residues in the second 
-        sequence. Specifically, this is an average over all attractive values (i.e.
-        where value < 0) using the inter-sequence matrix.
+        sequence. Specifically, this is an average over all repulsive values (i.e.
+        where value > 0) using the inter-sequence matrix.
 
-        If return_total is True, the function will return the total sum of attractive
+        If return_total is True, the function will return the total sum of repulsive
         interactions between the two sequences instead of the average.
 
-        This is (potentially) interesting inasmuch as if we just tak the AVERAGE of
+        This is (potentially) interesting inasmuch as if we just take the AVERAGE of
         a region it may be very attractive in some place but repulsive elsewhere, 
         however, repulsive regions in an IDR can avoid each other while attractive
         things attract, so this allows you to identify the putative 'sticker' regions
@@ -782,7 +783,7 @@ class FinchesFrontend:
         """
 
         # do the thing; note this class from the derived class so model-specific
-        # sanity checking is handled implictly here
+        # sanity checking is handled implicitly here
         B = self.intermolecular_idr_matrix(seq1, seq2, window_size=window_size, use_cython=use_cython, use_aliphatic_weighting=use_aliphatic_weighting, use_charge_weighting=use_charge_weighting)[0]
 
         # extract the raw matrix
@@ -807,7 +808,7 @@ class FinchesFrontend:
         # Avoid division by zero for columns with no repulsive values
         repulsive_counts[repulsive_counts == 0] = 1
 
-        # alculate the average of repulsive values in each column
+        # calculate the average of repulsive values in each column
         if return_total:
             vals = repulsive_sums
         else:
@@ -1319,26 +1320,411 @@ class FinchesFrontend:
             
 
         return [all_phase_diagrams, fig, ax]
+
+
+    # ....................................................................................
+    #
+    #
+    def dms(self,
+            seq,
+            amino_acids=None,
+            use_aliphatic_weighting=True,
+            use_charge_weighting=True,
+            return_delta=False,
+            show_progress=True):
+        """
+        Perform a deep mutational scan (DMS) on a sequence, calculating homotypic 
+        epsilon values for all possible single-point mutants.
+
+        This function systematically mutates each position in the sequence to every 
+        one of the 20 standard amino acids and calculates the homotypic epsilon 
+        value for each mutant sequence.
+
+        Parameters
+        ----------
+        seq : str
+            The input protein sequence of length n.
+
+        amino_acids : list, optional
+            List of single-letter amino acid codes to use for mutations.
+            Default is None, which uses all 20 standard amino acids.
+
+        use_aliphatic_weighting : bool
+            Whether to use the aliphatic weighting scheme for the epsilon
+            calculation. Default is True.
+
+        use_charge_weighting : bool
+            Whether to use the charge weighting scheme for the epsilon
+            calculation. Default is True.
+
+        return_delta : bool
+            If True, return the difference (delta) between mutant and wild-type
+            epsilon values (mutant - WT). Negative values indicate the mutation
+            makes the sequence more self-attractive. If False, return absolute
+            epsilon values. Default is False.
+
+        show_progress : bool
+            Whether to show a progress bar during calculation. Default is True.
+            Recommended for longer sequences.
+
+        Returns
+        -------
+        tuple
+            A tuple containing:
+
+            [0] : np.ndarray
+                A 20 x n matrix where element [i, j] contains either:
+                - If return_delta=False: the homotypic epsilon value for the 
+                  sequence with position j mutated to amino acid i.
+                - If return_delta=True: the change in epsilon (mutant - WT),
+                  where negative values indicate increased self-attraction.
+                Rows are ordered alphabetically by single-letter amino acid code:
+                A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y
+
+            [1] : list
+                List of the 20 amino acid single-letter codes in the order they 
+                appear in the matrix rows: 
+                ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 
+                 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
+
+            [2] : np.ndarray
+                Array of position indices (1-indexed) corresponding to matrix columns.
+
+        Examples
+        --------
+        Basic usage::
+
+            mf = Mpipi_frontend()
+            matrix, amino_acids, positions = mf.dms("MSKGEELFT")
             
+            # Get epsilon for mutating position 3 (K) to Alanine (A)
+            eps_K3A = matrix[0, 2]  # Row 0 = A, Column 2 = position 3
+            
+            # Get all epsilon values for position 5 (E)
+            all_pos5_mutants = matrix[:, 4]
 
+        To find the most stabilizing mutation::
 
-    
+            matrix, aas, pos = mf.dms(seq, return_delta=True)
+            min_idx = np.unravel_index(np.argmin(matrix), matrix.shape)
+            best_aa = aas[min_idx[0]]
+            best_pos = pos[min_idx[1]]
+            print(f"Most stabilizing: {seq[min_idx[1]-1]}{best_pos}{best_aa}")
+
+        """
+
+        # Standard amino acids in alphabetical order
+        VALID_AMINO_ACIDS = ['W', 'Y', 'F', 'I', 'L', 'V', 'M', 'A', 'G', 'S',                             
+                             'T', 'N', 'Q', 'H', 'R', 'K', 'P', 'D', 'E', 'C']
         
+        if amino_acids is None:
+            AMINO_ACIDS = VALID_AMINO_ACIDS
+        else:
+            if not isinstance(amino_acids, list):
+                raise ValueError('amino_acids must be a list of single-letter amino acid codes')
+            
+            invalid_aas = [aa for aa in amino_acids if aa not in VALID_AMINO_ACIDS]
+            if invalid_aas:
+                raise ValueError(f'Invalid amino acid codes found: {invalid_aas}. Valid codes are: {sorted(VALID_AMINO_ACIDS)}')
+            
+            AMINO_ACIDS = amino_acids
+
+
+        seq_len = len(seq)
+        n_amino_acids = len(AMINO_ACIDS)
         
+        # Initialize the output matrix (20 amino acids x n positions)
+        dms_matrix = np.zeros((n_amino_acids, seq_len))
+
+        # Create position indices (1-indexed for biological convention)
+        positions = np.arange(1, seq_len + 1)
+
+        # Calculate total iterations for progress bar
+        total_iterations = n_amino_acids * seq_len   
+
+        # Set up iterator with optional progress bar
+        if show_progress:
+            from tqdm import tqdm
+            pbar = tqdm(total=total_iterations, desc="DMS scan")
+
+        # Convert sequence to list for easier mutation
+        seq_list = list(seq)
+
+        # Iterate over each position
+        for pos_idx in range(seq_len):
+            original_aa = seq_list[pos_idx]
+
+            # Iterate over each possible amino acid substitution
+            for aa_idx, new_aa in enumerate(AMINO_ACIDS):
+                
+                # Create mutant sequence
+                if new_aa == original_aa:
+                    # No mutation - use original sequence
+                    mutant_seq = seq
+                else:
+                    # Make the substitution
+                    mutant_list = seq_list.copy()
+                    mutant_list[pos_idx] = new_aa
+                    mutant_seq = ''.join(mutant_list)
+
+                # Calculate homotypic epsilon for the mutant
+                eps = self.epsilon(mutant_seq, 
+                                   mutant_seq,
+                                   use_aliphatic_weighting=use_aliphatic_weighting,
+                                   use_charge_weighting=use_charge_weighting)
+
+                # Store in matrix
+                dms_matrix[aa_idx, pos_idx] = eps
+
+                if show_progress:
+                    pbar.update(1)
+
+        if show_progress:
+            pbar.close()
+
+        # If return_delta is True, convert to delta values (mutant - WT)
+        if return_delta:
+            # Calculate wild-type epsilon
+            wt_epsilon = self.epsilon(seq, seq,
+                                      use_aliphatic_weighting=use_aliphatic_weighting,
+                                      use_charge_weighting=use_charge_weighting)
+            dms_matrix = dms_matrix - wt_epsilon
+
+        return (dms_matrix, AMINO_ACIDS, positions)
 
 
+    # ....................................................................................
+    #
+    #
+    def plot_dms(self,
+                 seq,
+                 amino_acids=None,
+                 use_aliphatic_weighting=True,
+                 use_charge_weighting=True,
+                 return_delta=True,
+                 show_progress=True,
+                 vmin=None,
+                 vmax=None,
+                 cmap='PRGn',
+                 figsize=None,
+                 tic_frequency=10,
+                 show_wt_marker=True,
+                 wt_marker='o',
+                 wt_marker_color='black',
+                 wt_marker_size=3,
+                 show_title=True,
+                 show_sequence=False,
+                 sequence_fontsize=5,
+                 fname=None):
+        """
+        Generate a heatmap visualization of a deep mutational scan (DMS).
 
-        
-        
-    
-    
-                           
+        This function performs a DMS scan and visualizes the results as an 
+        n x 20 heatmap where rows correspond to sequence positions and columns 
+        correspond to amino acid substitutions.
 
-        
+        Parameters
+        ----------
+        seq : str
+            The input protein sequence of length n.
 
+        amino_acids : list, optional
+            List of single-letter amino acid codes to use for mutations.
+            Default is None, which uses all 20 standard amino acids.
 
-        
+        use_aliphatic_weighting : bool
+            Whether to use the aliphatic weighting scheme for the epsilon
+            calculation. Default is True.
 
-    
+        use_charge_weighting : bool
+            Whether to use the charge weighting scheme for the epsilon
+            calculation. Default is True.
 
-    
+        return_delta : bool
+            If True, plot the difference (delta) between mutant and wild-type
+            epsilon values (mutant - WT). Negative values (green in default cmap)
+            indicate the mutation makes the sequence more self-attractive.
+            If False, plot absolute epsilon values. Default is True.
+
+        show_progress : bool
+            Whether to show a progress bar during DMS calculation. Default is True.
+
+        vmin : float, optional
+            Minimum value for the color scale. Default is None (auto-determined).
+            For delta values, consider using symmetric limits like -2 to 2.
+
+        vmax : float, optional
+            Maximum value for the color scale. Default is None (auto-determined).
+
+        cmap : str
+            Colormap to use for the heatmap. Default is 'PRGn' (purple-green
+            diverging colormap where green = negative/attractive).
+
+        figsize : tuple, optional
+            Figure size as (width, height) in inches. Default is None, which
+            auto-calculates based on sequence length.
+
+        tic_frequency : int
+            Frequency of position tick labels on the x-axis. Default is 10.
+
+        show_wt_marker : bool
+            Whether to mark wild-type amino acids at each position. Default is True.
+
+        wt_marker : str
+            Marker style for wild-type positions. Default is 'o'.
+
+        wt_marker_color : str
+            Color for wild-type markers. Default is 'black'.
+
+        wt_marker_size : float
+            Size of wild-type markers. Default is 3.
+
+        show_title : bool
+            Whether to display a title above the heatmap. Default is True.
+
+        show_sequence : bool
+            Whether to display the amino acid sequence below the heatmap,
+            above the position tick labels. Default is False.
+
+        sequence_fontsize : float
+            Font size for the sequence letters when show_sequence is True.
+            Default is 5.
+
+        fname : str, optional
+            Filename to save the figure. If None, the figure is displayed but
+            not saved. Default is None.
+
+        Returns
+        -------
+        tuple
+            A tuple containing:
+
+            [0] : matplotlib.figure.Figure
+                The figure object.
+
+            [1] : matplotlib.axes.Axes
+                The axes object.
+
+            [2] : matplotlib.image.AxesImage
+                The image object from imshow.
+
+            [3] : tuple
+                The DMS results tuple (matrix, amino_acids, positions).
+
+        Examples
+        --------
+        Basic usage::
+
+            mf = Mpipi_frontend()
+            fig, ax, im, dms_data = mf.plot_dms("MSKGEELFTGVVPILVELD")
+            plt.show()
+
+        With custom color scale::
+
+            fig, ax, im, dms_data = mf.plot_dms(seq, vmin=-2, vmax=2, cmap='coolwarm')
+
+        Save to file::
+
+            mf.plot_dms(seq, fname='dms_heatmap.png')
+
+        """
+
+        # Perform DMS scan
+        dms_matrix, aa_list, positions = self.dms(
+            seq,
+            amino_acids=amino_acids,
+            use_aliphatic_weighting=use_aliphatic_weighting,
+            use_charge_weighting=use_charge_weighting,
+            return_delta=return_delta,
+            show_progress=show_progress
+        )
+
+        # Matrix is already 20 x n (amino acids x positions), use directly
+        plot_matrix = dms_matrix
+
+        # Determine figure size if not provided
+        if figsize is None:
+            # Scale width with sequence length, height fixed for 20 amino acids
+            width = max(6, len(seq) * 0.15)
+            height = 4
+            figsize = (width, height)
+
+        # Create figure
+        fig = plt.figure(figsize=figsize, dpi=350)
+        ax = plt.gca()
+
+        # Determine color scale limits
+        if vmin is None and vmax is None and return_delta:
+            # For delta values, use symmetric color scale
+            max_abs = max(abs(np.min(plot_matrix)), abs(np.max(plot_matrix)))
+            vmin = -max_abs
+            vmax = max_abs
+
+        # Create heatmap
+        im = ax.imshow(plot_matrix, aspect='auto', cmap=cmap, vmin=vmin, vmax=vmax)
+
+        # Set x-axis (positions)
+        # Show subset of ticks based on tic_frequency
+        # Start at position 1, then 10, 20, 30, etc.
+        xtick_positions = [0]  # Position 1 (0-indexed)
+        xtick_labels = ['1']
+        # Add ticks at 10, 20, 30... (which are indices 9, 19, 29... in 0-indexed)
+        for pos in range(tic_frequency, len(seq) + 1, tic_frequency):
+            xtick_positions.append(pos - 1)  # Convert to 0-indexed
+            xtick_labels.append(str(pos))
+        ax.set_xticks(xtick_positions)
+        ax.set_xticklabels(xtick_labels, fontsize=6)
+
+        # Display sequence below heatmap if requested
+        if show_sequence:
+            # Create a secondary x-axis for sequence display
+            ax2 = ax.secondary_xaxis('bottom')
+            ax2.set_xticks(np.arange(len(seq)))
+            ax2.set_xticklabels(list(seq), fontsize=sequence_fontsize, family='monospace')
+            ax2.tick_params(axis='x', length=0, pad=12)  # No tick marks, pad below position labels
+            # Move the position labels up a bit and add more space
+            ax.tick_params(axis='x', pad=2)
+            # Set xlabel on the secondary axis so it appears below the sequence
+            ax2.set_xlabel('Position', fontsize=8)
+        else:
+            ax.set_xlabel('Position', fontsize=8)
+
+        # Set y-axis (amino acids)
+        ax.set_yticks(np.arange(len(aa_list)))
+        ax.set_yticklabels(aa_list, fontsize=6)
+        ax.set_ylabel('Amino Acid Substitution', fontsize=8)
+
+        # Mark wild-type amino acids
+        if show_wt_marker:
+            for pos_idx, wt_aa in enumerate(seq):
+                if wt_aa in aa_list:
+                    aa_idx = aa_list.index(wt_aa)
+                    ax.plot(pos_idx, aa_idx, wt_marker, 
+                            color=wt_marker_color, 
+                            markersize=wt_marker_size,
+                            markeredgewidth=0.5,
+                            markeredgecolor='white')
+
+        # Add colorbar
+        cbar = fig.colorbar(im, ax=ax, shrink=0.6, pad=0.02)
+        if return_delta:
+            cbar.set_label(r'$\Delta\epsilon$ (mutant - WT)', fontsize=7)
+        else:
+            cbar.set_label(r'$\epsilon$', fontsize=7)
+        cbar.ax.tick_params(labelsize=6)
+
+        # Title
+        if show_title:
+            if return_delta:
+                ax.set_title('DMS: Change in Homotypic Epsilon', fontsize=9)
+            else:
+                ax.set_title('DMS: Homotypic Epsilon', fontsize=9)
+
+        plt.tight_layout()
+
+        # Save if filename provided
+        if fname is not None:
+            plt.savefig(fname, dpi=350, bbox_inches='tight')
+
+        return (fig, ax, im, (dms_matrix, aa_list, positions))
+

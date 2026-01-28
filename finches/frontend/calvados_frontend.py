@@ -31,13 +31,13 @@ class CALVADOS_frontend(FinchesFrontend):
     # ....................................................................................
     #
     #            
-    def __init__(self, salt=0.150, pH=7.4, temp=288):
+    def __init__(self, salt=0.150, pH=7.4, temperature=288):
 
         # call superclass constructor 
         super().__init__()
 
         # initialize the CALVADOS forcefield opbject
-        self.model = calvados_model('CALVADOS2', salt=salt, pH=pH, temp=temp)
+        self.model = calvados_model('CALVADOS2', salt=salt, pH=pH, temperature=temperature)
 
         # build an interaction matrix constructor object
         self.IMC_object = epsilon_calculation.InteractionMatrixConstructor(self.model)
