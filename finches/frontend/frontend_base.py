@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import savgol_filter
 import matplotlib
+import functools
 
 
 # ensure text is editable in illustrator
@@ -17,6 +18,40 @@ import matplotlib
 # set to define axes linewidths
 #matplotlib.rcParams['axes.linewidth'] = 0.5
 
+# Decorator to apply consistent plot styles
+import matplotlib
+import functools
+
+def apply_publication_styles(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # Font settings
+        matplotlib.rcParams['font.family'] = 'sans-serif'
+        matplotlib.rcParams['font.sans-serif'] = ['Arial', 'Liberation Sans', 'DejaVu Sans']
+        
+        # PDF/PS settings
+        matplotlib.rcParams['pdf.fonttype'] = 42
+        matplotlib.rcParams['ps.fonttype'] = 42
+
+        # Line settings
+        matplotlib.rcParams['axes.linewidth'] = 0.5
+
+        # X-Ticks
+        matplotlib.rcParams['xtick.major.width'] = 0.5 # Match axis width
+        matplotlib.rcParams['xtick.minor.width'] = 0.25 # Match axis width
+        matplotlib.rcParams['xtick.minor.size'] = 0.5  # Length of the tick
+        matplotlib.rcParams['xtick.major.size'] = 2.5  # Length of the tick
+        matplotlib.rcParams['xtick.direction'] = 'out' # Ticks point outside
+        
+        # Y-Ticks
+        matplotlib.rcParams['ytick.major.width'] = 0.5
+        matplotlib.rcParams['ytick.minor.width'] = 0.25 # Match axis width
+        matplotlib.rcParams['ytick.minor.size'] = 0.5
+        matplotlib.rcParams['ytick.major.size'] = 2.5
+        matplotlib.rcParams['ytick.direction'] = 'out'        
+        
+        return func(*args, **kwargs)
+    return wrapper
 
 class FinchesFrontend:
     """
@@ -285,7 +320,8 @@ class FinchesFrontend:
     
     # ....................................................................................
     #
-    #            
+    #          
+    @apply_publication_styles  
     def interaction_figure(self,
                            seq1,
                            seq2,
@@ -915,6 +951,7 @@ class FinchesFrontend:
     # ....................................................................................
     #
     #
+    @apply_publication_styles
     def plot_protein_nucleic_vector(self,
                                     seq,
                                     fragsize = 21,
@@ -1106,7 +1143,7 @@ class FinchesFrontend:
         return epsilon_to_FHtheory.epsilon_to_phase_diagram(seq, eps)
 
 
-
+    @apply_publication_styles
     def plot_phase_diagram(self,
                            seq,
                            use_aliphatic_weighting=True,
@@ -1200,6 +1237,7 @@ class FinchesFrontend:
         return [B, fig, ax]
 
 
+    @apply_publication_styles
     def plot_multiple_phase_diagrams(self,
                                      seq_dict,
                                      use_aliphatic_weighting=True,
@@ -1297,8 +1335,6 @@ class FinchesFrontend:
             plt.ylabel(r'$T (AU)$', fontsize=7)            
         else:
             plt.ylabel(r'$T/T_c$', fontsize=7)
-            
-            
             
         plt.xlabel(r'$\rm\phi$', fontsize=7)
         plt.xticks(fontsize=6)
@@ -1496,6 +1532,7 @@ class FinchesFrontend:
     # ....................................................................................
     #
     #
+    @apply_publication_styles
     def plot_dms(self,
                  seq,
                  amino_acids=None,

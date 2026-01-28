@@ -6,6 +6,7 @@
 * Added dms() and plot_dms() functions into the `frontend_base.py` code for frontend objects
 * Added additional tests for frontened objects.
 * Added docs for dms() and plot_dms() functionality.
+* Added nice plot formatting as a decorator into `frontend_base.py`
 
 ### Version 0.1.4 (beta; January 2026)
 * Major update to internal code, including:
