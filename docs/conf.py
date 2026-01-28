@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.abspath('..'))
 # -- Project information -----------------------------------------------------
 
 project = 'finches'
-copyright = ("2023-2025, Alex Holehouse & Garrett M. Ginell")
+copyright = ("2023-2026, Alex Holehouse & Garrett M. Ginell")
 author = 'Alex Holehouse & Garrett M. Ginell'
 
 # The short X.Y version
