@@ -1,24 +1,31 @@
 # Changelog
 
 
+### Version 0.1.4 (2026-01-28)
+* Fixed bug in CALVADOS initialization (Stephen also independently fixed - thanks, Stephen!)
+* Added dms() and plot_dms() functions into the `frontend_base.py` code for frontend objects
+* Added additional tests for frontened objects.
+* Added docs for dms() and plot_dms() functionality.
+
 ### Version 0.1.4 (beta; January 2026)
-* Major update to internal code including:
+* Major update to internal code, including:
 	* Forcefield module now has a base `ForcefieldModel` class that derived forcefield models inherit from.
 	* `Mpipi_model` implemented in `mpipi.py` inherits from ForcefieldModel
-	* `CALVADOS_model` implemented in `calvados.py` has been completely re-written, also now inherits from ForcefieldModel and has had major improvement in performance. Moved away from Pandas for parsing data to dictionaries as per Mpipi, new data file with CALVADOS parameters `calvados_residues_dict.pickle` replaces odl file (`calvados_residues.pickle`).
-	* Removed a lot (although not all) redudant code
+	* `CALVADOS_model` implemented in `calvados.py` has been completely rewritten, also now inherits from ForcefieldModel and has had a major improvement in performance. Moved away from Pandas for parsing data to dictionaries as per Mpipi, new data file with CALVADOS parameters `calvados_residues_dict.pickle` replaces odl file (`calvados_residues.pickle`).
+	* Removed a lot (although not all) redundant code
 	* Reworked `epsilon_calculation.py`, `epsilon_stateless.py`, `sequence_tools.py` and `parsing_aminoacid_sequences.py` to improve performance, readability, and documentation.
-	* Added >200 tests for functions in `epsilon_calculation.py`, `epsilon_stateless.py`, `sequence_tools.py`, and `parsing_aminoacid_sequences.py`, as well as created the `generate_data_test_epsilon_calculation.py` which generated input comparison ground truth data for tests.
+	* Added >200 tests for functions in `epsilon_calculation.py`, `epsilon_stateless.py`, `sequence_tools.py`, and `parsing_aminoacid_sequences.py`, as well as created the `generate_data_test_epsilon_calculation.py`, which generated input comparison ground truth data for tests.
+
 
 ### Version 0.1.3 (beta; July 2025)
 * Version 0.1.3 includes a number of minor bug fixes as well as updates to readme   post publication.
 * Documentation added at [https://finches.readthedocs.io/en/stable/](https://finches.readthedocs.io/en/stable/)
 
 ### Version 0.1.2 (beta; Dec 2024)
-* Version 0.1.2 brings a number of new features that are fully implemented but limited in their using facing capacity. This will be addressed over the coming weeks (i.e. by end of 2024).
+* Version 0.1.2 brings a number of new features that are fully implemented but limited in their usage capacity. This will be addressed over the coming weeks (i.e., by the end of 2024).
 * A new approach for automating IDR-associated domain decomposition. This domain decomposition approach was developed by Alex Keeley. 
-* **InterLogos**: In 0.1.2 we're pleased to introduce InterLogos. InterLogos are akin to sequence logos in that they provide a way to visually identify residues and regions that are predicted to drive attractive intermolecular interactions. InterLogos were developed by Nick Razo. InterLogos will be introduced into finches-online in the near future.
-* A newly revised method for calculating IDR:folded domain surace interactions that give residue-specific information. This approach was developed by Stephen Plassmeyer and Ryan Emenecker.
+* **InterLogos**: In 0.1.2, we're pleased to introduce InterLogos. InterLogos are akin to sequence logos in that they provide a way to visually identify residues and regions that are predicted to drive attractive intermolecular interactions. InterLogos were developed by Nick Razo. InterLogos will be introduced into finches-online in the near future.
+* A newly revised method for calculating IDR:folded domain surface interactions that give residue-specific information. This approach was developed by Stephen Plassmeyer and Ryan Emenecker.
 * Various other small improvements.
 
 
@@ -33,20 +40,20 @@
 ### Pre release
 * **May 9th 2024** - fixed a stupid off-by-one bug in the indexing from the sliding window epsilon functions - basically invisible unless you're looking at matrices of ~10 residues or smaller, but even so...
 * **May 5th 2024** - major update and breaking changes; **PLEASE READ**. We realized that the CALVADOS integral for calculating interaction parameters was integrating over nanometers instead of over angstroms, meaning all the CALAVDOS residue-specific interaction parameters were (consistently) smaller than they should be by a d(distance)-factor of 10. This changes nothing about any scientific insights that have been gleaned but does change the absolute numerical values of CALVADOS-derived epsilon analysis. This has now been fixed, but in the process, we used this as an opportunity to update a range of additional things, listed below:
-	* As mentioned - CALVADOS epsilon parameters are now ~10x what they were before, which is more in-keeping with epsilon values. This will necessitate to any code that analyses or visualizes CALVADOS-associated epsilon values to update thresholds etc, but the actual rank order and relative epsilon values should all remain approximately the same (we had to make some very small changes to the baseline correction).
+	* As mentioned, CALVADOS epsilon parameters are now ~10x what they were before, which is more in keeping with epsilon values. This will necessitate any code that analyses or visualizes CALVADOS-associated epsilon values to update thresholds, etc., but the actual rank order and relative epsilon values should all remain approximately the same (we had to make some very small changes to the baseline correction).
 	* We shifted to ensure module names are all lowercase (e.g., `finches.forcefields.mPiPi` -> `finches.forcefields.mpipi` to be consistent with Python best practices
 	* We shifted `Interaction_Matrix_Constructor` to `InteractionMatrixConstructor` to again be consistent with Python best practices (camel-case for Class names).
-	* We unified Mpipi type-setting as "Mpipi", instead of "mPiPi", which had been used previously. This has changed the names of classes, parameter files, etc etc, but everything within finches *should* now be internally consistent. However, existing code may be importing now deprecated parameter names or module names. This should be an easy fix in your local code.
-	* We removed the `legacy_mpipi_frontend.py` module from `finches.frontend` - this was where the original non-inheritance-based frontend had been implemented, but we've now moved to an inheritance-based approach for frontends which has worked without issue, so we're removing legacy entirely. 
+	* We unified Mpipi type-setting as "Mpipi", instead of "mPiPi", which had been used previously. This has changed the names of classes, parameter files, etc., etc., but everything within finches *should* now be internally consistent. However, existing code may be importing now-deprecated parameter names or module names. This should be an easy fix in your local code.
+	* We removed the `legacy_mpipi_frontend.py` module from `finches.frontend` - this was where the original non-inheritance-based frontend had been implemented, but we've now moved to an inheritance-based approach for frontends, which has worked without issue, so we're removing legacy entirely. 
 	* Added `epsilon_vectors()` to the frontend base to enable direct access to the attractive and repulsive vectors (note this does not involve any sliding window smoothing). 
-	* We re-factored the stand-alone stateless epsilon-associated functions previously found in `epsilon_calculations.py` into a new function module called `epsilon_stateless.py`. This avoids a whole host of circular dependency and means various functions can access these broadly-applicable epsilon-associated functions WITHOUT needing to also import the code associated with the Interaction_Matrix_Constructor
-	* We removed the automatic code for calculate charge_prefactor - the approach used originally was revised to a new approach which is codified in a jupyter notebook which will be bundled with finches, but this can't be easily automated as it requires some decisions to be made, so we've removed the false sense of being able to automated this.
+	* We re-factored the stand-alone stateless epsilon-associated functions previously found in `epsilon_calculations.py` into a new function module called `epsilon_stateless.py`. This avoids a whole host of circular dependencies and means various functions can access these broadly-applicable epsilon-associated functions WITHOUT needing to also import the code associated with the Interaction_Matrix_Constructor
+	* We removed the automatic code for calculating charge_prefactor - the approach used originally was revised to a new approach, which is codified in a Jupyter notebook that will be bundled with FINCHES, but this can't be easily automated as it requires some decisions to be made, so we've removed the false sense of being able to automate this.
 	* We simplified the import structure so that for most types of analysis a "standard user" might want, you can get there now in a few easy lines:
 
 			from finches import Mpipi_frontend, CALAVDOS_frontend
 			mf = Mpipi_frontend()
 			cf = CALAVDOS_frontend()
-	* Lots of updates to the doc strings to re-write documentation 
+	* Lots of updates to the docstrings to re-write documentation 
 
 
 * April 8th 2024 - revamped `finches.frontend` module to include CALVADOS and Mpipi frontend classes that can be used for simple access to identical functionality from Mpipi or CALVADOS (or any future model). 

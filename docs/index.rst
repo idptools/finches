@@ -32,6 +32,7 @@ For all of these analyses, there are many caveats that should be considered. The
    idr_idr
    idr_fd
    phase_diagrams
+   dms
    general_caveats
    api
    extended_methods

@@ -11,11 +11,11 @@ import matplotlib
 
 
 # ensure text is editable in illustrator
-matplotlib.rcParams['pdf.fonttype'] = 42
-matplotlib.rcParams['ps.fonttype'] = 42
+#matplotlib.rcParams['pdf.fonttype'] = 42
+#matplotlib.rcParams['ps.fonttype'] = 42
 
 # set to define axes linewidths
-matplotlib.rcParams['axes.linewidth'] = 0.5
+#matplotlib.rcParams['axes.linewidth'] = 0.5
 
 
 class FinchesFrontend:
