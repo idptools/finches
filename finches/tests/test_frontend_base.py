@@ -904,8 +904,8 @@ class TestDMS:
         """Test that amino acids list is correct."""
         matrix, aas, positions = mf.dms(self.DMS_TEST_SEQ, show_progress=False)
         
-        expected_aas = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L',
-                        'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
+        expected_aas = ['W', 'Y', 'F', 'I', 'L', 'V', 'M', 'A', 'G', 'S',                             
+                             'T', 'N', 'Q', 'H', 'R', 'K', 'P', 'D', 'E', 'C']
         assert aas == expected_aas
         assert len(aas) == 20
     
