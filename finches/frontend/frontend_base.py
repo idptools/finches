@@ -55,15 +55,64 @@ def apply_publication_styles(func):
 
 class FinchesFrontend:
     """
-    Base class for the FinchesFrontend. This class should not be instantiated directly, but
-    instead should be used as a base class for other classes that implement the FinchesFrontend
-    interface.
+    Base class for FINCHES frontend interfaces.
+    
+    This class provides a unified interface for calculating protein-protein
+    and protein-RNA interactions using coarse-grained forcefields. It should
+    not be instantiated directly; instead, use one of the derived classes:
+    
+    - **Mpipi_frontend**: Uses the Mpipi forcefield (supports protein-RNA)
+    - **CALVADOS_frontend**: Uses the CALVADOS forcefield (protein only)
+    
+    The frontend classes provide high-level methods for:
+    
+    - Computing interaction parameters (epsilon) between sequences
+    - Generating interaction matrices (spatially resolved)
+    - Building phase diagrams
+    - Identifying sticker/spacer regions
+    - Analyzing RNA-binding propensity
+    - Deep mutational scanning (DMS)
+    
+    All methods handle the underlying forcefield calculations and provide
+    publication-ready visualization options.
 
-    Note that depending on the derived model being used, different methods may be implemented
-    in the derived class. It is recommended that before creating a new derived class, the
-    methods in this class are reviewed to ensure that the derived class implements the same
-    methods. Also, if any of this is confusing, please familiarize yourself with inheritance
-    in Python.
+    Attributes
+    ----------
+    IMC_object : InteractionMatrixConstructor
+        The underlying interaction matrix constructor that performs
+        the actual calculations. Set by derived classes.
+
+    Examples
+    --------
+    Use via a derived class::\n
+        from finches.frontend.mpipi_frontend import Mpipi_frontend
+        from finches.frontend.calvados_frontend import CALVADOS_frontend
+        
+        # For protein-protein and protein-RNA analysis
+        mf = Mpipi_frontend()
+        
+        # For protein-protein analysis only
+        cf = CALVADOS_frontend()
+        
+        # Calculate homotypic epsilon
+        seq = \"MSKGEELFTGVVPILVELDGDVNGHKFSVS\"
+        eps = mf.epsilon(seq, seq)
+        
+        # Generate interaction matrix figure
+        fig, im, ax, *_ = mf.interaction_figure(seq, seq)
+        
+        # Build phase diagram
+        phase_data = mf.build_phase_diagram(seq)
+
+    Note
+    ----
+    Attempting to instantiate FinchesFrontend directly will raise a TypeError.
+    Always use the appropriate derived class for your forcefield of choice.
+
+    See Also
+    --------
+    finches.frontend.mpipi_frontend.Mpipi_frontend : Mpipi forcefield frontend.
+    finches.frontend.calvados_frontend.CALVADOS_frontend : CALVADOS forcefield frontend.
 
     """
 
@@ -91,67 +140,127 @@ class FinchesFrontend:
                                   null_shuffle=False):
 
         """
-        Returns the interaction matrix for the two sequences. Specifically this involves
-        decomposing the two sequences into window_size fragments and calculating the inter-fragment
-        epsilon values using a sliding window approach.
+        Compute the interaction matrix between two sequences using a sliding window approach.
+        
+        This function calculates pairwise epsilon (interaction) values between all
+        window-sized fragments of two sequences. The resulting matrix shows how different
+        regions of the two proteins interact with each other, which is useful for
+        identifying interaction hotspots or analyzing domain-domain interactions.
 
-        Note that we don't pad the sequence here, so the edges of the matrix start
-        and end at indices that depend on the window size. To avoid confusion, the
-        function also returns the indices for sequence1 and sequence2.
+        The matrix dimensions depend on the sequence lengths and window size:
+        - Matrix rows correspond to positions in seq1
+        - Matrix columns correspond to positions in seq2
+        - Edge positions are trimmed based on window_size (half-window on each side)
 
         Parameters
-        --------------
+        ----------
         seq1 : str
-            Input sequence 1
+            First amino acid sequence.
 
         seq2 : str
-            Input sequence 2
+            Second amino acid sequence. Can be the same as seq1 for homotypic analysis.
 
-        window_size : int
-            The window size to use for the interaction matrix calculation. 
-            Default is 31. 
+        window_size : int, optional
+            Size of the sliding window for fragment extraction. Must be odd.
+            Larger windows provide more context but reduce resolution.
+            Default is 31.
 
-        use_cython : bool
-            Whether to use the cython implementation of the interaction matrix calculation.
-            Default is True. 
+        use_cython : bool, optional
+            If True, use the faster Cython implementation. Highly recommended.
+            Default is True.
 
-        use_aliphatic_weighting : bool
-            Whether to use the aliphatic weighting scheme for the interaction matrix
-            calculation. This weights local aliphatic residues based on the number of
-            aliphatic residues adjacent to them. Default is True.
+        use_aliphatic_weighting : bool, optional
+            If True, apply weighting to aliphatic residues based on local
+            aliphatic context (adjacent aliphatic residues enhance contribution).
+            Default is True.
 
-        use_charge_weighting : bool
-            Whether to use the charge weighting scheme for the interaction matrix. This
-            weights local charged residues based on the number of charged residues adjacent
-            to them. Default is True.
+        use_charge_weighting : bool, optional
+            If True, apply weighting to charged residues based on local
+            charge context (adjacent same-sign charges enhance contribution).
+            Default is True.
 
-        disorder_1 : bool
-            Whether to generate the disorder profile for sequence 1. Default is True. If False,
-            a uniform disorder profile is used (all values=1).
+        disorder_1 : bool, optional
+            If True, compute disorder profile for seq1 using metapredict.
+            If False, use uniform values (all 1s). Default is True.
 
-        disorder_2 : bool
-            Whether to generate the disorder profile for sequence 2. Default is True. If False,
-            a uniform disorder profile is used (all values=1).
+        disorder_2 : bool, optional
+            If True, compute disorder profile for seq2 using metapredict.
+            If False, use uniform values (all 1s). Default is True.
 
-        null_shuffle : bool
-            Whether to shuffle the sequence before calculating the interaction matrix. Default
-            is False. If set to a number defines the number of shuffles used for each sequence;
-            recommended to use 100 shuffles.
-
+        null_shuffle : bool or int, optional
+            If False, return raw interaction matrix.
+            If an integer, perform that many shuffled controls and subtract
+            the mean shuffled matrix from the raw matrix to get a 
+            sequence-specific signal. Recommended value: 100.
+            Default is False.
 
         Returns
-        --------------
+        -------
         tuple
-            A tuple containing the interaction matrix, disorder profile for sequence 1, and disorder
-            profile for sequence 2. 
+            A 3-element tuple containing:
+            
+            [0] : tuple (matrix, idx1, idx2)
+                - matrix : np.ndarray
+                    2D array of epsilon values. Shape is (len1, len2) where
+                    len1 and len2 are the trimmed sequence lengths.
+                    Negative values = attractive, Positive values = repulsive.
+                - idx1 : np.ndarray
+                    1-indexed positions in seq1 corresponding to matrix rows.
+                - idx2 : np.ndarray
+                    1-indexed positions in seq2 corresponding to matrix columns.
+            
+            [1] : np.ndarray
+                Disorder profile for seq1 (values 0-1, where 1 = disordered).
+                Array of 1s if disorder_1=False.
+            
+            [2] : np.ndarray
+                Disorder profile for seq2 (values 0-1, where 1 = disordered).
+                Array of 1s if disorder_2=False.
 
-            [0] : This is interaction matrix, and is itself a tuple of 3 elements. The first 
-            is the matrix of sliding epsilon values, and the second and 3rd are the indices that map            
-            sequence position from sequence1 and sequence2 to the matrix
+        Examples
+        --------
+        Basic usage for two different sequences::
 
-            [1] disorder profile for sequence 1. Will be all 1s if disorder_1 is False
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            
+            mf = Mpipi_frontend()
+            seq1 = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
+            seq2 = "EKEKEKEKEKEKEKEKEKEK"
+            
+            result, disorder1, disorder2 = mf.intermolecular_idr_matrix(seq1, seq2)
+            
+            # Unpack the matrix tuple
+            matrix, idx1, idx2 = result
+            
+            # matrix[i, j] gives the epsilon between position idx1[i] of seq1
+            # and position idx2[j] of seq2
+            print(f"Matrix shape: {matrix.shape}")
+            print(f"Seq1 positions: {idx1[0]} to {idx1[-1]}")
+            print(f"Seq2 positions: {idx2[0]} to {idx2[-1]}")
 
-            [2] disorder profile for sequence 2. Will be all 1s if disorder_2 is False
+        Homotypic (self-interaction) analysis::
+
+            seq = "FYWFYWFYWFYWFYWFYWFY"
+            result, dis1, dis2 = mf.intermolecular_idr_matrix(seq, seq)
+            matrix = result[0]
+            
+            # For homotypic, matrix is symmetric
+            # Diagonal represents self-interaction of each region
+
+        With null shuffling to get sequence-specific signal::
+
+            # Subtract shuffled background (slower but more specific)
+            result, dis1, dis2 = mf.intermolecular_idr_matrix(
+                seq1, seq2, 
+                null_shuffle=100  # 100 shuffled controls
+            )
+            # Resulting matrix shows sequence-specific interactions
+            # relative to composition-matched random sequences
+
+        See Also
+        --------
+        interaction_figure : Visualize the interaction matrix as a heatmap.
+        epsilon : Get a single epsilon value for two full sequences.
 
         """                 
         
@@ -245,30 +354,86 @@ class FinchesFrontend:
                 use_aliphatic_weighting=True,
                 use_charge_weighting=True):
         """
-        Returns the epilson value associated with the two sequences. 
+        Calculate the mean-field interaction parameter (epsilon) between two sequences.
+        
+        Epsilon quantifies the overall interaction strength between two protein sequences.
+        It is computed as the sum of all pairwise residue-residue interactions, weighted
+        by local sequence context (charge and aliphatic patterns).
+
+        Interpretation of epsilon values:
+        
+        - **Negative epsilon**: Net attractive interaction (favorable for interaction)
+        - **Positive epsilon**: Net repulsive interaction (unfavorable for interaction)
+        - **More negative**: Stronger attraction (more likely to phase separate)
+        - **Near zero**: Weak or balanced interactions
 
         Parameters
-        --------------
+        ----------
         seq1 : str
-            Input sequence 1
+            First amino acid sequence.
 
         seq2 : str
-            Input sequence 2
+            Second amino acid sequence. Use seq1=seq2 for homotypic epsilon.
 
-        use_aliphatic_weighting : bool
-            Whether to use the aliphatic weighting scheme for the interaction matrix
-            calculation. This weights local aliphatic residues based on the number of
-            aliphatic residues adjacent to them. Default is True.
+        use_aliphatic_weighting : bool, optional
+            If True, weight aliphatic residues by their local aliphatic context.
+            Adjacent aliphatic residues enhance the contribution. Default is True.
 
-        use_charge_weighting : bool
-            Whether to use the charge weighting scheme for the interaction matrix. This
-            weights local charged residues based on the number of charged residues adjacent
-            to them. Default is True.
+        use_charge_weighting : bool, optional
+            If True, weight charged residues by their local charge context.
+            Adjacent like-charges enhance the contribution. Default is True.
 
         Returns
-        --------------
+        -------
         float
-            The epsilon value for the two sequences.
+            The epsilon value. Negative = attractive, Positive = repulsive.
+            Typical range is approximately -10 to +5 for most sequences.
+
+        Examples
+        --------
+        Calculate homotypic (self-interaction) epsilon::
+
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            
+            mf = Mpipi_frontend()
+            seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
+            
+            eps = mf.epsilon(seq, seq)
+            print(f"Homotypic epsilon: {eps:.3f}")
+            
+            if eps < 0:
+                print("Sequence is self-attractive (may phase separate)")
+            else:
+                print("Sequence is self-repulsive (unlikely to phase separate)")
+
+        Compare interactions between different sequences::
+
+            seq_a = "FYWFYWFYWFYWFYWFYWFY"  # Aromatic-rich
+            seq_b = "EKEKEKEKEKEKEKEKEKEK"  # Charged
+            
+            # Homotypic interactions
+            eps_aa = mf.epsilon(seq_a, seq_a)
+            eps_bb = mf.epsilon(seq_b, seq_b)
+            
+            # Heterotypic interaction
+            eps_ab = mf.epsilon(seq_a, seq_b)
+            
+            print(f"A-A: {eps_aa:.3f}, B-B: {eps_bb:.3f}, A-B: {eps_ab:.3f}")
+
+        Effect of weighting schemes::
+
+            # Compare with and without weighting
+            eps_weighted = mf.epsilon(seq, seq)
+            eps_unweighted = mf.epsilon(seq, seq, 
+                                        use_aliphatic_weighting=False,
+                                        use_charge_weighting=False)
+            print(f"Weighted: {eps_weighted:.3f}")
+            print(f"Unweighted: {eps_unweighted:.3f}")
+
+        See Also
+        --------
+        epsilon_vectors : Get the attractive and repulsive components separately.
+        build_phase_diagram : Use epsilon to construct a phase diagram.
 
         """        
         return self.IMC_object.calculate_epsilon_value(seq1,
@@ -285,31 +450,97 @@ class FinchesFrontend:
                 use_aliphatic_weighting=True,
                 use_charge_weighting=True):
         """
-        Returns the attractive and repulsive vectors associated with the interaction 
-        between the two sequences.
+        Calculate the per-residue attractive and repulsive interaction vectors.
+        
+        This function decomposes the epsilon calculation into two components:
+        
+        1. **Attractive vector**: Per-residue sum of attractive (negative) interactions
+        2. **Repulsive vector**: Per-residue sum of repulsive (positive) interactions
+        
+        These vectors show how each residue in seq1 contributes to attraction or
+        repulsion when interacting with seq2. This is useful for identifying which
+        residues are "stickers" (drive attraction) vs. "spacers" (neutral or repulsive).
 
         Parameters
-        --------------
+        ----------
         seq1 : str
-            Input sequence 1
+            First amino acid sequence. The returned vectors correspond to
+            positions in this sequence.
 
         seq2 : str
-            Input sequence 2
+            Second amino acid sequence.
 
-        use_aliphatic_weighting : bool
-            Whether to use the aliphatic weighting scheme for the interaction matrix
-            calculation. This weights local aliphatic residues based on the number of
-            aliphatic residues adjacent to them. Default is True.
+        use_aliphatic_weighting : bool, optional
+            If True, weight aliphatic residues by local aliphatic context.
+            Default is True.
 
-        use_charge_weighting : bool
-            Whether to use the charge weighting scheme for the interaction matrix. This
-            weights local charged residues based on the number of charged residues adjacent
-            to them. Default is True.
+        use_charge_weighting : bool, optional
+            If True, weight charged residues by local charge context.
+            Default is True.
 
         Returns
-        --------------
-        float
-            The epsilon value for the two sequences.
+        -------
+        tuple of np.ndarray
+            Two arrays, each of length len(seq1):
+            
+            [0] : np.ndarray
+                Attractive vector. Each element is the sum of attractive (negative)
+                interactions for that residue position. More negative = stronger
+                attraction contributed by that residue.
+            
+            [1] : np.ndarray
+                Repulsive vector. Each element is the sum of repulsive (positive)
+                interactions for that residue position. More positive = stronger
+                repulsion contributed by that residue.
+
+        Examples
+        --------
+        Identify sticker and spacer residues::
+
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            import numpy as np
+            
+            mf = Mpipi_frontend()
+            seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
+            
+            attractive, repulsive = mf.epsilon_vectors(seq, seq)
+            
+            # Find the most attractive positions (stickers)
+            sticker_positions = np.argsort(attractive)[:5]  # Top 5 most negative
+            print("Top sticker positions (1-indexed):")
+            for pos in sticker_positions:
+                print(f"  Position {pos+1} ({seq[pos]}): {attractive[pos]:.3f}")
+            
+            # Find the most repulsive positions (spacers)
+            spacer_positions = np.argsort(repulsive)[-5:]  # Top 5 most positive
+            print("Top spacer positions (1-indexed):")
+            for pos in spacer_positions:
+                print(f"  Position {pos+1} ({seq[pos]}): {repulsive[pos]:.3f}")
+
+        Plot the interaction profile::
+
+            import matplotlib.pyplot as plt
+            
+            attractive, repulsive = mf.epsilon_vectors(seq, seq)
+            positions = np.arange(1, len(seq) + 1)
+            
+            plt.figure(figsize=(10, 4))
+            plt.bar(positions, attractive, alpha=0.7, label='Attractive', color='green')
+            plt.bar(positions, repulsive, alpha=0.7, label='Repulsive', color='purple')
+            plt.xlabel('Residue Position')
+            plt.ylabel('Interaction Strength')
+            plt.legend()
+            plt.axhline(0, color='black', linewidth=0.5)
+            plt.show()
+
+        Note
+        ----
+        The total epsilon equals sum(attractive) + sum(repulsive).
+
+        See Also
+        --------
+        epsilon : Get the single combined epsilon value.
+        per_residue_attractive_vector : Get smoothed per-residue attractive profile.
 
         """        
         return self.IMC_object.calculate_epsilon_vectors(seq1,
@@ -347,108 +578,159 @@ class FinchesFrontend:
                            plot_rectangles=None):
     
         """
-        Function to generate an interaction matrix figure between two sequences. This does
-        all the calculation on the backend and formats a figure with parallel disorder tracks 
-        alongside the interaction matrix.
+        Generate a publication-ready interaction matrix heatmap between two sequences.
         
+        This function creates a comprehensive figure showing:
+        
+        1. **Main panel**: Heatmap of pairwise epsilon values between sequence fragments
+        2. **Top panel**: Disorder profile for sequence 1
+        3. **Right panel**: Disorder profile for sequence 2
+        4. **Colorbar**: Scale for interpreting epsilon values
+        
+        Green/negative values indicate attractive interactions, while purple/positive
+        values indicate repulsive interactions (with default PRGn colormap).
+
         Parameters
-        --------------
+        ----------
         seq1 : str
-            Input sequence 1
+            First amino acid sequence (displayed on x-axis).
 
         seq2 : str
-            Input sequence 2
+            Second amino acid sequence (displayed on y-axis).
 
-        window_size : int
-            Size of the window to use for the interaction matrix calculation. Note
-            this must be an odd number and will be converted to an odd number if it
-            is not. Default is 31.
+        window_size : int, optional
+            Size of sliding window for fragment comparison. Must be odd.
+            Default is 31.
 
-        use_cython : bool
-            Whether to use the cython implementation of the interaction matrix (always
-            use this if you can). Default is True.
+        use_cython : bool, optional
+            Use faster Cython implementation. Default is True.
 
-        use_aliphatic_weighting : bool
-            Whether to use the aliphatic weighting scheme for the interaction matrix
-            calculation. This weights local aliphatic residues based on the number of
-            aliphatic residues adjacent to them. Default is True.
+        use_aliphatic_weighting : bool, optional
+            Apply aliphatic context weighting. Default is True.
 
-        use_charge_weighting : bool
-            Whether to use the charge weighting scheme for the interaction matrix. This
-            weights local charged residues based on the number of charged residues adjacent
-            to them. Default is True.
+        use_charge_weighting : bool, optional
+            Apply charge context weighting. Default is True.
 
-        tic_frequency : int
-            Frequency of the TICs on the plot. Default is 100.
+        tic_frequency : int, optional
+            Spacing between axis tick labels. Default is 100.
 
-        seq1_domains : list
-            List of tuples/lists containing the start and end positions of domains in 
-            sequence 1. This means these can be easily highlighted in the plot.
+        seq1_domains : list, optional
+            List of [start, end] pairs marking domains in seq1 to highlight
+            on the disorder track. Default is [].
 
-        seq2_domains : list
-            List of tuples/lists containing the start and end positions of domains in
-            sequence 2. This means these can be easily highlighted in the plot.
+        seq2_domains : list, optional
+            List of [start, end] pairs marking domains in seq2 to highlight
+            on the disorder track. Default is [].
 
-        seq1_lines : list
-            List of values that will draw lines onto the plot along sequence 1.
+        seq1_lines : list, optional
+            List of positions to draw vertical lines on the matrix.
+            Useful for marking domain boundaries. Default is [].
 
-        seq2_lines : list
-            List of values that will draw lines onto the plot along sequence 1.
-                           
-        vmin : float
-            Minimum value for the interaction matrix color scale. Default is -3.
+        seq2_lines : list, optional
+            List of positions to draw horizontal lines on the matrix.
+            Default is [].
 
-        vmax : float
-            Maximum value for the interaction matrix color scale. Default is 3.
-        
-        cmap : str
-            Colormap to use for the interaction matrix. Default is 'PRGn'.
+        linewidth : float, optional
+            Width of domain boundary lines. Default is 1.
 
-        fname : str
-            Filename to save the figure to. If None, the figure will be displayed
+        vmin : float, optional
+            Minimum value for color scale. Default is -3.
 
-        zero_folded : bool
-            Whether to zero out the interaction matrix for folded residues. Default is 
-            True.
+        vmax : float, optional
+            Maximum value for color scale. Default is 3.
 
-        disorder_1 : bool
-            Whether to include the disorder profile for sequence 1. Default is True.
+        cmap : str, optional
+            Matplotlib colormap name. Default is 'PRGn' (purple-green diverging).
 
-        disorder_2 : bool
-            Whether to include the disorder profile for sequence 2. Default is True.
+        fname : str, optional
+            If provided, save figure to this filepath. Default is None (display only).
 
-        no_disorder : bool
-            Whether to include the disorder profile for sequence 2. Default is False.
+        zero_folded : bool, optional
+            If True, set epsilon=0 for regions predicted to be folded.
+            Helps focus on IDR-IDR interactions. Default is True.
 
-        null_shuffle : bool
-            Whether to shuffle the sequence before calculating the interaction matrix. Default
-            is False. If set to a number defines the number of shuffles used for each sequence;
-            recommended to use 100 shuffles.
+        disorder_1 : bool, optional
+            Show disorder profile for seq1. Default is True.
 
-        plot_rectangles : list
-            If a list is provided it should be a list of lists, where each sublist has the
-            folowing information [seq1_start, seq1_end, seq2_start, seq2_end, color, alpha, kwargs].
-            Based on this information, rectangles will be drawn on the plot to highlight
-            specific regions. Default is None.
+        disorder_2 : bool, optional
+            Show disorder profile for seq2. Default is True.
 
+        no_disorder : bool, optional
+            If True, omit disorder panels entirely. Default is False.
+
+        null_shuffle : bool or int, optional
+            If an integer, subtract shuffled background (that many shuffles).
+            Default is False.
+
+        plot_rectangles : list, optional
+            List of rectangle specifications to highlight regions:
+            [[x1_start, x1_end, x2_start, x2_end, kwargs_dict], ...]
+            where kwargs_dict contains matplotlib Rectangle parameters.
+            Default is None.
 
         Returns
-        --------------
-        A tuple containing the figure and the axes objects for the main plot, the top
-        disorder plot, the right disorder plot and the colorbar.
+        -------
+        tuple
+            If no_disorder=False (default):
+                (fig, im, ax_main, ax_top, ax_right, ax_colorbar)
+            If no_disorder=True:
+                (fig, im, ax_main)
+            
+            - fig : matplotlib.figure.Figure
+            - im : matplotlib.image.AxesImage (the heatmap)
+            - ax_main : matplotlib.axes.Axes (main heatmap axis)
+            - ax_top : matplotlib.axes.Axes (seq1 disorder track)
+            - ax_right : matplotlib.axes.Axes (seq2 disorder track)
+            - ax_colorbar : matplotlib.axes.Axes (colorbar)
 
-            fig : matplotlib.figure.Figure (from plt.figure()
+        Examples
+        --------
+        Basic usage::
 
-            im : matplotlib.image.AxesImage (from plt.imshow())
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            
+            mf = Mpipi_frontend()
+            seq1 = "MSKGEELFTGVVPILVELDGDVNGHKFSVS" * 3  # ~90 residues
+            seq2 = "EKEKEKEKEKEKEKEKEKEK" * 3
+            
+            mf.interaction_figure(seq1, seq2
+            
 
-            ax_main : matplotlib.axes.Axes (from plt.subplot2grid()
+        Homotypic analysis with domain annotations::
 
-            ax_top : matplotlib.axes.Axes  (from plt.subplot2grid()
+            seq = "MSKGEELFT" * 10  # 90 residues
+            
+            # Mark a domain boundary at position 45
+            x = mf.interaction_figure(
+                seq, seq,
+                seq1_lines=[45],
+                seq2_lines=[45],
+                seq1_domains=[[1, 30]],  # Highlight first 30 residues
+                vmin=-2,
+                vmax=2,
+                fname='homotypic_matrix.png'
+            )
 
-            ax_right : matplotlib.axes.Axes  (from plt.subplot2grid()
+        With shuffled background subtraction::
 
-            ax_colorbar : matplotlib.axes.Axes  (from plt.subplot2grid()
-    
+            x = mf.interaction_figure(
+                seq1, seq2,
+                null_shuffle=100,  # 100 shuffled controls
+                vmin=-1,
+                vmax=1
+            )
+
+        Minimal figure without disorder tracks::
+
+            x = mf.interaction_figure(
+                seq1, seq2,
+                no_disorder=True
+            )
+
+        See Also
+        --------
+        intermolecular_idr_matrix : Get the raw matrix data without plotting.
+        per_residue_attractive_vector : Summarize attractive interactions per residue.
 
         """
 
@@ -617,72 +899,117 @@ class FinchesFrontend:
                                       poly_order=3):
         
         """
-        Function to calculate the per-residue attractive vector for a given pair 
-        of sequences. This is calculated as the sum of the attractive interactions 
-        for each residue in the first sequence with all residues in the second 
-        sequence. Specifically, this is an average over all attractive values (i.e.
-        where value < 0) using the inter-sequence matrix.
+        Calculate the per-residue average of attractive interactions from the interaction matrix.
+        
+        For each position in seq1, this function computes the mean of all attractive
+        (negative) epsilon values from the interaction matrix with seq2. This identifies
+        which regions of seq1 serve as "stickers" - positions that drive favorable
+        interactions regardless of local repulsive contributions.
 
-        If return_total is True, the function will return the total sum of attractive
-        interactions between the two sequences instead of the average.
-
-        This is (potentially) interesting inasmuch as if we just take the AVERAGE of
-        a region it may be very attractive in some place but repulsive elsewhere, 
-        however, repulsive regions in an IDR can avoid each other while attractive
-        things attract, so this allows you to identify the putative 'sticker' regions
-        without confounding by repulsive regions. 
-
+        The key insight is that when analyzing IDR interactions:
+        
+        - **Repulsive regions can be avoided** through conformational flexibility
+        - **Attractive regions will find each other** and drive association
+        - This function isolates the attractive contribution per residue
 
         Parameters
         ----------
         seq1 : str
-            The first sequence
+            First amino acid sequence. The output vector corresponds to positions
+            in this sequence.
 
         seq2 : str
-            The second sequence
+            Second amino acid sequence.
 
-        window_size : int
-            The window size for the intermolecular matrix. Default is 31.
+        window_size : int, optional
+            Window size for the interaction matrix. Default is 31.
 
-        use_cython : bool
-            Whether to use the cython implementation of the intermolecular matrix
-            calculation. Default is True.
+        use_cython : bool, optional
+            Use Cython implementation. Default is True.
 
-        use_aliphatic_weighting : bool
-            Whether to use the aliphatic weighting scheme. Default is True.
+        use_aliphatic_weighting : bool, optional
+            Apply aliphatic weighting. Default is True.
 
-        use_charge_weighting : bool
-            Whether to use the charge weighting scheme. Default is True.
-   
-        return_total : bool
-            If True, return the total sum of attractive interactions between 
-            the two sequences. Sometimes you may want this.
-        
-        attractive_threshold : float
-            The threshold for what is considered attractive. Default is 0 (i.e. 
-            only negative values are considered attractive). If changed anything
-            less than this value will be considered attractive.
+        use_charge_weighting : bool, optional
+            Apply charge weighting. Default is True.
 
-        smoothing_window : int
-            The window size for the Savgol filter. This is used to
-            smooth the per-residue attractive vector. If set to False no
-            smoothing is applied. Default is 20.
+        return_total : bool, optional
+            If True, return the sum instead of the average of attractive values.
+            Default is False.
 
-        poly_order : int
-            The polynomial order for the Savgol filter. This is used to
-            smooth the per-residue attractive vector. If set to False no
-            smoothing is applied. Default is 3.
+        attractive_threshold : float, optional
+            Values below this threshold are considered attractive.
+            Default is 0 (only negative values).
 
+        smoothing_window : int or False, optional
+            Window size for Savitzky-Golay smoothing filter.
+            Set to False to disable smoothing. Default is 20.
+
+        poly_order : int or False, optional
+            Polynomial order for Savitzky-Golay filter.
+            Set to False to disable smoothing. Default is 3.
 
         Returns
         -------
-        tuple of np.arrays
+        tuple of np.ndarray
+            [0] : np.ndarray
+                1-indexed position indices for seq1.
+            
+            [1] : np.ndarray
+                Per-residue attractive values (smoothed by default).
+                More negative = stronger average attraction at that position.
 
-            [0] : np.array
-                Indices of the residues in the first sequence
+        Examples
+        --------
+        Identify sticker regions in a sequence::
 
-            [1] : np.array
-                The per-residue attractive vector
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            import matplotlib.pyplot as plt
+            
+            mf = Mpipi_frontend()
+            seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS" * 3
+            
+            # Get per-residue attractive profile
+            positions, attractive = mf.per_residue_attractive_vector(seq, seq)
+            
+            # Plot the sticker profile
+            plt.figure(figsize=(10, 3))
+            plt.plot(positions, attractive, 'g-', lw=1)
+            plt.fill_between(positions, attractive, 0, 
+                            where=(attractive < 0), alpha=0.3, color='green')
+            plt.xlabel('Residue Position')
+            plt.ylabel('Average Attractive Interaction')
+            plt.axhline(0, color='black', lw=0.5)
+            plt.title('Sticker Profile')
+            plt.show()
+
+        Compare homotypic vs heterotypic attraction::
+
+            seq_a = "FYWFYWFYWFYWFYWFYWFY" * 2
+            seq_b = "EKEKEKEKEKEKEKEKEKEK" * 2
+            
+            # A-A homotypic stickers
+            pos_aa, attr_aa = mf.per_residue_attractive_vector(seq_a, seq_a)
+            
+            # A-B heterotypic stickers (which residues in A attract B)
+            pos_ab, attr_ab = mf.per_residue_attractive_vector(seq_a, seq_b)
+            
+            plt.plot(pos_aa, attr_aa, label='A-A (homotypic)')
+            plt.plot(pos_ab, attr_ab, label='A-B (heterotypic)')
+            plt.legend()
+
+        Without smoothing::
+
+            positions, attractive = mf.per_residue_attractive_vector(
+                seq, seq,
+                smoothing_window=False,  # Disable smoothing
+                poly_order=False
+            )
+
+        See Also
+        --------
+        per_residue_repulsive_vector : Get the repulsive component.
+        intermolecular_idr_matrix : Get the full interaction matrix.
 
         """
 
@@ -749,72 +1076,111 @@ class FinchesFrontend:
                                       poly_order=3):
         
         """
-        Function to calculate the per-residue repulsive vector for a given pair 
-        of sequences. This is calculated as the sum of the repulsive interactions 
-        for each residue in the first sequence with all residues in the second 
-        sequence. Specifically, this is an average over all repulsive values (i.e.
-        where value > 0) using the inter-sequence matrix.
+        Calculate the per-residue average of repulsive interactions from the interaction matrix.
+        
+        For each position in seq1, this function computes the mean of all repulsive
+        (positive) epsilon values from the interaction matrix with seq2. This identifies
+        which regions of seq1 serve as "spacers" - positions that contribute unfavorable
+        interactions and may help maintain solubility or prevent aggregation.
 
-        If return_total is True, the function will return the total sum of repulsive
-        interactions between the two sequences instead of the average.
-
-        This is (potentially) interesting inasmuch as if we just take the AVERAGE of
-        a region it may be very attractive in some place but repulsive elsewhere, 
-        however, repulsive regions in an IDR can avoid each other while attractive
-        things attract, so this allows you to identify the putative 'sticker' regions
-        without confounding by repulsive regions. 
-
+        This is the counterpart to `per_residue_attractive_vector`, focusing on
+        repulsive rather than attractive contributions.
 
         Parameters
         ----------
         seq1 : str
-            The first sequence
+            First amino acid sequence. The output vector corresponds to positions
+            in this sequence.
 
         seq2 : str
-            The second sequence
+            Second amino acid sequence.
 
-        window_size : int
-            The window size for the intermolecular matrix. Default is 31.
+        window_size : int, optional
+            Window size for the interaction matrix. Default is 31.
 
-        use_cython : bool
-            Whether to use the cython implementation of the intermolecular matrix
-            calculation. Default is True.
+        use_cython : bool, optional
+            Use Cython implementation. Default is True.
 
-        use_aliphatic_weighting : bool
-            Whether to use the aliphatic weighting scheme. Default is True.
+        use_aliphatic_weighting : bool, optional
+            Apply aliphatic weighting. Default is True.
 
-        use_charge_weighting : bool
-            Whether to use the charge weighting scheme. Default is True.
-   
-        return_total : bool
-            If True, return the total sum of attractive interactions between 
-            the two sequences. Sometimes you may want this.
-        
-        repulsive_threshold : float
-            The threshold for what is considered repulsive. Default is 0 (i.e. 
-            only positive values are considered repulsive). If changed, anything
-            above this value will be considered repulsive.
+        use_charge_weighting : bool, optional
+            Apply charge weighting. Default is True.
 
-        smoothing_window : int
-            The window size for the Savgol filter. This is used to
-            smooth the per-residue attractive vector. If set to False no
-            smoothing is applied. Default is 20.
+        return_total : bool, optional
+            If True, return the sum instead of the average of repulsive values.
+            Default is False.
 
-        poly_order : int
-            The polynomial order for the Savgol filter. This is used to
-            smooth the per-residue attractive vector. If set to False no
-            smoothing is applied. Default is 3.
+        repulsive_threshold : float, optional
+            Values above this threshold are considered repulsive.
+            Default is 0 (only positive values).
 
+        smoothing_window : int or False, optional
+            Window size for Savitzky-Golay smoothing filter.
+            Set to False to disable smoothing. Default is 20.
+
+        poly_order : int or False, optional
+            Polynomial order for Savitzky-Golay filter.
+            Set to False to disable smoothing. Default is 3.
 
         Returns
         -------
-        tuple of np.arrays
+        tuple of np.ndarray
+            [0] : np.ndarray
+                1-indexed position indices for seq1.
+            
+            [1] : np.ndarray
+                Per-residue repulsive values (smoothed by default).
+                More positive = stronger average repulsion at that position.
 
-            [0] : np.array
-                Indices of the residues in the first sequence
+        Examples
+        --------
+        Identify spacer regions in a sequence::
 
-            [1] : np.array
-                The per-residue attractive vector
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            import matplotlib.pyplot as plt
+            
+            mf = Mpipi_frontend()
+            seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS" * 3
+            
+            # Get per-residue repulsive profile
+            positions, repulsive = mf.per_residue_repulsive_vector(seq, seq)
+            
+            # Plot the spacer profile
+            plt.figure(figsize=(10, 3))
+            plt.plot(positions, repulsive, 'purple', lw=1)
+            plt.fill_between(positions, 0, repulsive, 
+                            where=(repulsive > 0), alpha=0.3, color='purple')
+            plt.xlabel('Residue Position')
+            plt.ylabel('Average Repulsive Interaction')
+            plt.axhline(0, color='black', lw=0.5)
+            plt.title('Spacer Profile')
+            plt.show()
+
+        Compare stickers and spacers in the same plot::
+
+            pos, attractive = mf.per_residue_attractive_vector(seq, seq)
+            pos, repulsive = mf.per_residue_repulsive_vector(seq, seq)
+            
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 5), sharex=True)
+            
+            ax1.plot(pos, attractive, 'g-')
+            ax1.fill_between(pos, attractive, 0, alpha=0.3, color='green')
+            ax1.set_ylabel('Attractive')
+            ax1.set_title('Sticker Profile')
+            
+            ax2.plot(pos, repulsive, 'purple')
+            ax2.fill_between(pos, 0, repulsive, alpha=0.3, color='purple')
+            ax2.set_ylabel('Repulsive')
+            ax2.set_xlabel('Residue Position')
+            ax2.set_title('Spacer Profile')
+            
+            plt.tight_layout()
+
+        See Also
+        --------
+        per_residue_attractive_vector : Get the attractive component.
+        intermolecular_idr_matrix : Get the full interaction matrix.
 
         """
 
@@ -870,41 +1236,92 @@ class FinchesFrontend:
     #
     def protein_nucleic_vector(self, seq, fragsize=21, smoothing_window=30, poly_order=3):
         """
-        Function to calculate the per-residue attractive vector for a given protein
-        sequence. This is calculated as the sliding-window average of a fragsize
-        region of the protein with a fragsize region of poly-U RNA. 
+        Calculate the per-residue RNA-binding propensity for a protein sequence.
+        
+        This function computes the interaction strength between sliding windows
+        of a protein sequence and poly-U RNA (a simple RNA model). It produces
+        a profile showing which regions of the protein are predicted to have
+        favorable interactions with nucleic acids.
 
-        The two-position return vector returns the indices of the residues in the
-        protein sequence and the per-residue attractive vector. Note that indices
-        START at fragsize-1/2 and END at len(seq)-fragsize+1/2. This is because the
-        sliding window is centered on each residue.
+        The calculation uses a sliding window approach:
+        
+        1. Extract a fragment of `fragsize` residues from the protein
+        2. Calculate epsilon between that fragment and poly-U of the same length
+        3. Normalize by fragment length
+        4. Slide the window and repeat
+        5. Optionally smooth the resulting profile
 
         Parameters
         ----------
         seq : str
-            The protein sequence
+            The protein amino acid sequence.
 
-        fragsize : int
-            The size of the sliding window. Must be an odd number. Default is 31.
+        fragsize : int, optional
+            Size of the sliding window. Must be odd. Default is 21.
 
-        smoothing_window : int
-            The window size for the Savgol filter. This is used to smooth the
-            per-residue attractive vector. If set to False no smoothing is applied.
+        smoothing_window : int or False, optional
+            Window size for Savitzky-Golay smoothing filter.
+            Set to False to disable smoothing. Default is 30.
 
-        poly_order : int
-            The polynomial order for the Savgol filter. This is used to smooth the
-            per-residue attractive vector. If set to False no smoothing is applied.
-
+        poly_order : int or False, optional
+            Polynomial order for Savitzky-Golay filter.
+            Set to False to disable smoothing. Default is 3.
 
         Returns
         -------
-        tuple of np.arrays
+        list of np.ndarray
+            [0] : np.ndarray
+                Residue positions (centered on each window).
+                Positions start at (fragsize-1)/2 and end at len(seq)-(fragsize+1)/2.
+            
+            [1] : np.ndarray
+                Per-residue RNA interaction values.
+                Negative = favorable RNA binding.
+                Positive = unfavorable RNA binding.
 
-            [0] : np.array
-                Indices of the residues in the protein sequence
+        Examples
+        --------
+        Calculate RNA-binding profile::
 
-            [1] : np.array
-                The per-residue attractive vector
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            import matplotlib.pyplot as plt
+            
+            mf = Mpipi_frontend()
+            
+            # Example: FUS protein (known RNA-binding protein)
+            fus_seq = "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQ"
+            
+            positions, rna_binding = mf.protein_nucleic_vector(fus_seq)
+            
+            plt.figure(figsize=(10, 3))
+            plt.plot(positions, rna_binding, 'b-')
+            plt.fill_between(positions, rna_binding, 0,
+                            where=(rna_binding < 0), alpha=0.3, color='blue')
+            plt.xlabel('Residue Position')
+            plt.ylabel('RNA Interaction (ε/residue)')
+            plt.axhline(0, color='black', lw=0.5)
+            plt.title('RNA-Binding Profile')
+            plt.show()
+
+        Compare two proteins::
+
+            seq_rbd  = "ARGARGARGARGARGARG"  # Arg-rich (RNA-binding)
+            seq_ctrl = "AAAAAAAAAAAAAAAAAA"  # Control
+            
+            pos1, bind1 = mf.protein_nucleic_vector(seq_rbd, fragsize=11)
+            pos2, bind2 = mf.protein_nucleic_vector(seq_ctrl, fragsize=11)
+            
+            print(f"RBD mean binding: {np.mean(bind1):.3f}")
+            print(f"Control mean binding: {np.mean(bind2):.3f}")
+
+        Note
+        ----
+        This method is designed for the Mpipi forcefield which has explicit
+        RNA parameters. For CALVADOS, RNA interactions may not be available.
+
+        See Also
+        --------
+        plot_protein_nucleic_vector : Visualize the RNA-binding profile.
 
         """
 
@@ -930,14 +1347,11 @@ class FinchesFrontend:
                 return_vector.append(RNA_bind(seq[i:i+fragsize]))
                 idx.append(i+(fragsize-1)/2)
                 
-                
-                
         # if the sequence is shorter than the fragment size, calculate the per-residue
         # attractive vector for the whole sequence, which is all we can really do here
         else:
             return_vector.append(RNA_bind(seq))
             idx = [int(len(seq)/2)]
-
         
         return_vector = np.array(return_vector)
         idx = np.array(idx)
@@ -972,70 +1386,107 @@ class FinchesFrontend:
                                     ylim = [-1.2,1.2]):
                                     
         """
-        Function to plot the per-residue attractive vector for a given protein
-        sequence. This is calculated as the sliding-window average of a fragsize
-        region of the protein with a fragsize region of poly-U RNA. 
+        Generate a publication-ready plot of the RNA-binding profile for a protein.
+        
+        This function creates a figure showing the per-residue RNA interaction
+        profile, with points colored by interaction strength. Regions predicted
+        to be folded are shaded gray (if zero_folded=True), and custom domains
+        can be highlighted.
 
         Parameters
         ----------
         seq : str
-            The protein sequence
+            The protein amino acid sequence.
 
-        fragsize : int
-            The size of the sliding window. Must be an odd number. Default is 21.
+        fragsize : int, optional
+            Size of the sliding window for RNA interaction calculation.
+            Must be odd. Default is 21.
 
-        smoothing_window : int
-            The window size for the Savgol filter. This is used to smooth the
-            per-residue attractive vector. If set to False no smoothing is applied.
+        smoothing_window : int or False, optional
+            Window size for Savitzky-Golay smoothing. Default is 30.
 
-        poly_order : int
-            The polynomial order for the Savgol filter. This is used to smooth the
-            per-residue attractive vector. If set to False no smoothing is applied.
+        poly_order : int or False, optional
+            Polynomial order for smoothing. Default is 3.
 
-        domains : list of tuples
-            A list of tuples containing the start and end indices of folded domains
-            in the protein sequence. These will be shaded in the plot.
+        domains : list, optional
+            List of [start, end] pairs for domains to highlight.
+            These are shaded with domain_color. Default is [].
 
-        domain_color : str
-            The color to use for the passed domains. Default is 'yellow'.
+        domain_color : str, optional
+            Color for highlighting domains. Default is 'yellow'.
 
-        domain_alpha : float
-            The alpha value for the passed domains. Default is 0.3.
+        domain_alpha : float, optional
+            Transparency for domain highlighting. Default is 0.3.
 
-        trace_width : float
-            The width of the line for the per-residue attractive vector. 
-            Default is 3.
+        trace_width : float, optional
+            Size of the scatter points. Default is 3.
 
-        vmin : float
-            The minimum value for the color scale. Default is -0.8.
+        vmin : float, optional
+            Minimum value for color scale. Default is -0.8.
 
-        vmax : float
-            The maximum value for the color scale. Default is 0.8.
+        vmax : float, optional
+            Maximum value for color scale. Default is 0.8.
 
-        cmap : str
-            The colormap to use for the plot. Default is 'PRGn'.
+        cmap : str, optional
+            Colormap for the trace. Default is 'PRGn'.
 
-        fname : str
-            The filename to save the plot to. If set to None, the plot will be displayed
-            in the console. Default is None.
+        fname : str, optional
+            If provided, save figure to this path. Default is None.
 
-        zero_folded : bool
-            If True, the folded domains will be shaded in the plot. Default is True.
+        zero_folded : bool, optional
+            If True, shade predicted folded domains in gray. Default is True.
 
-        show_grid : bool
-            If True, a grid will be displayed on the plot. Default is False.
+        show_grid : bool, optional
+            If True, show vertical grid lines. Default is False.
 
-        figsize : tuple
-            The size of the figure. Default is (4, 1.5).
+        figsize : tuple, optional
+            Figure dimensions (width, height) in inches. Default is (4, 1.5).
 
-        ylim : list
-            The y-axis limits for the plot. Default is [-1.2,1.2].
+        ylim : list, optional
+            Y-axis limits [ymin, ymax]. Default is [-1.2, 1.2].
+
+        tic_frequency : int, optional
+            Spacing between x-axis tick labels. Default is 100.
 
         Returns
         -------
-        fig, ax : matplotlib figure and axis objects. If fname is set to None, the plot
-                    will be displayed in the console. If fname is set to a filename, the
-                    plot will be saved to that file.
+        tuple
+            (fig, ax) : matplotlib Figure and Axes objects.
+
+        Examples
+        --------
+        Basic RNA-binding profile plot::
+
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            
+            mf = Mpipi_frontend()
+            seq = "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQ"
+            
+            fig, ax = mf.plot_protein_nucleic_vector(seq)
+            plt.show()
+
+        With domain highlighting::
+
+            fig, ax = mf.plot_protein_nucleic_vector(
+                seq,
+                domains=[[1, 20], [30, 45]],  # Highlight these regions
+                domain_color='cyan',
+                domain_alpha=0.5
+            )
+
+        Save to file with custom settings::
+
+            fig, ax = mf.plot_protein_nucleic_vector(
+                seq,
+                vmin=-1.0,
+                vmax=1.0,
+                figsize=(8, 2),
+                fname='rna_binding_profile.pdf'
+            )
+
+        See Also
+        --------
+        protein_nucleic_vector : Get the raw data without plotting.
 
         """
 
@@ -1094,49 +1545,115 @@ class FinchesFrontend:
     #
     def build_phase_diagram(self, seq, use_aliphatic_weighting=True, use_charge_weighting=True):
         """
-        Function to build a homotypic phase diagram for a given sequence. This is done by
-        calculating the overall epsilon for the sequence, and then combining this with 
-        closed-form expressions for the binodal and spinodal lines.
+        Compute Flory-Huggins phase diagram data for a homotypic system.
+        
+        This function calculates the binodal (coexistence curve) and spinodal
+        for a protein sequence undergoing liquid-liquid phase separation (LLPS).
+        It uses the sequence's epsilon value to parameterize the Flory-Huggins
+        free energy and computes the phase boundaries analytically.
+
+        The temperature is in arbitrary units (AU) related to the interaction
+        strength. Higher critical temperature indicates stronger phase separation
+        propensity.
 
         Parameters
         ----------
         seq : str
-            The protein sequence
+            The protein amino acid sequence.
 
-        use_aliphatic_weighting : bool
-            Whether to use the aliphatic weighting scheme. Default is True.
+        use_aliphatic_weighting : bool, optional
+            Apply aliphatic weighting to epsilon calculation. Default is True.
 
-        use_charge_weighting : bool
-            Whether to use the charge weighting scheme. Default is True.
+        use_charge_weighting : bool, optional
+            Apply charge weighting to epsilon calculation. Default is True.
 
         Returns
         -------
-        tuple of np.arrays
-
-            * [0] - Dilute phase concentrations (array of len=N) in Phi
-            * [1] - Dense phase concentrations (array of len=N) in Phi
-            * [2] - List with [0]: critical Phi and [1]: Critical T
-            * [3] - List of temperatures that match with the dense and dilute phase concentrations
-            * [4] - Dilute phase concentrations (array of len=N) in Phi for spinodal
-            * [5] - Dense phase concentrations (array of len=N) in Phi for spinodal
-            * [6] - List with [0]: critical Phi and [1]: Critical T for spinodal
-            * [7] - List of temperatures that match with the dense and dilute phase concentrations for spinodal
+        list
+            8-element list containing binodal and spinodal data:
+            
+            [0] : np.ndarray
+                Dilute phase volume fractions (phi) for the binodal.
+            
+            [1] : np.ndarray
+                Dense phase volume fractions (phi) for the binodal.
+            
+            [2] : list
+                Critical point as [phi_c, T_c].
+            
+            [3] : np.ndarray
+                Temperatures corresponding to [0] and [1].
+            
+            [4] : np.ndarray
+                Dilute phase volume fractions for the spinodal.
+            
+            [5] : np.ndarray
+                Dense phase volume fractions for the spinodal.
+            
+            [6] : list
+                Spinodal critical point as [phi_c, T_c].
+            
+            [7] : np.ndarray
+                Temperatures for the spinodal.
 
         Examples
         --------
-        This seems somewhat overwhelming, but to plot the resulting binodal we just need to do::
-
-            # assuming mf = is a frontend object
+        Basic usage and plotting::
+        
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            import matplotlib.pyplot as plt
+            
+            mf = Mpipi_frontend()
+            seq = "FYWFYWFYWFYWFYWFYWFY"
+            
             B = mf.build_phase_diagram(seq)
-
-            # binodal low arm
-            plt.plot(B[0], B[3], 'blue', label='sequence name')
-
-            # binodal high arm
-            plt.plot(B[1], B[3], 'blue')
-
+            
+            # Plot binodal (phase boundary)
+            plt.figure(figsize=(4, 3))
+            plt.plot(B[0], B[3], 'b-', label='Dilute arm')
+            plt.plot(B[1], B[3], 'b-', label='Dense arm')
+            plt.plot(B[2][0], B[2][1], 'ro', label='Critical point')
+            plt.xlabel(r'Volume fraction ($\\phi$)')
+            plt.ylabel('Temperature (AU)')
             plt.legend()
+            plt.title(f'Critical T = {B[2][1]:.2f}')
+            plt.show()
 
+        With spinodal::
+        
+            B = mf.build_phase_diagram(seq)
+            
+            # Binodal
+            plt.plot(B[0], B[3], 'b-')
+            plt.plot(B[1], B[3], 'b-')
+            
+            # Spinodal (metastability limit)
+            plt.plot(B[4], B[7], 'r--', alpha=0.5)
+            plt.plot(B[5], B[7], 'r--', alpha=0.5)
+
+        Compare sequences::
+        
+            seq_wt  = "FYWFYWFYWFYWFYWFYWFY"
+            seq_mut = "AYWFYWFYWFYWFYWFYWFY"  # F1A mutation
+            
+            B_wt = mf.build_phase_diagram(seq_wt)
+            B_mut = mf.build_phase_diagram(seq_mut)
+            
+            print(f"WT critical T: {B_wt[2][1]:.2f}")
+            print(f"Mutant critical T: {B_mut[2][1]:.2f}")
+            print(f"Change in T_c: {B_mut[2][1] - B_wt[2][1]:.2f}")
+
+        Note
+        ----
+        If the sequence has positive (repulsive) epsilon, it cannot phase
+        separate. In this case, the function returns a minimal phase diagram
+        with very low critical temperature.
+
+        See Also
+        --------
+        plot_phase_diagram : Plot the phase diagram directly.
+        epsilon : Get the raw epsilon value.
+        
         """
         eps = self.epsilon(seq, seq, use_aliphatic_weighting=use_aliphatic_weighting, use_charge_weighting=use_charge_weighting)
         
@@ -1158,53 +1675,109 @@ class FinchesFrontend:
                            height=1.2,
                            filename=None):
         """
-        Function to plot the phase diagram for a given sequence. This is done by
-        calculating the overall epsilon for the sequence, and then combining this with
-        closed-form expressions for the binodal.
+        Generate a publication-ready Flory-Huggins phase diagram for a sequence.
+        
+        This function calculates the homotypic epsilon for the sequence and
+        uses it to construct a phase diagram showing the binodal (coexistence curve).
+        The diagram shows temperature (in arbitrary units) vs. volume fraction (phi).
+
+        The binodal curve separates:
+        
+        - **One-phase region** (above the curve): homogeneous solution
+        - **Two-phase region** (below the curve): phase-separated state
+        
+        The critical point is at the top of the binodal curve.
 
         Parameters
         ----------
         seq : str
-            The protein sequence
+            The protein amino acid sequence.
 
-        use_aliphatic_weighting : bool
-            Whether to use the aliphatic weighting scheme. Default is True.
+        use_aliphatic_weighting : bool, optional
+            Apply aliphatic weighting. Default is True.
 
-        use_charge_weighting : bool
-            Whether to use the charge weighting scheme. Default is True.
+        use_charge_weighting : bool, optional
+            Apply charge weighting. Default is True.
 
-        xlim : tuple
-            The x-axis limits. Default is None meaning it is determined automatically.
-            if provided must be a 2-position tuple e.g. [xmin, xmax].
+        line_color : str, optional
+            Color of the binodal curve. Default is 'k' (black).
 
-        ylim : tuple
-            The y-axis limits. Default is None meaning it is determined automatically.
-            if provided must be a 2-position tuple e.g. [ymin, ymax].
+        line_style : str, optional
+            Line style for the binodal. Default is '-' (solid).
 
-        xlog : bool
-            Whether to plot the x-axis in log scale. Default is False.
+        line_width : float, optional
+            Width of the binodal line. Default is 0.5.
 
-        width : float
-            The width of the figure in inches. Default is 1.2.
+        xlim : tuple, optional
+            X-axis (phi) limits as (min, max). Default is None (auto).
 
-        height : float
-            The height of the figure in inches. Default is 2.2.
+        ylim : tuple, optional
+            Y-axis (T) limits as (min, max). Default is None (auto).
 
-        filename : str
-            The filename to save the figure. Default is None, meaning the figure 
-            is not saved. If provided, the filename must include the extension.
+        xlog : bool, optional
+            If True, use logarithmic x-axis. Useful for seeing the
+            dilute arm of the binodal. Default is False.
+
+        width : float, optional
+            Figure width in inches. Default is 2.2.
+
+        height : float, optional
+            Figure height in inches. Default is 1.2.
+
+        filename : str, optional
+            If provided, save figure to this path. Default is None.
 
         Returns
         -------
-        Tuple
+        list
+            [0] : tuple
+                Phase diagram data from build_phase_diagram().
+                See build_phase_diagram for detailed structure.
+            
+            [1] : matplotlib.figure.Figure
+            
+            [2] : matplotlib.axes.Axes
 
-            [0] - The complex tuple associated with the phase diagram (see the function
-                  signature of build_phase_diagram for more details)
+        Examples
+        --------
+        Basic phase diagram::
 
-            [1] - Figure object
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            
+            mf = Mpipi_frontend()
+            seq = "FYWFYWFYWFYWFYWFYWFY"  # Aromatic-rich, phase-separating
+            
+            data, fig, ax = mf.plot_phase_diagram(seq)
+            plt.show()
 
-            [2] - Axes object
+        With log x-axis to see dilute arm::
 
+            data, fig, ax = mf.plot_phase_diagram(
+                seq,
+                xlog=True,
+                xlim=(1e-6, 1),
+                line_color='blue'
+            )
+
+        Save publication figure::
+
+            data, fig, ax = mf.plot_phase_diagram(
+                seq,
+                width=3,
+                height=2,
+                filename='phase_diagram.pdf'
+            )
+
+        Extract critical point::
+
+            data, fig, ax = mf.plot_phase_diagram(seq)
+            crit_phi, crit_T = data[2]  # [phi_c, T_c]
+            print(f"Critical point: phi={crit_phi:.4f}, T={crit_T:.2f}")
+
+        See Also
+        --------
+        build_phase_diagram : Get phase diagram data without plotting.
+        plot_multiple_phase_diagrams : Compare multiple sequences.
 
         """                           
                            
@@ -1252,55 +1825,114 @@ class FinchesFrontend:
                                      height=1.2,
                                      filename=None):
         """
-        Function to plot the phase diagram for a given sequence. This is done by
-        calculating the overall epsilon for the sequence, and then combining this with
-        closed-form expressions for the binodal.
+        Generate a publication-ready figure comparing phase diagrams of multiple sequences.
+        
+        This function creates an overlay of binodal curves for multiple sequences,
+        making it easy to compare their phase separation propensities. Each sequence
+        is plotted with a specified color and labeled in a legend.
+
+        Optionally, temperatures can be normalized to a reference sequence's
+        critical temperature (T_c), allowing comparison of curve shapes independently
+        of absolute critical temperatures.
 
         Parameters
         ----------
         seq_dict : dict
-            Dictionary where keys are sequence names and values are a 2-position list, 
-            where the first element is the sequence and the second element the color
-            to plot. 
+            Dictionary mapping sequence names to [sequence, color] pairs.
+            
+            Example::
+            
+                {
+                    'WT': ['FYWFYWFYW...', 'blue'],
+                    'Mutant1': ['AYWFYWFYW...', 'red'],
+                    'Mutant2': ['FAWFYWFYW...', 'green']
+                }
 
-        use_aliphatic_weighting : bool
-            Whether to use the aliphatic weighting scheme. Default is True.
+        use_aliphatic_weighting : bool, optional
+            Apply aliphatic weighting. Default is True.
 
-        use_charge_weighting : bool
-            Whether to use the charge weighting scheme. Default is True.
+        use_charge_weighting : bool, optional
+            Apply charge weighting. Default is True.
 
-        xlim : tuple
-            The x-axis limits. Default is None meaning it is determined automatically.
-            if provided must be a 2-position tuple e.g. [xmin, xmax].
+        tc_ref : str, optional
+            Key in seq_dict for the reference sequence. If provided, all
+            temperatures are normalized by this sequence's T_c, so the
+            y-axis becomes T/T_c. Default is None (no normalization).
 
-        ylim : tuple
-            The y-axis limits. Default is None meaning it is determined automatically.
-            if provided must be a 2-position tuple e.g. [ymin, ymax].
+        line_style : str, optional
+            Line style for all curves. Default is '-'.
 
-        xlog : bool
-            Whether to plot the x-axis in log scale. Default is False.
+        line_width : float, optional
+            Line width for all curves. Default is 0.5.
 
-        width : float
-            The width of the figure in inches. Default is 1.2.
+        xlim : tuple, optional
+            X-axis limits (min, max). Default is None (auto).
 
-        height : float
-            The height of the figure in inches. Default is 2.2.
+        ylim : tuple, optional
+            Y-axis limits (min, max). Default is None (auto).
 
-        filename : str
-            The filename to save the figure. Default is None, meaning the figure 
-            is not saved. If provided, the filename must include the extension.
+        xlog : bool, optional
+            Use logarithmic x-axis. Default is False.
+
+        width : float, optional
+            Figure width in inches. Default is 2.2.
+
+        height : float, optional
+            Figure height in inches. Default is 1.2.
+
+        filename : str, optional
+            If provided, save figure to this path. Default is None.
 
         Returns
         -------
-        Tuple
+        list
+            [0] : list
+                List of phase diagram data tuples, one per sequence.
+            
+            [1] : matplotlib.figure.Figure
+            
+            [2] : matplotlib.axes.Axes
 
-            [0] - The complex tuple associated with the phase diagram (see the function
-                  signature of build_phase_diagram for more details)
+        Examples
+        --------
+        Compare wild-type and mutants::
 
-            [1] - Figure object
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            
+            mf = Mpipi_frontend()
+            
+            sequences = {
+                'WT': ['FYWFYWFYWFYWFYWFYWFY', 'blue'],
+                'F1A': ['AYWFYWFYWFYWFYWFYWFY', 'red'],
+                'Y5A': ['FYWFAWFYWFYWFYWFYWFY', 'green']
+            }
+            
+            data, fig, ax = mf.plot_multiple_phase_diagrams(sequences)
+            plt.show()
 
-            [2] - Axes object
+        With normalization to WT critical temperature::
 
+            data, fig, ax = mf.plot_multiple_phase_diagrams(
+                sequences,
+                tc_ref='WT'  # Normalize all to WT's T_c
+            )
+            # Y-axis now shows T/T_c, so WT reaches 1.0
+
+        Save publication figure::
+
+            data, fig, ax = mf.plot_multiple_phase_diagrams(
+                sequences,
+                xlog=True,
+                xlim=(1e-5, 1),
+                width=3.5,
+                height=2.5,
+                filename='phase_diagram_comparison.pdf'
+            )
+
+        See Also
+        --------
+        plot_phase_diagram : Plot a single sequence's phase diagram.
+        build_phase_diagram : Get phase diagram data without plotting.
 
         """
         

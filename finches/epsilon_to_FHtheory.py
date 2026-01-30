@@ -96,12 +96,12 @@ def build_DIELECTRIC_dependent_phase_diagrams(seq,
 
         # get phase diagram for condition
         out_diagrams[i] = return_phase_diagram(seq, X_class)
-        out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor, 
+        out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, charge_prefactor=prefactor, 
                                                         null_interaction_baseline=null_interaction_baseline, 
                                                         use_charge_weighting=True, use_aliphatic_weighting=True)
 
     # reset parameters to base_value 
-    X_class.parameters.salt = base_value
+    X_class.parameters.dielectric = base_value
 
     # update base parameters 
     X_class._update_parameters(base_params)
@@ -176,12 +176,12 @@ def build_PH_dependent_phase_diagrams(seq,
 
         # get phase diagram for condition
         out_diagrams[i] = return_phase_diagram(seq, X_class)
-        out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, prefactor=prefactor, 
+        out_epsilons[i] = get_sequence_epsilon_value(seq, seq, X_class, charge_prefactor=prefactor, 
                                                         null_interaction_baseline=null_interaction_baseline, 
                                                         use_charge_weighting=True, use_aliphatic_weighting=True)
 
     # reset parameters to base_value 
-    X_class.parameters.salt = base_value
+    X_class.parameters.pH = base_value
 
     # update base parameters 
     X_class._update_parameters(base_params)
