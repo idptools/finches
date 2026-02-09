@@ -650,6 +650,191 @@ class TestPlotProteinNucleicVector:
 
 
 # =============================================================================
+# PROTEIN PEPTIDE VECTOR TESTS
+# =============================================================================
+
+# Test peptides
+PEPTIDE_AROMATIC = "FYWFYW"
+PEPTIDE_CHARGED = "KRKRKR"
+PEPTIDE_SHORT = "FYW"
+
+
+class TestProteinPeptideVector:
+    """Tests for the protein_peptide_vector() function."""
+    
+    def test_peptide_vector_returns_list(self, mf):
+        """Test that protein_peptide_vector returns a list."""
+        result = mf.protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21)
+        assert isinstance(result, list)
+        assert len(result) == 2
+    
+    def test_peptide_vector_structure(self, mf):
+        """Test the structure of returned arrays."""
+        idx, vals = mf.protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21)
+        
+        assert isinstance(idx, np.ndarray)
+        assert isinstance(vals, np.ndarray)
+        assert len(idx) == len(vals)
+    
+    def test_peptide_vector_fragsize_must_be_odd(self, mf):
+        """Test that fragsize must be odd when explicitly provided."""
+        with pytest.raises(Exception):
+            mf.protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=20)
+    
+    def test_peptide_vector_default_fragsize(self, mf):
+        """Test that default fragsize is 21."""
+        # Should work without specifying fragsize (defaults to 21)
+        result = mf.protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC)
+        assert isinstance(result, list)
+    
+    def test_peptide_vector_fragsize_none_raises(self, mf):
+        """Test that passing fragsize=None raises an exception."""
+        with pytest.raises(Exception):
+            mf.protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=None)
+    
+    def test_peptide_vector_no_smoothing(self, mf):
+        """Test without smoothing."""
+        result = mf.protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21, 
+                                            smoothing_window=False)
+        assert isinstance(result, list)
+    
+    def test_peptide_vector_short_sequence(self, mf):
+        """Test with sequence shorter than fragsize."""
+        result = mf.protein_peptide_vector(SHORT_SEQ_1, PEPTIDE_AROMATIC, fragsize=31, 
+                                            smoothing_window=False)
+        
+        # Should still return valid structure
+        idx, vals = result
+        assert len(idx) == 1  # Single value for short sequence
+        assert len(vals) == 1
+    
+    def test_peptide_vector_different_peptides(self, mf):
+        """Test that different peptides give different binding profiles."""
+        idx_arom, vals_arom = mf.protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, 
+                                                         fragsize=21, smoothing_window=False)
+        idx_chg, vals_chg = mf.protein_peptide_vector(LONG_SEQ_1, PEPTIDE_CHARGED, 
+                                                       fragsize=21, smoothing_window=False)
+        
+        # Different peptides should give different results
+        assert not np.allclose(vals_arom, vals_chg)
+    
+    def test_peptide_vector_short_peptide(self, mf):
+        """Test with a short peptide."""
+        result = mf.protein_peptide_vector(LONG_SEQ_1, PEPTIDE_SHORT, fragsize=21)
+        idx, vals = result
+        assert len(idx) == len(vals)
+    
+    def test_peptide_vector_custom_smoothing(self, mf):
+        """Test with custom smoothing parameters."""
+        result = mf.protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, 
+                                            fragsize=21,
+                                            smoothing_window=15,
+                                            poly_order=2)
+        assert isinstance(result, list)
+
+
+# =============================================================================
+# PLOT PROTEIN PEPTIDE VECTOR TESTS
+# =============================================================================
+
+class TestPlotProteinPeptideVector:
+    """Tests for the plot_protein_peptide_vector() function."""
+    
+    def test_plot_peptide_returns_tuple(self, mf):
+        """Test that plot_protein_peptide_vector returns figure and axes."""
+        result = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        
+        fig, ax = result
+        assert fig is not None
+        assert ax is not None
+        plt.close('all')
+    
+    def test_plot_peptide_default_fragsize(self, mf):
+        """Test plot with default fragsize (21)."""
+        result = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC)
+        assert result is not None
+        plt.close('all')
+    
+    def test_plot_peptide_with_domains(self, mf):
+        """Test plot with domain annotations."""
+        result = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21,
+                                                 domains=[(10, 50), (100, 150)])
+        assert result is not None
+        plt.close('all')
+    
+    def test_plot_peptide_custom_colors(self, mf):
+        """Test plot with custom colors."""
+        result = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21,
+                                                 domain_color='blue',
+                                                 domain_alpha=0.5)
+        assert result is not None
+        plt.close('all')
+    
+    def test_plot_peptide_save_to_file(self, mf, tmp_path):
+        """Test saving plot to file."""
+        fname = tmp_path / "test_peptide.png"
+        result = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21,
+                                                 fname=str(fname))
+        assert fname.exists()
+        plt.close('all')
+    
+    def test_plot_peptide_custom_ylim(self, mf):
+        """Test plot with custom y limits."""
+        result = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21,
+                                                 ylim=[-2, 2])
+        assert result is not None
+        plt.close('all')
+    
+    def test_plot_peptide_with_grid(self, mf):
+        """Test plot with grid enabled."""
+        result = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21,
+                                                 show_grid=True)
+        assert result is not None
+        plt.close('all')
+    
+    def test_plot_peptide_custom_vmin_vmax(self, mf):
+        """Test plot with custom color scale limits."""
+        result = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21,
+                                                 vmin=-1.0, vmax=1.0)
+        assert result is not None
+        plt.close('all')
+    
+    def test_plot_peptide_custom_figsize(self, mf):
+        """Test plot with custom figure size."""
+        result = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21,
+                                                 figsize=(8, 3))
+        assert result is not None
+        plt.close('all')
+    
+    def test_plot_peptide_different_peptides(self, mf):
+        """Test plot with different peptides."""
+        result1 = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21)
+        plt.close('all')
+        result2 = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_CHARGED, fragsize=21)
+        plt.close('all')
+        
+        # Both should succeed
+        assert result1 is not None
+        assert result2 is not None
+    
+    def test_plot_peptide_zero_folded_false(self, mf):
+        """Test plot with zero_folded disabled."""
+        result = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21,
+                                                 zero_folded=False)
+        assert result is not None
+        plt.close('all')
+    
+    def test_plot_peptide_no_smoothing(self, mf):
+        """Test plot without smoothing."""
+        result = mf.plot_protein_peptide_vector(LONG_SEQ_1, PEPTIDE_AROMATIC, fragsize=21,
+                                                 smoothing_window=False)
+        assert result is not None
+        plt.close('all')
+
+
+# =============================================================================
 # BUILD PHASE DIAGRAM TESTS
 # =============================================================================
 

@@ -1365,6 +1365,136 @@ class FinchesFrontend:
     # ....................................................................................
     #
     #
+    def protein_peptide_vector(self, seq, peptide, fragsize=21, smoothing_window=30, poly_order=3):
+        """
+        Calculate the per-residue peptide-binding propensity for a protein sequence.
+        
+        This function computes the interaction strength between sliding windows
+        of a protein sequence and a specified peptide. It produces a profile 
+        showing which regions of the protein are predicted to have favorable 
+        interactions with the peptide.
+
+        The calculation uses a sliding window approach:
+        
+        1. Extract a fragment of `fragsize` residues from the protein
+        2. Calculate epsilon between that fragment and the peptide
+        3. Normalize by peptide length
+        4. Slide the window and repeat
+        5. Optionally smooth the resulting profile
+
+        Parameters
+        ----------
+        seq : str
+            The protein amino acid sequence.
+
+        peptide : str
+            The peptide sequence to calculate binding propensity against.
+
+        fragsize : int, optional
+            Size of the sliding window. Must be odd. Default value is
+            21,.
+
+        smoothing_window : int or False, optional
+            Window size for Savitzky-Golay smoothing filter.
+            Set to False to disable smoothing. Default is 30.
+
+        poly_order : int or False, optional
+            Polynomial order for Savitzky-Golay filter.
+            Set to False to disable smoothing. Default is 3.
+
+        Returns
+        -------
+        list of np.ndarray
+            [0] : np.ndarray
+                Residue positions (centered on each window).
+                Positions start at (fragsize-1)/2 and end at len(seq)-(fragsize+1)/2.
+            
+            [1] : np.ndarray
+                Per-residue peptide interaction values.
+                Negative = favorable peptide binding.
+                Positive = unfavorable peptide binding.
+
+        Examples
+        --------
+        Calculate peptide-binding profile::
+
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            import matplotlib.pyplot as plt
+            
+            mf = Mpipi_frontend()
+            
+            protein_seq = "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQ"
+            peptide = "FYWFYW"
+            
+            positions, binding = mf.protein_peptide_vector(protein_seq, peptide)
+            
+            plt.figure(figsize=(10, 3))
+            plt.plot(positions, binding, 'b-')
+            plt.fill_between(positions, binding, 0,
+                            where=(binding < 0), alpha=0.3, color='blue')
+            plt.xlabel('Residue Position')
+            plt.ylabel('Peptide Interaction (ε/residue)')
+            plt.axhline(0, color='black', lw=0.5)
+            plt.title(f'Peptide ({peptide}) Binding Profile')
+            plt.show()
+
+        Compare binding of different peptides::
+
+            protein = "EKEKEKEKEKEKEKEKEKEK" * 3
+            peptide_aromatic = "FYWFYW"
+            peptide_charged = "RKRKRK"
+            
+            pos1, bind1 = mf.protein_peptide_vector(protein, peptide_aromatic)
+            pos2, bind2 = mf.protein_peptide_vector(protein, peptide_charged)
+            
+            print(f"Aromatic peptide mean binding: {np.mean(bind1):.3f}")
+            print(f"Charged peptide mean binding: {np.mean(bind2):.3f}")
+
+        See Also
+        --------
+        protein_nucleic_vector : Similar function for RNA binding.
+        epsilon : Get epsilon for two full sequences.
+
+        """
+
+        if fragsize % 2 == 0:
+            raise Exception('fragsize must be odd')
+        
+        # define the function to calculate the epsilon value for a given sequence; the closure
+        # uses the peptide and IMC_object variables to avoid passing them as arguments
+        def peptide_bind(seq):
+            return epsilon_stateless.get_sequence_epsilon_value(seq, peptide, self.IMC_object)/len(peptide)
+
+        # initialize the return vector
+        return_vector = []
+        idx = []
+
+        # if the sequence is longer than the fragment size, calculate the per-residue
+        # interaction for each fragment
+        if len(seq) > fragsize:
+        
+            for i in range(0, 1+(len(seq)-fragsize)):
+                return_vector.append(peptide_bind(seq[i:i+fragsize]))
+                idx.append(i+(fragsize-1)/2)
+                
+        # if the sequence is shorter than the fragment size, calculate the per-residue
+        # interaction for the whole sequence, which is all we can really do here
+        else:
+            return_vector.append(peptide_bind(seq))
+            idx = [int(len(seq)/2)]
+        
+        return_vector = np.array(return_vector)
+        idx = np.array(idx)
+
+        if smoothing_window is False or poly_order is False:
+            return [idx, return_vector]
+        else:
+            return [idx, savgol_filter(return_vector, smoothing_window, poly_order)]
+
+
+    # ....................................................................................
+    #
+    #
     @apply_publication_styles
     def plot_protein_nucleic_vector(self,
                                     seq,
@@ -1519,6 +1649,192 @@ class FinchesFrontend:
             spine.set_zorder(30)
 
         plt.ylabel('NA\ninteraction',fontsize=6)
+        plt.yticks(fontsize=6)
+        plt.ylim(ylim)
+         
+        xticks = [1]
+        xticks.extend(list(np.arange(tic_frequency, len(seq)+1, tic_frequency)))
+                  
+        plt.xticks(xticks, fontsize=6)
+        plt.xlabel('Residue',fontsize=6)
+
+        if show_grid:
+            ax.xaxis.grid(True, which='both', linewidth=0.2)
+                  
+        plt.tight_layout()
+
+        # finally save the figure
+        if fname is not None:
+            plt.savefig(fname, dpi=350)
+
+        return fig, ax
+
+
+    # ....................................................................................
+    #
+    #
+    @apply_publication_styles
+    def plot_protein_peptide_vector(self,
+                                    seq,
+                                    peptide,
+                                    fragsize = 21,
+                                    smoothing_window = 30,
+                                    poly_order = 3,
+                                    domains = [],
+                                    domain_color = 'yellow',
+                                    domain_alpha = 0.3,
+                                    trace_width = 3,
+                                    vmin = -0.8,
+                                    vmax = 0.8,
+                                    tic_frequency=100,
+                                    cmap='PRGn',
+                                    fname=None,
+                                    zero_folded=True,
+                                    show_grid = False,
+                                    figsize=(4, 1.5),
+                                    ylim = [-1.2,1.2]):
+                                    
+        """
+        Generate a publication-ready plot of the peptide-binding profile for a protein.
+        
+        This function creates a figure showing the per-residue peptide interaction
+        profile, with points colored by interaction strength. Regions predicted
+        to be folded are shaded gray (if zero_folded=True), and custom domains
+        can be highlighted.
+
+        Parameters
+        ----------
+        seq : str
+            The protein amino acid sequence.
+
+        peptide : str
+            The peptide sequence to calculate binding propensity against.
+
+        fragsize : int, optional
+            Size of the sliding window for peptide interaction calculation.
+            Must be odd. Default is 21.
+
+        smoothing_window : int or False, optional
+            Window size for Savitzky-Golay smoothing. Default is 30.
+
+        poly_order : int or False, optional
+            Polynomial order for smoothing. Default is 3.
+
+        domains : list, optional
+            List of [start, end] pairs for domains to highlight.
+            These are shaded with domain_color. Default is [].
+
+        domain_color : str, optional
+            Color for highlighting domains. Default is 'yellow'.
+
+        domain_alpha : float, optional
+            Transparency for domain highlighting. Default is 0.3.
+
+        trace_width : float, optional
+            Size of the scatter points. Default is 3.
+
+        vmin : float, optional
+            Minimum value for color scale. Default is -0.8.
+
+        vmax : float, optional
+            Maximum value for color scale. Default is 0.8.
+
+        cmap : str, optional
+            Colormap for the trace. Default is 'PRGn'.
+
+        fname : str, optional
+            If provided, save figure to this path. Default is None.
+
+        zero_folded : bool, optional
+            If True, shade predicted folded domains in gray. Default is True.
+
+        show_grid : bool, optional
+            If True, show vertical grid lines. Default is False.
+
+        figsize : tuple, optional
+            Figure dimensions (width, height) in inches. Default is (4, 1.5).
+
+        ylim : list, optional
+            Y-axis limits [ymin, ymax]. Default is [-1.2, 1.2].
+
+        tic_frequency : int, optional
+            Spacing between x-axis tick labels. Default is 100.
+
+        Returns
+        -------
+        tuple
+            (fig, ax) : matplotlib Figure and Axes objects.
+
+        Examples
+        --------
+        Basic peptide-binding profile plot::
+
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+            
+            mf = Mpipi_frontend()
+            seq = "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQ"
+            peptide = "FYWFYW"
+            
+            fig, ax = mf.plot_protein_peptide_vector(seq, peptide)
+            plt.show()
+
+        With domain highlighting::
+
+            fig, ax = mf.plot_protein_peptide_vector(
+                seq,
+                peptide,
+                domains=[[1, 20], [30, 45]],  # Highlight these regions
+                domain_color='cyan',
+                domain_alpha=0.5
+            )
+
+        Save to file with custom settings::
+
+            fig, ax = mf.plot_protein_peptide_vector(
+                seq,
+                peptide,
+                vmin=-1.0,
+                vmax=1.0,
+                figsize=(8, 2),
+                fname='peptide_binding_profile.pdf'
+            )
+
+        See Also
+        --------
+        protein_peptide_vector : Get the raw data without plotting.
+        plot_protein_nucleic_vector : Similar function for RNA binding.
+
+        """
+
+        # get the per-residue peptide interaction vector
+        X = self.protein_peptide_vector(seq, peptide, fragsize=fragsize, smoothing_window=smoothing_window, poly_order=poly_order)
+
+        fig = plt.figure(figsize=figsize, dpi=450)
+        ax = plt.gca()
+
+        plt.scatter(X[0], X[1], c=X[1], s=trace_width, vmin=vmin, vmax=vmax, cmap=cmap)
+        plt.plot(X[0], X[1], 'k-',lw=0.3)
+
+        if zero_folded:
+            for d in meta.predict_disorder_domains(seq).folded_domain_boundaries:
+                #ax.axvspan(d[0],d[1],linewidth=0, zorder=-10, color='w', alpha=0.5)
+                ax.axvspan(d[0],d[1],linewidth=0, zorder=-12, color='grey',alpha=0.6)
+
+        for d in domains:
+            ax.axvspan(d[0],d[1],linewidth=0, zorder=-20, color=domain_color, alpha=domain_alpha)
+                        
+            
+        plt.xlim([1,len(seq)+1])
+        ax.axhline(0, color='k',lw=0.5,ls='--')
+
+   
+        # ensure axis are on top
+        for spine in ax.spines.values():
+
+            # zorder = order in which objects in a plot appear in "z" (axis coming out of the screen)
+            spine.set_zorder(30)
+
+        plt.ylabel('Peptide\ninteraction',fontsize=6)
         plt.yticks(fontsize=6)
         plt.ylim(ylim)
          
