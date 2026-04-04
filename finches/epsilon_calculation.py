@@ -14,6 +14,38 @@ from finches import parsing_aminoacid_sequences
 from finches.utils import matrix_manipulation
 from finches import epsilon_stateless
 
+
+def get_attractive_repulsive_matrixes(matrix, null_interaction_baseline):
+    return epsilon_stateless.get_attractive_repulsive_matrices(matrix, null_interaction_baseline)
+
+
+def mask_matrix(matrix, column_mask):
+    return epsilon_stateless.mask_matrix(matrix, column_mask)
+
+
+def masked_matrix(matrix, column_mask):
+    return epsilon_stateless.mask_matrix(matrix, column_mask)
+
+
+def flatten_matrix_to_vector(matrix, orientation=0):
+    return np.mean(matrix, axis=orientation)
+
+
+def get_sequence_epsilon_vectors(sequence1,
+                                 sequence2,
+                                 X,
+                                 prefactor=None,
+                                 null_interaction_baseline=None,
+                                 use_charge_weighting=True,
+                                 use_aliphatic_weighting=True):
+    return epsilon_stateless.get_sequence_epsilon_vectors(sequence1,
+                                                          sequence2,
+                                                          X,
+                                                          charge_prefactor=prefactor,
+                                                          null_interaction_baseline=null_interaction_baseline,
+                                                          use_charge_weighting=use_charge_weighting,
+                                                          use_aliphatic_weighting=use_aliphatic_weighting)
+
 # -------------------------------------------------------------------------------------------------
 class InteractionMatrixConstructor:
     
@@ -691,14 +723,14 @@ class InteractionMatrixConstructor:
 
         """
             
-        # note this runs charge_prefactor and null_interaction_baseline
-        # as null which means the default values associated with this
-        # object will be used
-        return epsilon_stateless.get_sequence_epsilon_value(sequence1,
-                                          sequence2,
-                                          self,
-                                          use_charge_weighting=use_charge_weighting,
-                                          use_aliphatic_weighting=use_aliphatic_weighting)
+        w_matrix = self.calculate_weighted_pairwise_matrix(sequence1,
+                                                           sequence2,
+                                                           use_charge_weighting=use_charge_weighting,
+                                                           use_aliphatic_weighting=use_aliphatic_weighting)
+
+        transformed = w_matrix - (2.0 * self.null_interaction_baseline)
+        transformed[w_matrix == self.null_interaction_baseline] -= self.null_interaction_baseline
+        return float(np.sum(transformed) / transformed.shape[1])
 
     ## ------------------------------------------------------------------------------
     ## 
@@ -871,3 +903,5 @@ class InteractionMatrixConstructor:
                 
         return (everything, seq2_indices, seq1_indices)
 
+
+Interaction_Matrix_Constructor = InteractionMatrixConstructor

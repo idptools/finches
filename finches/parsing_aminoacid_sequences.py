@@ -15,6 +15,7 @@ by: Garrett M. Ginell
 """
 import numpy as np
 from finches import sequence_tools
+from finches.utils import matrix_manipulation
 
 # new characters for PIMMS aliphatic groups 
 aliphatic_group1 = {'A':'a', 'L':'l', 'M':'m', 'I':'i', 'V':'v'}
@@ -95,103 +96,8 @@ def get_charge_weighted_mask(sequence1, sequence2):
         matrix here, but this function does return
     """
     
-    #
-    # NB - this could be rewritten in Cython for improved performance...
-    #
-
-    # nb - hardcoded for now but could and probably should be altered to enable
-    # pH-dependent effects in the future
-    charges = ['R','K','E','D']
-
-    attractive_matrix = []
-    repulsive_matrix = []
-    
-    n2 = len(sequence2)
-
-    # cycle through each residue
-    for i,r1 in enumerate(sequence1):
-        tmp_attractive = []
-        tmp_repulsive = []
-
-        # if r1 is charged
-        if r1 in charges:
-
-            # cycle through each residue in sequence 2
-            for j,r2 in enumerate(sequence2):
-
-                # initialize
-                w_attractive = 0
-                w_repulsive = 0
-
-                # if the second residue is charged
-                if r2 in charges: 
-                                        
-                    # this generates a string of max 6 residues (for terminal residues 5 or 4 residues)
-                    # which is basically a concatenated fragment 
-                    l_resis = sequence_tools.get_neighbors_window_of3(i,sequence1) + sequence_tools.get_neighbors_window_of3(j,sequence2)
-
-                    # for that fragment, calculate the local fcr and ncpr
-                    [local_fcr, local_ncpr] = sequence_tools.calculate_FCR_and_NCPR(l_resis)
-
-                    # calculate the charge weight as |NCPR/FRC|. This means in one limit charge_weight goes
-                    # to 1 if the fragment is all the same type of charged residues, and goes to 0 if the
-                    # if the fragment is neutral, regardless of the fraction of charged residues.
-                    chrg_weight = np.abs(local_ncpr / local_fcr)
-
-                    w_repulsive = chrg_weight
-
-                    
-                    # alternative implementation - to move elsewhere at some point, but TL/DR was worse
-                    # but ALSO SLOWER! Win win!
-                    """
-
-                    frag1 = sequence_tools.get_neighbors_window_of3(i, sequence1)
-                    frag2 = sequence_tools.get_neighbors_window_of3(j, sequence2)
-
-                    [f1_fcr, f1_ncpr]  = sequence_tools.calculate_FCR_and_NCPR(frag1)
-                    [f2_fcr, f2_ncpr]  = sequence_tools.calculate_FCR_and_NCPR(frag2)
-
-                    # if both fragments contain only one type of charged residue
-                    if abs(f1_ncpr) == f1_fcr and abs(f2_ncpr) == f2_fcr:
-
-                        # calculate charge weight 
-                        q1q2 = f1_ncpr*f2_ncpr
-
-                        # opposite charge clusters
-                        if q1q2 < 0:
-
-                            # negative value (attractive) - max value = 1 (|q1| and |q2| <= 1)
-                            w_attractive = abs(q1q2)
-                                                        
-                        else:
-                        
-                            # positive value (repulsive) -  max value = 1 (|q1| and |q1| <= 1)
-                            w_repulsive = q1q2 
-                    """
-
-                # w_attractive and w_repulsive are 0 unless both fragements only possess the same
-                # type of charged residues
-                tmp_attractive.append(w_attractive)
-                tmp_repulsive.append(w_repulsive)
-            
-                    
-        else:
-
-            # if r1 was not charged, create an empty vector
-            tmp_attractive = [0]*n2
-            tmp_repulsive = [0]*n2
-            
-        attractive_matrix.append(tmp_attractive)
-        repulsive_matrix.append(tmp_repulsive)
-
-    # Assert matrices are the right shape
-    attractive_matrix = np.array(attractive_matrix)
-    repulsive_matrix = np.array(repulsive_matrix)
-
-    assert attractive_matrix.shape == (len(sequence1), len(sequence2))
-    assert repulsive_matrix.shape == (len(sequence1), len(sequence2))
-
-    return attractive_matrix, repulsive_matrix
+    attractive_matrix, repulsive_matrix = matrix_manipulation.charge_weighted_mask(sequence1, sequence2)
+    return np.asarray(attractive_matrix), np.asarray(repulsive_matrix)
 
 
 
@@ -281,29 +187,15 @@ def get_aliphatic_weighted_mask(sequence1, sequence2):
         returns a 2D MATRIX mask the same shape of (len(sequence1), len(sequence2))
    
     """
-    multiplier_weighting = {'1_1':1, '1_2':1, '1_3':1, '2_1':1, '3_1':1,
-                            '2_2':1.5, '2_3':1.5, '3_2':1.5, 
-                            '3_3':3}
+    multiplier_weighting = np.ones((4, 4), dtype=float)
+    multiplier_weighting[2, 2] = 1.5
+    multiplier_weighting[2, 3] = 1.5
+    multiplier_weighting[3, 2] = 1.5
+    multiplier_weighting[3, 3] = 3.0
 
-    
-    ali_mask1 = get_aliphatic_groups(sequence1)
-    ali_mask2 = get_aliphatic_groups(sequence2)
-    n2 = len(sequence2)
-    matrix = []
-    for i,v1 in enumerate(ali_mask1):
-        tmp = [] 
-        if v1 > 0:
-            for j,v2 in enumerate(ali_mask2):  
-                if v2 > 0: 
-                    tmp.append(multiplier_weighting[f'{v1}_{v2}'])
-                else:
-                    tmp.append(1)
-        else:
-            tmp = [1]*n2
-            
-        matrix.append(tmp)
-
-    return np.array(matrix) 
+    ali_mask1 = np.asarray(get_aliphatic_groups(sequence1), dtype=np.int8)
+    ali_mask2 = np.asarray(get_aliphatic_groups(sequence2), dtype=np.int8)
+    return multiplier_weighting[ali_mask1[:, None], ali_mask2[None, :]]
 
 
 ## ---------------------------------------------------------------------------

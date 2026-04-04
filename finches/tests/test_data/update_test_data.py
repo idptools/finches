@@ -11,8 +11,9 @@ import numpy as np
 import os
 
 import finches
+from finches import epsilon_calculation
 
-from test_sequences import test_sequences, test_condition_dict
+from .test_sequences import test_sequences, test_condition_dict, t0
 
 # ..........................................................................................
 #
@@ -78,7 +79,7 @@ def write_test_weighted_matrix(filepath, model, model_name):
         otl2.append(ot)
         print(ot.shape)
         
-    np.savez(data_file, DEFAULT=otl, NOCHARGE=otl1,  NOuse_aliphatic_weighting=otl2)
+    np.savez(data_file, DEFAULT=otl, NOCHARGE=otl1, NOALIPHATICS=otl2)
 
 #..........................................................................................
 #
@@ -101,7 +102,8 @@ def write_test_matrix_manipulation(filepath, model):
     otla, otlr = get_attractive_repulsive_matrixes(all_manipulated['test_matrix'],-0.15)
     all_manipulated['attractive_repulsive_matrixes'] = otla, otlr
 
-    mask = np.random.choice([0, 1], size=test_matrix.shape)
+    rng = np.random.default_rng(0)
+    mask = rng.choice([0, 1], size=test_matrix.shape)
     all_manipulated['bionary_mask'] = mask
 
     out_masked = epsilon_calculation.mask_matrix(test_matrix, mask)
@@ -196,7 +198,6 @@ def write_FH_out_data(filepath, model, model_name):
 
     # write file 
     np.savez(data_file, **all_manipulated)
-
 
 
 

@@ -1,5 +1,6 @@
 import pytest
 #import un
+from pathlib import Path
 
 import pandas as pd
 
@@ -16,6 +17,9 @@ L_model = mpipi_model('mPiPi_GGv1')
 X_local = epsilon_calculation.Interaction_Matrix_Constructor(L_model)
 
 import numpy as np
+
+
+TEST_DATA_DIR = Path(__file__).resolve().parent / "test_data"
 
 ############################################################################################
 ##                                                                                        ##
@@ -35,7 +39,7 @@ def test_Interaction_Matrix_Constructor():
 #
 #
 def test_calculate_pairwise_homotypic_matrix():
-    TRUE_matrixes = np.load('test_data/test_mPiPi_GGv1_homotypic_matrix.npz', allow_pickle=True)
+    TRUE_matrixes = np.load(TEST_DATA_DIR / 'test_mPiPi_GGv1_homotypic_matrix.npz', allow_pickle=True)
 
     for i, t in enumerate(test_sequences):
         test_array = X_local.calculate_pairwise_homotypic_matrix(t)
@@ -47,9 +51,9 @@ def test_calculate_pairwise_homotypic_matrix():
 #
 #
 def test_calculate_pairwise_heterotypic_matrix():
-    TRUE_matrixes = np.load('test_data/test_mPiPi_GGv1_heterotypic_matrix.npz', allow_pickle=True)
+    TRUE_matrixes = np.load(TEST_DATA_DIR / 'test_mPiPi_GGv1_heterotypic_matrix.npz', allow_pickle=True)
 
-    for i, t in test_sequences:
+    for i, t in enumerate(test_sequences):
         test_array = X_local.calculate_pairwise_heterotypic_matrix(t,t0)
 
         # expect this file to match precomputed heterotypic matrix
@@ -59,9 +63,9 @@ def test_calculate_pairwise_heterotypic_matrix():
 #
 #
 def test_calculate_weighted_pairwise_matrix():
-    TRUE_matrixes = np.load('test_data/test_mPiPi_GGv1_weighted_matrix.npz', allow_pickle=True)
+    TRUE_matrixes = np.load(TEST_DATA_DIR / 'test_mPiPi_GGv1_weighted_matrix.npz', allow_pickle=True)
 
-    for i, t in test_sequences:
+    for i, t in enumerate(test_sequences):
 
         # test defaults
         test_array = X_local.calculate_weighted_pairwise_matrix(t,t0)
@@ -88,12 +92,12 @@ def test_calculate_weighted_pairwise_matrix():
 #
 #
 def test_get_attractive_repulsive_matrixes():
-    TRUE_matrixes = np.load('test_data/test_matrix_manipulation.npz', allow_pickle=True)
+    TRUE_matrixes = np.load(TEST_DATA_DIR / 'test_matrix_manipulation.npz', allow_pickle=True)
 
     # compare the heterotypic DEFAULT matrix of test1:t0
     test_matrix = TRUE_matrixes['test_matrix'] 
-    TRUEattractive_matrix = TRUE_matrixes['attractive_repulsive_matrixes'][0]
-    TRUErepulsive_matrix = TRUE_matrixes['attractive_repulsive_matrixes'][1]
+    TRUEattractive_matrix = np.asarray(TRUE_matrixes['attractive_repulsive_matrixes'][0], dtype=float)
+    TRUErepulsive_matrix = np.asarray(TRUE_matrixes['attractive_repulsive_matrixes'][1], dtype=float)
 
     attractive_matrix, repulsive_matrix = epsilon_calculation.get_attractive_repulsive_matrixes(test_matrix,-0.15)
 
@@ -104,7 +108,7 @@ def test_get_attractive_repulsive_matrixes():
 #
 #
 def test_mask_matrix():
-    TRUE_matrixes = np.load('test_data/test_matrix_manipulation.npz', allow_pickle=True)
+    TRUE_matrixes = np.load(TEST_DATA_DIR / 'test_matrix_manipulation.npz', allow_pickle=True)
 
     # compare the heterotypic DEFAULT matrix of test1:t0
     test_matrix = TRUE_matrixes['test_matrix'] 
@@ -123,7 +127,7 @@ def test_mask_matrix():
 #
 #
 def test_flatten_matrix_to_vector():
-    TRUE_matrixes = np.load('test_data/test_matrix_manipulation.npz', allow_pickle=True)
+    TRUE_matrixes = np.load(TEST_DATA_DIR / 'test_matrix_manipulation.npz', allow_pickle=True)
 
     # compare vectors to truth
     test_matrix = TRUE_matrixes['test_matrix'] 
@@ -148,7 +152,7 @@ def test_flatten_matrix_to_vector():
 #
 #
 def test_get_sequence_epsilon_vectors():
-    TRUE_matrixes = np.load('test_data/mPiPi_GGv1_seq_epsilon_and_vectors.npz', allow_pickle=True)
+    TRUE_matrixes = np.load(TEST_DATA_DIR / 'mPiPi_GGv1_seq_epsilon_and_vectors.npz', allow_pickle=True)
 
     # test t0 with test1 and t0 
     names = ['t', 't0']
@@ -157,13 +161,13 @@ def test_get_sequence_epsilon_vectors():
         n = names[i] 
 
         # compare vectors to truth default
-        [attractive_vector, repulsive_vector] = all_manipulated[f'{n}_t0_NOWEIGHTING']
+        [attractive_vector, repulsive_vector] = TRUE_matrixes[f'{n}_t0_DEFAULT']
         TESTattractive_vector, TESTrepulsive_vector = epsilon_calculation.get_sequence_epsilon_vectors(t,t0,X_local)
         assert np.allclose(TESTattractive_vector, attractive_vector) 
         assert np.allclose(TESTrepulsive_vector, repulsive_vector) 
 
         # compare vectors instance with passed baseline 
-        [attractive_vector, repulsive_vector] = all_manipulated[f'{n}_t0_prefactor_baseline']
+        [attractive_vector, repulsive_vector] = TRUE_matrixes[f'{n}_t0_prefactor_baseline']
         TESTattractive_vector, TESTrepulsive_vector = epsilon_calculation.get_sequence_epsilon_vectors(t,t0,X_local,
                                                                             prefactor=0.25,
                                                                             null_interaction_baseline=-0.15)
@@ -172,7 +176,7 @@ def test_get_sequence_epsilon_vectors():
 
 
         # compare vectors instance with no weighting
-        [attractive_vector, repulsive_vector] = all_manipulated[f'{n}_t0_NOWEIGHTING']
+        [attractive_vector, repulsive_vector] = TRUE_matrixes[f'{n}_t0_NOWEIGHTING']
         TESTattractive_vector, TESTrepulsive_vector = epsilon_calculation.get_sequence_epsilon_vectors(t,t0,X_local,
                                                                             use_charge_weighting=False,
                                                                             use_aliphatic_weighting=False)
@@ -183,4 +187,41 @@ def test_get_sequence_epsilon_vectors():
         pass 
 
 
+# ..........................................................................................
+#
+#
+def test_calculate_sliding_epsilon_matches_reference_window_scores():
+    test_matrix = np.array(
+        [
+            [-0.20, -0.10, 0.05, -0.15],
+            [0.10, -0.25, -0.05, 0.20],
+            [-0.30, 0.15, -0.12, -0.18],
+            [0.08, -0.22, 0.25, -0.05],
+        ],
+        dtype=float,
+    )
+    baseline = -0.15
+    window_size = 3
+
+    def _reference_window_score(submatrix):
+        attractive_matrix = np.where(submatrix < baseline, submatrix - baseline, -baseline)
+        repulsive_matrix = np.where(submatrix > baseline, submatrix - baseline, -baseline)
+        return np.sum(np.mean(attractive_matrix, axis=1)) + np.sum(np.mean(repulsive_matrix, axis=1))
+
+    expected = np.array(
+        [
+            [_reference_window_score(test_matrix[0:3, 0:3]), _reference_window_score(test_matrix[0:3, 1:4])],
+            [_reference_window_score(test_matrix[1:4, 0:3]), _reference_window_score(test_matrix[1:4, 1:4])],
+        ]
+    )
+
+    observed, seq1_indices, seq2_indices = epsilon_calculation.matrix_manipulation.matrix_scan(
+        test_matrix,
+        window_size,
+        baseline,
+    )
+
+    assert np.allclose(observed, expected)
+    assert np.array_equal(seq1_indices, np.array([2, 3]))
+    assert np.array_equal(seq2_indices, np.array([2, 3]))
 
