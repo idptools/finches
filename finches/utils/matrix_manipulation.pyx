@@ -8,6 +8,18 @@ import array
 from libc.stdlib cimport rand, srand, RAND_MAX
 
 
+cdef inline bint _is_charged(char residue) nogil:
+    return residue == 'R' or residue == 'K' or residue == 'E' or residue == 'D'
+
+
+cdef inline double _charge_value(char residue) nogil:
+    if residue == 'R' or residue == 'K':
+        return 1.0
+    if residue == 'E' or residue == 'D':
+        return -1.0
+    return 0.0
+
+
 
 @cython.boundscheck(False)
 @cython.cdivision(True)
@@ -26,6 +38,80 @@ def dict2matrix(str seq1, str seq2, dict lookup):
             matrix[r1,r2] = lookup[seq1[r1]][seq2[r2]]
 
     return matrix
+
+
+@cython.boundscheck(False)
+@cython.cdivision(True)
+def charge_weighted_mask(str seq1, str seq2):
+    cdef int i, j, start, end, idx, l1, l2
+    cdef double total_charge
+    cdef int total_count
+
+    l1 = len(seq1)
+    l2 = len(seq2)
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] attractive_matrix = np.zeros((l1, l2), dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] repulsive_matrix = np.zeros((l1, l2), dtype=np.float64)
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] charge_sum_1 = np.zeros(l1, dtype=np.float64)
+    cdef cnp.ndarray[cnp.int32_t, ndim=1] charge_count_1 = np.zeros(l1, dtype=np.int32)
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1] charged_1 = np.zeros(l1, dtype=np.uint8)
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] charge_sum_2 = np.zeros(l2, dtype=np.float64)
+    cdef cnp.ndarray[cnp.int32_t, ndim=1] charge_count_2 = np.zeros(l2, dtype=np.int32)
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1] charged_2 = np.zeros(l2, dtype=np.uint8)
+
+    for i in range(l1):
+        if _is_charged(seq1[i]):
+            charged_1[i] = 1
+
+        start = i - 1
+        if start < 0:
+            start = 0
+        end = i + 2
+        if end > l1:
+            end = l1
+
+        total_charge = 0.0
+        total_count = 0
+        for idx in range(start, end):
+            if _is_charged(seq1[idx]):
+                total_charge += _charge_value(seq1[idx])
+                total_count += 1
+        charge_sum_1[i] = total_charge
+        charge_count_1[i] = total_count
+
+    for j in range(l2):
+        if _is_charged(seq2[j]):
+            charged_2[j] = 1
+
+        start = j - 1
+        if start < 0:
+            start = 0
+        end = j + 2
+        if end > l2:
+            end = l2
+
+        total_charge = 0.0
+        total_count = 0
+        for idx in range(start, end):
+            if _is_charged(seq2[idx]):
+                total_charge += _charge_value(seq2[idx])
+                total_count += 1
+        charge_sum_2[j] = total_charge
+        charge_count_2[j] = total_count
+
+    for i in range(l1):
+        if charged_1[i] == 0:
+            continue
+        for j in range(l2):
+            if charged_2[j] == 0:
+                continue
+            total_charge = charge_sum_1[i] + charge_sum_2[j]
+            total_count = charge_count_1[i] + charge_count_2[j]
+            repulsive_matrix[i, j] = abs(total_charge / total_count)
+
+    return attractive_matrix, repulsive_matrix
 
 
 @cython.boundscheck(False)
@@ -69,8 +155,11 @@ def matrix_scan(double[:,:] w_matrix, int window_size, double null_interaction_b
 
 
     # define the variables
-    cdef int l1, l2, i, j, start, end, r1, r2;
-    cdef double row_sum, total_mean_sum;
+    cdef int l1, l2, start, end
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] matrix = np.asarray(w_matrix, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] transformed
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] integral
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] everything
 
     # get dimensions of matrix
     l1 = w_matrix.shape[0]
@@ -81,55 +170,16 @@ def matrix_scan(double[:,:] w_matrix, int window_size, double null_interaction_b
         raise Exception('Window size is larger than matrix size, cannot calculate sliding epsilon')
 
 
-    # preallocate the various matrices being used
-    cdef cnp.ndarray[cnp.float64_t, ndim=2] everything = np.empty( [(l1-window_size)+1,(l2-window_size)+1], dtype=np.float64)    
-    cdef cnp.ndarray[double, ndim=2] attractive_matrix = np.empty([window_size, window_size], dtype=np.double)    
-    cdef cnp.ndarray[double, ndim=2] repulsive_matrix = np.empty([window_size, window_size], dtype=np.double)
-    cdef cnp.ndarray[double, ndim=2] sub = np.empty([window_size, window_size], dtype=np.double)
-    
-    
-    # calculate sliding epsilon for all possible intermolecular windows. 
-    for i in range(0,(l1-window_size)+1):
+    transformed = matrix - (2.0 * null_interaction_baseline)
+    transformed[matrix == null_interaction_baseline] -= null_interaction_baseline
 
-        for j in range(0, (l2-window_size)+1):
-
-
-            # copy the memoryview into a numpy array
-            for r1 in range(i, i+window_size):
-                for r2 in range(j, j+window_size):
-                    sub[r1-i,r2-j] = w_matrix[r1,r2]
-
-            # construct the attractive and repulsive matrices, and then sum them - note we do this
-            # so brutally manually because it will then compile down to pure C which buys us all
-            # the speed!
-            for r1 in range(window_size):
-                for r2 in range(window_size):
-
-                    if sub[r1,r2] < null_interaction_baseline:
-                        attractive_matrix[r1,r2] = sub[r1,r2] - null_interaction_baseline
-                    else:
-                        attractive_matrix[r1,r2] = - null_interaction_baseline
-                        
-                    if sub[r1,r2] > null_interaction_baseline:
-                        repulsive_matrix[r1,r2] = sub[r1,r2] - null_interaction_baseline
-                    else:
-                        repulsive_matrix[r1,r2] = -null_interaction_baseline
-
-            # here we sum and average the attractive and repulsive means
-            total_mean_sum = 0.0
-            for r1 in range(window_size):
-                row_sum = 0.0
-                for r2 in range(window_size):
-                    row_sum += attractive_matrix[r1, r2]
-                total_mean_sum += row_sum / window_size  # Add the mean of the current row to the total sum
-                        
-            for r1 in range(window_size):
-                row_sum = 0.0
-                for r2 in range(window_size):
-                    row_sum += repulsive_matrix[r1, r2]
-                total_mean_sum += row_sum / window_size  # Add the mean of the current row to the total sum
-
-            everything[i,j] =     total_mean_sum
+    integral = np.pad(transformed, ((1, 0), (1, 0)), mode="constant").cumsum(axis=0).cumsum(axis=1)
+    everything = (
+        integral[window_size:, window_size:]
+        - integral[:-window_size, window_size:]
+        - integral[window_size:, :-window_size]
+        + integral[:-window_size, :-window_size]
+    ) / float(window_size)
 
 
     # finally, determine indices for sequence1 - note need +1 for indexing to move from Python

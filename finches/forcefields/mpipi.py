@@ -600,8 +600,12 @@ def wang_frenkel(r, sigma_ij, epsilon_ij, mu_ij=2, nu_ij=1):
     main_term3 = np.power(np.power(R_ij/r, 2*mu_ij) - 1, 2*nu_ij)
     
     return main_term1*main_term2*main_term3
-            
-      
 
 
+def mpipi_model(version='Mpipi_GGv1', *args, **kwargs):
+    version_aliases = {
+        'mPiPi_GGv1': 'Mpipi_GGv1',
+        'mPiPi_original': 'Mpipi_original',
+    }
+    return Mpipi_model(version=version_aliases.get(version, version), *args, **kwargs)
 
