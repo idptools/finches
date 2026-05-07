@@ -404,7 +404,13 @@ class Mpipi_model:
 
         # take the numerical finite integral between 1 and 3 sigma to calculate
         # an interacion parameter
-        interaction_param = np.trapz(combo[s1:s3], x=r[s1:s3])
+        if hasattr(np, 'trapezoid'):
+            integration_fn = np.trapezoid
+        elif hasattr(np, 'trapz'):
+            integration_fn = np.trapz
+        else:
+            raise AttributeError('NumPy has neither trapezoid nor trapz')
+        interaction_param = integration_fn(combo[s1:s3], x=r[s1:s3])
 
         return (interaction_param, combo, s1, s3, r)
 

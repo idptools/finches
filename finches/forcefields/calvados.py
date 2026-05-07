@@ -233,6 +233,10 @@ class calvados_model:
         # Set the charge on HIS based on the pH of the protein solution? Not needed if pH=7.4
         # NOTE this throws a warning but seems to work okay - basically this is calculating
         # the charge (q) for residue 'H' at the given pH using 1/1(1+10^(pH-6))
+        # Explicitly cast the charge column to float to accommodate Histidine's fractional charge
+        r['q'] = r['q'].astype(float)
+
+        # Calculate and assign the pH-dependent charge for Histidine
         r.loc['H','q'] = 1. / ( 1 + 10**(self.pH-6) )
         
         fepsw = lambda T : 5321/T+233.76-0.9297*T+0.1417*1e-2*T*T-0.8292*1e-6*T**3
@@ -381,8 +385,13 @@ class calvados_model:
 
         # take the numerical finite integral between 1 and 3 sigma to calculate
         # an interacion parameter
-        interaction_param = np.trapz(combo[s1:s3], x=r_angstroms[s1:s3])
-
+        if hasattr(np, 'trapezoid'):
+            integration_fn = np.trapezoid
+        elif hasattr(np, 'trapz'):
+            integration_fn = np.trapz
+        else:
+            raise AttributeError('NumPy has neither trapezoid nor trapz')
+        interaction_param = integration_fn(combo[s1:s3], x=r_angstroms[s1:s3])
         # note we need to *10 to convert back to Angstroms
         return (interaction_param, combo, s1*10, s3*10, r*10)
 
