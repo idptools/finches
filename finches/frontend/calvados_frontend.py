@@ -44,7 +44,7 @@ class CALVADOS_frontend(FinchesFrontend):
 
     Example
     -------
-    Basic usage for calculating epsilon between two proteins:
+    Basic usage for calculating epsilon between two proteins::
 
         from finches.frontend.calvados_frontend import CALVADOS_frontend
 
@@ -104,16 +104,16 @@ class CALVADOS_frontend(FinchesFrontend):
 
         Example
         -------
-        Initialize with default physiological conditions:
+        Initialize with default physiological conditions::
 
             from finches.frontend.calvados_frontend import CALVADOS_frontend
             cf = CALVADOS_frontend()
 
-        Initialize for low salt conditions:
+        Initialize for low salt conditions::
 
             cf = CALVADOS_frontend(salt=0.050, pH=7.4, temperature=298)
 
-        Initialize for acidic conditions:
+        Initialize for acidic conditions::
 
             cf = CALVADOS_frontend(salt=0.150, pH=5.5, temperature=310)
 
@@ -205,25 +205,21 @@ class CALVADOS_frontend(FinchesFrontend):
         Returns
         -------
         tuple
-            A 3-element tuple containing:
+            A 3-element tuple ``(matrix_data, disorder_1, disorder_2)``:
 
-            [0] matrix_data : tuple
-                A 3-element tuple:
-                - [0][0]: np.ndarray - 2D interaction matrix (epsilon values)
-                - [0][1]: np.ndarray - 1D array mapping matrix row indices to seq1 positions
-                - [0][2]: np.ndarray - 1D array mapping matrix col indices to seq2 positions
-
-            [1] disorder_1 : np.ndarray
-                Disorder profile for seq1 (values 0-1, higher = more disordered).
-                All 1s if disorder_1=False.
-
-            [2] disorder_2 : np.ndarray
-                Disorder profile for seq2 (values 0-1, higher = more disordered).
-                All 1s if disorder_2=False.
+            - ``matrix_data`` : a 3-element tuple
+              ``(matrix, seq1_indices, seq2_indices)`` where ``matrix`` is the 2D
+              interaction matrix of epsilon values, and ``seq1_indices`` /
+              ``seq2_indices`` are 1D arrays of the 1-based sequence positions for
+              the matrix rows (seq1) and columns (seq2).
+            - ``disorder_1`` : np.ndarray - disorder profile for seq1 (values 0-1,
+              higher = more disordered); all 1s if ``disorder_1=False``.
+            - ``disorder_2`` : np.ndarray - disorder profile for seq2; all 1s if
+              ``disorder_2=False``.
 
         Example
         -------
-        Calculate interaction matrix between two proteins:
+        Calculate interaction matrix between two proteins::
 
             from finches.frontend.calvados_frontend import CALVADOS_frontend
             import numpy as np
@@ -244,7 +240,7 @@ class CALVADOS_frontend(FinchesFrontend):
                   f"seq2 pos {seq2_indices[min_idx[1]]}")
             print(f"Epsilon: {epsilon_matrix[min_idx]}")
 
-        Compute without disorder prediction (faster):
+        Compute without disorder prediction (faster)::
 
             matrix_data, _, _ = cf.intermolecular_idr_matrix(
                 seq1, seq2, disorder_1=False, disorder_2=False
@@ -315,16 +311,17 @@ class CALVADOS_frontend(FinchesFrontend):
         Returns
         -------
         float
-            The epsilon value for the interaction between the two sequences.
-            - Negative values: attractive interaction (more negative = stronger)
-            - Positive values: repulsive interaction
-            - Near zero: neutral/weak interaction
+            The epsilon value for the interaction between the two sequences:
+
+            - negative values: attractive interaction (more negative = stronger)
+            - positive values: repulsive interaction
+            - near zero: neutral/weak interaction
 
             Typical range: -10 to +10, though extreme sequences can exceed this.
 
         Example
         -------
-        Calculate homotypic (self) interaction:
+        Calculate homotypic (self) interaction::
 
             from finches.frontend.calvados_frontend import CALVADOS_frontend
 
@@ -335,7 +332,7 @@ class CALVADOS_frontend(FinchesFrontend):
             eps_self = cf.epsilon(seq, seq)
             print(f"Self-interaction epsilon: {eps_self:.3f}")
 
-        Calculate heterotypic interaction between two different proteins:
+        Calculate heterotypic interaction between two different proteins::
 
             seq1 = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
             seq2 = "MGSWAEFKQRLAAIKTRLQALGGSEAELAAFEK"
@@ -348,7 +345,7 @@ class CALVADOS_frontend(FinchesFrontend):
             else:
                 print(f"Weak/neutral interaction: {eps:.3f}")
 
-        Compare different solution conditions:
+        Compare different solution conditions::
 
             # High salt reduces electrostatic effects
             cf_high_salt = CALVADOS_frontend(salt=0.500)
@@ -494,29 +491,21 @@ class CALVADOS_frontend(FinchesFrontend):
         Returns
         -------
         tuple
-            A 6-element tuple of matplotlib objects for customization:
+            A 6-element tuple of matplotlib objects
+            ``(fig, im, ax_main, ax_top, ax_right, ax_colorbar)`` for further
+            customization:
 
-            fig : matplotlib.figure.Figure
-                The figure object.
-
-            im : matplotlib.image.AxesImage
-                The image object from imshow() - use for colorbar customization.
-
-            ax_main : matplotlib.axes.Axes
-                Main heatmap axes.
-
-            ax_top : matplotlib.axes.Axes
-                Top disorder profile axes.
-
-            ax_right : matplotlib.axes.Axes
-                Right disorder profile axes.
-
-            ax_colorbar : matplotlib.axes.Axes
-                Colorbar axes.
+            - ``fig`` (matplotlib.figure.Figure) - the figure object.
+            - ``im`` (matplotlib.image.AxesImage) - the heatmap image (from
+              imshow), e.g. for colorbar customization.
+            - ``ax_main`` (matplotlib.axes.Axes) - main heatmap axes.
+            - ``ax_top`` (matplotlib.axes.Axes) - top disorder profile axes.
+            - ``ax_right`` (matplotlib.axes.Axes) - right disorder profile axes.
+            - ``ax_colorbar`` (matplotlib.axes.Axes) - colorbar axes.
 
         Example
         -------
-        Basic interaction figure:
+        Basic interaction figure::
 
             from finches.frontend.calvados_frontend import CALVADOS_frontend
 
@@ -529,7 +518,7 @@ class CALVADOS_frontend(FinchesFrontend):
                 seq1, seq2
             )
 
-        Save figure with custom color scale:
+        Save figure with custom color scale::
 
             fig_data = cf.interaction_figure(
                 seq1, seq2,
@@ -537,7 +526,7 @@ class CALVADOS_frontend(FinchesFrontend):
                 fname="interaction_map.png"
             )
 
-        Highlight known domains and binding sites:
+        Highlight known domains and binding sites::
 
             fig_data = cf.interaction_figure(
                 seq1, seq2,
@@ -547,7 +536,7 @@ class CALVADOS_frontend(FinchesFrontend):
                 seq2_lines=[100, 150]                  # Mark positions in seq2
             )
 
-        Customize the returned figure:
+        Customize the returned figure::
 
             fig, im, ax_main, ax_top, ax_right, ax_cbar = cf.interaction_figure(
                 seq1, seq2
@@ -590,7 +579,9 @@ class CALVADOS_frontend(FinchesFrontend):
     # ....................................................................................
     #
     #
-    def protein_nucleic_vector(seq, fragsize=31, smoothing_window=30, poly_order=3):
+    def protein_nucleic_vector(
+        self, seq, fragsize=31, smoothing_window=30, poly_order=3
+    ):
         """
         Calculate protein-nucleic acid interaction vector (NOT SUPPORTED in CALVADOS).
 
@@ -627,7 +618,7 @@ class CALVADOS_frontend(FinchesFrontend):
 
         Example
         -------
-        This method will always fail - use Mpipi_frontend instead:
+        This method will always fail - use Mpipi_frontend instead::
 
             from finches.frontend.calvados_frontend import CALVADOS_frontend
             from finches.frontend.mpipi_frontend import Mpipi_frontend
@@ -638,7 +629,7 @@ class CALVADOS_frontend(FinchesFrontend):
 
             # Use Mpipi_frontend instead for RNA:
             mf = Mpipi_frontend()
-            pnv = mf.protein_nucleic_vector(protein_seq, rna_type='polyU')
+            pnv = mf.protein_nucleic_vector(protein_seq)
 
         See Also
         --------

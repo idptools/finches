@@ -1,6 +1,33 @@
 # Changelog
 
 
+### Version 0.1.5 (in development; 2026-05-20)
+This is a code-quality, performance, and documentation pass over the core and frontend modules. The performance changes and refactors were all verified to produce output **identical** to the previous implementations; the items under "Bug fixes" intentionally change behaviour because they correct previously-incorrect behaviour.
+
+**Performance**
+* Pairwise interaction matrices (`InteractionMatrixConstructor.calculate_pairwise_heterotypic_matrix`) are now built with a precomputed NumPy lookup table rather than per-element dictionary lookups (~8x faster for that step; transparently falls back to the dictionary path for non-standard residue codes).
+* Vectorized `get_charge_weighted_mask()` and `get_aliphatic_groups()` in `parsing_aminoacid_sequences.py`, removing per-residue Python loops. Both were verified bit-identical to the previous implementations (exhaustively for the aliphatic clustering).
+* Net effect: `epsilon()` is ~2.3x faster, which compounds across DMS, null-shuffle, and the per-residue / sliding-window analyses.
+* Fixed an initialization inefficiency in `Mpipi_model` where each parameter pickle was loaded 5 times (once per filename in the existence-check loop) instead of once.
+
+**Bug fixes**
+* `CALVADOS_frontend.protein_nucleic_vector()` was missing its `self` argument.
+* `get_sequence_epsilon_vectors()` (`epsilon_stateless.py`) and `calculate_weighted_pairwise_matrix()` (`epsilon_calculation.py`) used `x or default`, which silently discarded an explicitly-passed `null_interaction_baseline` / `charge_prefactor` of `0`; both now use explicit `is None` checks.
+* The non-Cython fallback in `calculate_sliding_epsilon()` returned the seq1/seq2 index arrays in swapped order relative to the (default) Cython path.
+* The `zero_folded` logic in `interaction_figure()` had an off-by-one (it could wrap to row -1 and skipped the final row); it is now vectorized row/column masking.
+* The `disorder_1` / `disorder_2` arguments to the base `interaction_figure()` were silently ignored; they are now passed through to `intermolecular_idr_matrix()`.
+* `folded_domain_utils.py`: fixed an undefined-variable (`override_mapping`) `NameError` in the residue-override path, a non-interpolating f-string, and a misplaced `weight=` keyword that was passed to `dict()` instead of `nx.all_pairs_dijkstra_path()`.
+* `sequence_tools.show_sequence_HTML()`: replaced a bare `raise` with a clear `ValueError`, and removed a stray `>` in the FASTA-header HTML.
+
+**Documentation**
+* Rebuilt `docs/api.rst` into a detailed reference for `Mpipi_frontend` and `CALVADOS_frontend`, including a feature-comparison table, a quickstart, and a categorized method overview.
+* Corrected and standardized the numpy-style docstrings across the frontend, forcefield, analytical-FH, and domain-decomposition modules, and fixed their reStructuredText so they render cleanly under Sphinx (the API page now builds with no autodoc warnings).
+* Added the FINCHES logo (`docs/media/finches_logo_v1.png`) to the documentation sidebar via `html_logo`.
+
+**Code quality**
+* Ran `ruff format` on all touched modules and resolved the outstanding `ruff check` lint (unused imports/variables, duplicate imports, ambiguous names, `type(...) ==` comparisons, etc.).
+
+
 ### Version 0.1.4 (2026-01-28)
 * Fixed bug in CALVADOS initialization (Stephen also independently fixed - thanks, Stephen!)
 * Added dms() and plot_dms() functions into the `frontend_base.py` code for frontend objects

@@ -92,6 +92,13 @@ pygments_style = 'default'
 #
 html_theme = 'sphinx_rtd_theme'
 
+# Logo shown at the top of the sidebar/navigation on every page. It lives in
+# docs/media/ (a tracked directory) rather than docs/_static/, because the
+# repository .gitignore pattern "*c" matches the "_static" directory and would
+# stop new assets there from being committed. Sphinx copies html_logo into the
+# built _static/ output automatically.
+html_logo = 'media/finches_logo_v1.png'
+
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.

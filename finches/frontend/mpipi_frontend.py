@@ -1,6 +1,3 @@
-# other stuff
-import numpy as np
-
 from finches import epsilon_calculation
 
 # for model construction
@@ -12,106 +9,106 @@ from .frontend_base import FinchesFrontend
 class Mpipi_frontend(FinchesFrontend):
     """
     Frontend class for Mpipi (GGv1) forcefield calculations.
-    
+
     Mpipi_frontend provides a high-level interface for calculating protein-protein
     AND protein-RNA interaction parameters using the Mpipi coarse-grained forcefield.
     This class inherits from FinchesFrontend and adds Mpipi-specific functionality.
-    
+
     KEY FEATURE: Unlike CALVADOS2, Mpipi SUPPORTS RNA sequences. RNA is represented
     using 'U' (uracil) to indicate poly-U RNA. This enables protein-RNA interaction
     calculations.
-    
+
     The Mpipi forcefield models interactions based on:
     - Pi-pi stacking interactions (aromatic residues)
     - Cation-pi interactions
     - Electrostatic interactions (salt and dielectric dependent)
     - Hydrophobic interactions
     - Sequence-specific parameters from the Mpipi-GGv1 parameterization
-    
+
     Example
     -------
-    Basic usage for calculating epsilon between two proteins:
-    
+    Basic usage for calculating epsilon between two proteins::
+
         from finches.frontend.mpipi_frontend import Mpipi_frontend
-        
+
         # Initialize with default parameters
         mf = Mpipi_frontend()
-        
+
         # Or with custom solution conditions
         mf = Mpipi_frontend(salt=0.100, dielectric=78.0)
-        
+
         # Calculate epsilon between two protein sequences
         seq1 = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
         seq2 = "MGSWAEFKQRLAAIKTRLQALGGSEAELAAFEK"
         eps = mf.epsilon(seq1, seq2)
         print(f"Protein-protein epsilon: {eps}")
-        
-    Protein-RNA interaction example:
-    
+
+    Protein-RNA interaction example::
+
         # Calculate protein-RNA interaction
         protein_seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
         rna_seq = "U" * 50  # 50-nucleotide poly-U RNA
         eps_rna = mf.epsilon(protein_seq, rna_seq)
         print(f"Protein-RNA epsilon: {eps_rna}")
-        
-        # Get per-residue protein-RNA interaction profile
-        pnv = mf.protein_nucleic_vector(protein_seq, rna_type='polyU')
-    
+
+        # Get per-residue protein-RNA interaction profile (vs poly-U)
+        pnv = mf.protein_nucleic_vector(protein_seq)
+
     See Also
     --------
     CALVADOS_frontend : Alternative frontend for protein-only calculations
     FinchesFrontend : Base class with shared functionality
-    
+
     Notes
     -----
     When sequences contain 'U', disorder prediction is automatically disabled
     for that sequence since metapredict cannot predict disorder for RNA.
-    
+
     """
 
     def __init__(self, salt=0.150, dielectric=80.0):
         """
         Initialize the Mpipi_frontend with specified solution conditions.
-        
+
         Creates an instance of the Mpipi-GGv1 forcefield model configured with
         the specified salt concentration and dielectric constant. These parameters
         affect electrostatic interactions in the model.
-        
+
         Parameters
         ----------
         salt : float, optional
             Salt concentration in molar (M). Default is 0.150 M (150 mM),
             which represents typical physiological conditions. Higher salt
             screens electrostatic interactions.
-            
+
         dielectric : float, optional
             Dielectric constant of the solution. Default is 80.0, which is
             the approximate dielectric constant of water at 20°C. Lower
             dielectric increases the strength of electrostatic interactions.
-            
+
         Attributes
         ----------
         model : Mpipi_model
             The underlying Mpipi-GGv1 forcefield model instance.
-            
+
         IMC_object : InteractionMatrixConstructor
             Object for computing interaction matrices and epsilon values.
-        
+
         Example
         -------
-        Initialize with default physiological conditions:
-        
+        Initialize with default physiological conditions::
+
             from finches.frontend.mpipi_frontend import Mpipi_frontend
             mf = Mpipi_frontend()
-            
-        Initialize for low salt conditions:
-        
+
+        Initialize for low salt conditions::
+
             mf = Mpipi_frontend(salt=0.050, dielectric=80.0)
-            
-        Initialize for organic solvent mixture (lower dielectric):
-        
+
+        Initialize for organic solvent mixture (lower dielectric)::
+
             mf = Mpipi_frontend(salt=0.150, dielectric=60.0)
-        
+
         """
         # call superclass constructor
         super().__init__()
@@ -136,19 +133,20 @@ class Mpipi_frontend(FinchesFrontend):
         use_charge_weighting=True,
         disorder_1=None,
         disorder_2=None,
-        null_shuffle=False):    
+        null_shuffle=False,
+    ):
         """
         Calculate the sliding-window interaction matrix between two sequences.
-        
+
         This method decomposes two sequences into overlapping fragments of size
         `window_size` and calculates pairwise epsilon values between all fragment
         pairs using a sliding window approach. The result is a 2D matrix where each
         cell (i, j) represents the interaction strength between fragment i from seq1
         and fragment j from seq2.
-        
+
         The matrix is NOT padded, so edge positions depend on window_size. The method
         returns index arrays that map matrix positions to sequence positions.
-        
+
         RNA SUPPORT: Sequences can contain 'U' (uracil) to represent poly-U RNA.
         When a sequence contains 'U', disorder prediction is automatically disabled
         for that sequence since metapredict cannot analyze RNA.
@@ -198,49 +196,46 @@ class Mpipi_frontend(FinchesFrontend):
         Returns
         -------
         tuple
-            A 3-element tuple containing:
-            
-            [0] matrix_data : tuple
-                A 3-element tuple:
-                - [0][0]: np.ndarray - 2D interaction matrix (epsilon values)
-                - [0][1]: np.ndarray - 1D array mapping matrix row indices to seq1 positions
-                - [0][2]: np.ndarray - 1D array mapping matrix col indices to seq2 positions
-                
-            [1] disorder_1 : np.ndarray
-                Disorder profile for seq1 (values 0-1, higher = more disordered).
-                All 1s if disorder_1=False or if seq1 contains 'U'.
-                
-            [2] disorder_2 : np.ndarray  
-                Disorder profile for seq2 (values 0-1, higher = more disordered).
-                All 1s if disorder_2=False or if seq2 contains 'U'.
+            A 3-element tuple ``(matrix_data, disorder_1, disorder_2)``:
+
+            - ``matrix_data`` : a 3-element tuple
+              ``(matrix, seq1_indices, seq2_indices)`` where ``matrix`` is the 2D
+              interaction matrix of epsilon values, and ``seq1_indices`` /
+              ``seq2_indices`` are 1D arrays of the 1-based sequence positions for
+              the matrix rows (seq1) and columns (seq2).
+            - ``disorder_1`` : np.ndarray - disorder profile for seq1 (values 0-1,
+              higher = more disordered); all 1s if ``disorder_1=False`` or if seq1
+              contains 'U'.
+            - ``disorder_2`` : np.ndarray - disorder profile for seq2; all 1s if
+              ``disorder_2=False`` or if seq2 contains 'U'.
 
         Example
         -------
-        Calculate protein-protein interaction matrix:
-        
+        Calculate protein-protein interaction matrix::
+
             from finches.frontend.mpipi_frontend import Mpipi_frontend
             import numpy as np
-            
+
             mf = Mpipi_frontend()
-            
+
             seq1 = "MSKGEELFTGVVPILVELDGDVNGHKFSVS" * 3  # 90 residues
             seq2 = "MGSWAEFKQRLAAIKTRLQALGGSEAELAAFEK" * 3  # 99 residues
-            
+
             matrix_data, dis1, dis2 = mf.intermolecular_idr_matrix(seq1, seq2)
-            
+
             # Unpack the matrix data
             epsilon_matrix, seq1_indices, seq2_indices = matrix_data
-            
+
             # Find the most attractive region
             min_idx = np.unravel_index(np.argmin(epsilon_matrix), epsilon_matrix.shape)
             print(f"Most attractive at seq1 pos {seq1_indices[min_idx[0]]}, "
                   f"seq2 pos {seq2_indices[min_idx[1]]}")
-        
-        Calculate protein-RNA interaction matrix:
-        
+
+        Calculate protein-RNA interaction matrix::
+
             protein_seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS" * 3
             rna_seq = "U" * 100  # 100-nt poly-U RNA
-            
+
             # Disorder is automatically disabled for RNA sequence
             matrix_data, dis_prot, dis_rna = mf.intermolecular_idr_matrix(
                 protein_seq, rna_seq
@@ -269,7 +264,7 @@ class Mpipi_frontend(FinchesFrontend):
             use_charge_weighting=use_charge_weighting,
             disorder_1=disorder_1,
             disorder_2=disorder_2,
-            null_shuffle=null_shuffle
+            null_shuffle=null_shuffle,
         )
 
     def interaction_figure(
@@ -293,23 +288,24 @@ class Mpipi_frontend(FinchesFrontend):
         zero_folded=True,
         no_disorder=False,
         null_shuffle=False,
-        plot_rectangles=None):
+        plot_rectangles=None,
+    ):
         """
         Generate a publication-ready interaction matrix figure between two sequences.
-        
+
         Creates a comprehensive visualization showing the sliding-window interaction
         matrix as a heatmap with parallel disorder prediction tracks along the top
         and right edges. The heatmap uses a diverging colormap where purple indicates
         attractive (negative epsilon) regions and green indicates repulsive (positive
         epsilon) regions.
-        
+
         This is the primary visualization method for understanding where along two
         sequences the strongest and weakest interactions occur.
-        
+
         RNA SUPPORT: Sequences can contain 'U' (uracil) for poly-U RNA. When a
         sequence contains 'U', the disorder profile for that sequence is automatically
         set to uniform (all 1s) since metapredict cannot predict disorder for RNA.
-        
+
         Parameters
         ----------
         seq1 : str
@@ -355,7 +351,7 @@ class Mpipi_frontend(FinchesFrontend):
 
         linewidth : float, optional
             Width of domain boundary and marker lines. Default is 1.
-                                                      
+
         vmin : float, optional
             Minimum value for the colorbar scale. Default is -3.
             More negative = stronger attraction (purple).
@@ -363,7 +359,7 @@ class Mpipi_frontend(FinchesFrontend):
         vmax : float, optional
             Maximum value for the colorbar scale. Default is 3.
             More positive = stronger repulsion (green).
-        
+
         cmap : str, optional
             Matplotlib colormap name. Default is 'PRGn' (purple-green diverging).
             Other good options: 'RdBu_r', 'coolwarm', 'seismic'.
@@ -391,59 +387,51 @@ class Mpipi_frontend(FinchesFrontend):
         Returns
         -------
         tuple
-            A 6-element tuple of matplotlib objects for customization:
-            
-            fig : matplotlib.figure.Figure
-                The figure object.
-                
-            im : matplotlib.image.AxesImage
-                The image object from imshow() - use for colorbar customization.
-                
-            ax_main : matplotlib.axes.Axes
-                Main heatmap axes.
-                
-            ax_top : matplotlib.axes.Axes
-                Top disorder profile axes.
-                
-            ax_right : matplotlib.axes.Axes
-                Right disorder profile axes.
-                
-            ax_colorbar : matplotlib.axes.Axes
-                Colorbar axes.
+            A 6-element tuple of matplotlib objects
+            ``(fig, im, ax_main, ax_top, ax_right, ax_colorbar)`` for further
+            customization:
+
+            - ``fig`` (matplotlib.figure.Figure) - the figure object.
+            - ``im`` (matplotlib.image.AxesImage) - the heatmap image (from
+              imshow), e.g. for colorbar customization.
+            - ``ax_main`` (matplotlib.axes.Axes) - main heatmap axes.
+            - ``ax_top`` (matplotlib.axes.Axes) - top disorder profile axes.
+            - ``ax_right`` (matplotlib.axes.Axes) - right disorder profile axes.
+            - ``ax_colorbar`` (matplotlib.axes.Axes) - colorbar axes.
 
         Example
         -------
-        Basic protein-protein interaction figure:
-        
+        Basic protein-protein interaction figure::
+
             from finches.frontend.mpipi_frontend import Mpipi_frontend
-            
+
             mf = Mpipi_frontend()
-            
+
             seq1 = "MSKGEELFTGVVPILVELDGDVNGHKFSVS" * 5  # 150 residues
             seq2 = "MGSWAEFKQRLAAIKTRLQALGGSEAELAAFEK" * 5  # 165 residues
-            
+
             fig, im, ax_main, ax_top, ax_right, ax_cbar = mf.interaction_figure(
                 seq1, seq2
             )
-            
-        Protein-RNA interaction figure:
-        
+
+        Protein-RNA interaction figure::
+
             protein_seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS" * 5
             rna_seq = "U" * 150  # 150-nt poly-U RNA
-            
+
             # RNA sequence will have uniform disorder profile
             fig_data = mf.interaction_figure(protein_seq, rna_seq)
-            
-        Save figure with custom color scale:
-        
+
+        Save figure with custom color scale::
+
             fig_data = mf.interaction_figure(
                 seq1, seq2,
                 vmin=-5, vmax=5,
                 fname="interaction_map.png"
             )
-            
-        Highlight known domains and binding sites:
-        
+
+        Highlight known domains and binding sites::
+
             fig_data = mf.interaction_figure(
                 seq1, seq2,
                 seq1_domains=[[10, 50], [100, 130]],  # Folded domains in seq1
@@ -451,9 +439,9 @@ class Mpipi_frontend(FinchesFrontend):
                 seq1_lines=[75],                       # Mark position 75 in seq1
                 seq2_lines=[100, 150]                  # Mark positions in seq2
             )
-            
-        Customize the returned figure:
-        
+
+        Customize the returned figure::
+
             fig, im, ax_main, ax_top, ax_right, ax_cbar = mf.interaction_figure(
                 seq1, seq2
             )
@@ -496,5 +484,5 @@ class Mpipi_frontend(FinchesFrontend):
             disorder_2=disorder_2,
             no_disorder=no_disorder,
             null_shuffle=null_shuffle,
-            plot_rectangles=plot_rectangles)
-        
+            plot_rectangles=plot_rectangles,
+        )

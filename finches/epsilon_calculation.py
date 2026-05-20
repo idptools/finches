@@ -42,9 +42,11 @@ class InteractionMatrixConstructor:
         """
 
         # Validate parameters object
-        if not hasattr(parameters, 'ALL_RESIDUES_TYPES'):
-            raise AttributeError("Parameters object must have ALL_RESIDUES_TYPES attribute")
-        
+        if not hasattr(parameters, "ALL_RESIDUES_TYPES"):
+            raise AttributeError(
+                "Parameters object must have ALL_RESIDUES_TYPES attribute"
+            )
+
         # Initialize core variables
         self.parameters = None
         self.valid_residue_groups = parameters.ALL_RESIDUES_TYPES
@@ -52,49 +54,122 @@ class InteractionMatrixConstructor:
         self.charge_prefactor = charge_prefactor
         self.null_interaction_baseline = null_interaction_baseline
         self.lookup = {}
+        # NumPy lookup table for fast pairwise-matrix construction; populated by
+        # _build_lookup_matrix() when the lookup dict is built below
+        self._lookup_matrix = None
+        self._residue_codes = None
+        self._ascii_to_code = None
 
         # Set up parameters and lookup table
         self._update_parameters(parameters)
 
         # Set defaults from forcefield configs if not provided
         if self.null_interaction_baseline is None:
-            if hasattr(self.parameters, 'CONFIGS') and "null_interaction_baseline" in self.parameters.CONFIGS:
-                self.null_interaction_baseline = self.parameters.CONFIGS["null_interaction_baseline"]
+            if (
+                hasattr(self.parameters, "CONFIGS")
+                and "null_interaction_baseline" in self.parameters.CONFIGS
+            ):
+                self.null_interaction_baseline = self.parameters.CONFIGS[
+                    "null_interaction_baseline"
+                ]
             elif compute_forcefield_dependencies:
-                print(f"Recomputing null_interaction_baseline for {self.parameters.version}...")
-                self.null_interaction_baseline = forcefield_dependencies.get_null_interaction_baseline(self)
+                print(
+                    f"Recomputing null_interaction_baseline for {self.parameters.version}..."
+                )
+                self.null_interaction_baseline = (
+                    forcefield_dependencies.get_null_interaction_baseline(self)
+                )
             else:
-                print(f"WARNING: null_interaction_baseline not found for {parameters.version}")
+                print(
+                    f"WARNING: null_interaction_baseline not found for {parameters.version}"
+                )
 
         if self.charge_prefactor is None:
-            if hasattr(self.parameters, 'CONFIGS') and "charge_prefactor" in self.parameters.CONFIGS:
+            if (
+                hasattr(self.parameters, "CONFIGS")
+                and "charge_prefactor" in self.parameters.CONFIGS
+            ):
                 self.charge_prefactor = self.parameters.CONFIGS["charge_prefactor"]
             else:
-                raise ValueError("charge_prefactor must be provided or defined in forcefield CONFIGS")
+                raise ValueError(
+                    "charge_prefactor must be provided or defined in forcefield CONFIGS"
+                )
 
     def _update_lookup_dict(self, unknown_set_to_zero=False):
         """
         Recalculate inter-residue interaction lookup table.
-        
+
         Parameters
         ----------
         unknown_set_to_zero : bool
             Set unknown interactions to zero instead of raising error
         """
         self.lookup = {}
-        valid_aa = list(set([res for sublist in self.valid_residue_groups for res in sublist]))
+        valid_aa = list(
+            set([res for sublist in self.valid_residue_groups for res in sublist])
+        )
 
         for r1 in valid_aa:
             self.lookup[r1] = {}
             for r2 in valid_aa:
                 try:
-                    self.lookup[r1][r2] = self.parameters.compute_interaction_parameter(r1, r2)[0]
+                    self.lookup[r1][r2] = self.parameters.compute_interaction_parameter(
+                        r1, r2
+                    )[0]
                 except KeyError as e:
                     if unknown_set_to_zero:
-                        print(f"WARNING: Unknown residue pair {r1}-{r2}, setting to zero.")
+                        print(
+                            f"WARNING: Unknown residue pair {r1}-{r2}, setting to zero."
+                        )
                         self.lookup[r1][r2] = 0.0
                     else:
                         raise Exception(f"ERROR: {e} for {r1} and {r2}.")
+
+        # build a vectorized NumPy lookup table so the pairwise matrix can be
+        # constructed by integer array indexing instead of per-element dict lookups
+        self._build_lookup_matrix()
+
+    def _build_lookup_matrix(self):
+        """
+        Build a NumPy lookup table equivalent to ``self.lookup`` for fast,
+        vectorized pairwise-matrix construction.
+
+        Sets three attributes:
+
+        - ``self._lookup_matrix`` : (n_res, n_res) float array where
+          ``[i, j]`` is the interaction parameter for the residues with codes
+          ``i`` and ``j``.
+        - ``self._residue_codes`` : dict mapping residue character -> code.
+        - ``self._ascii_to_code`` : length-256 int array mapping a residue's
+          byte value -> code (-1 for bytes that are not valid residues), so a
+          sequence can be turned into codes with a single array index.
+
+        If any residue key is not a single character with an ordinal < 256 the
+        table is set to ``None`` and the dict-based path is used instead.
+        """
+        residues = sorted(self.lookup.keys())
+
+        # only single-character residues with ordinals < 256 can use the fast
+        # ascii/latin-1 byte-indexed path; otherwise disable it and fall back
+        if not all(len(r) == 1 and ord(r) < 256 for r in residues):
+            self._lookup_matrix = None
+            self._residue_codes = None
+            self._ascii_to_code = None
+            return
+
+        self._residue_codes = {r: i for i, r in enumerate(residues)}
+
+        n = len(residues)
+        table = np.empty((n, n), dtype=float)
+        for r1, i in self._residue_codes.items():
+            for r2, j in self._residue_codes.items():
+                table[i, j] = self.lookup[r1][r2]
+        self._lookup_matrix = table
+
+        ascii_to_code = np.full(256, -1, dtype=np.intp)
+        for r, i in self._residue_codes.items():
+            ascii_to_code[ord(r)] = i
+        self._ascii_to_code = ascii_to_code
 
     def _update_parameters(self, new_parameters):
         """
@@ -111,19 +186,21 @@ class InteractionMatrixConstructor:
         """
         if not sequence:
             raise ValueError("Empty sequence provided")
-            
+
         unique_residues = set(sequence)
         matching_groups = 0
         total_matches = 0
-        
+
         for residue_group in self.valid_residue_groups:
             matches = unique_residues.intersection(residue_group)
             if matches:
                 matching_groups += 1
                 total_matches += len(matches)
-        
+
         if matching_groups > 1:
-            raise ValueError(f"Sequence contains residues from multiple groups: {sequence}")
+            raise ValueError(
+                f"Sequence contains residues from multiple groups: {sequence}"
+            )
         elif total_matches < len(unique_residues):
             raise ValueError(f"Unknown residue found in sequence: {sequence}")
 
@@ -141,12 +218,16 @@ class InteractionMatrixConstructor:
         """
         Calculate pairwise interaction matrix for a single sequence.
         """
-        return self.calculate_pairwise_heterotypic_matrix(sequence, sequence, convert_to_custom=convert_to_custom)
+        return self.calculate_pairwise_heterotypic_matrix(
+            sequence, sequence, convert_to_custom=convert_to_custom
+        )
 
-    def calculate_pairwise_heterotypic_matrix(self, sequence1, sequence2, convert_to_custom=True, use_cython=True):
+    def calculate_pairwise_heterotypic_matrix(
+        self, sequence1, sequence2, convert_to_custom=True, use_cython=True
+    ):
         """
         Calculate pairwise interaction matrix between two sequences.
-        
+
         Returns (len(s1) x len(s2)) matrix where negative values are attractive
         and positive values are repulsive.
         """
@@ -157,10 +238,27 @@ class InteractionMatrixConstructor:
             self._check_sequence(sequence1)
             self._check_sequence(sequence2)
 
+        # fast path: vectorized NumPy lookup-table indexing. This is identical to
+        # the dict-based construction below but ~8x faster, and is the default
+        # whenever the table is available (see _build_lookup_matrix).
+        if self._lookup_matrix is not None:
+            codes1 = self._ascii_to_code[
+                np.frombuffer(sequence1.encode("latin-1"), dtype=np.uint8)
+            ]
+            codes2 = self._ascii_to_code[
+                np.frombuffer(sequence2.encode("latin-1"), dtype=np.uint8)
+            ]
+            # if every residue is known, index the table directly; otherwise fall
+            # through to the dict path so an unknown residue raises as before
+            if not (codes1 < 0).any() and not (codes2 < 0).any():
+                return self._lookup_matrix[codes1[:, None], codes2[None, :]]
+
         if use_cython:
             return matrix_manipulation.dict2matrix(sequence1, sequence2, self.lookup)
         else:
-            return np.array([[self.lookup[r1][r2] for r2 in sequence2] for r1 in sequence1])
+            return np.array(
+                [[self.lookup[r1][r2] for r2 in sequence2] for r1 in sequence1]
+            )
 
     def calculate_weighted_pairwise_matrix(
         self,
@@ -176,53 +274,82 @@ class InteractionMatrixConstructor:
         Calculate weighted pairwise matrix with charge and aliphatic weighting.
         """
         matrix = self.calculate_pairwise_heterotypic_matrix(
-            sequence1, sequence2, convert_to_custom=convert_to_custom, use_cython=use_cython
+            sequence1,
+            sequence2,
+            convert_to_custom=convert_to_custom,
+            use_cython=use_cython,
         )
 
         w_matrix = matrix
-        
+
         if use_charge_weighting:
-            prefactor = charge_prefactor or self.charge_prefactor
+            # an explicitly-passed prefactor of 0 is valid and must not fall
+            # through to the instance default
+            prefactor = (
+                self.charge_prefactor if charge_prefactor is None else charge_prefactor
+            )
             if prefactor is None:
-                raise ValueError("charge_prefactor must be defined for charge weighting")
-            
-            _, repulsive_mask = parsing_aminoacid_sequences.get_charge_weighted_mask(sequence1, sequence2)
+                raise ValueError(
+                    "charge_prefactor must be defined for charge weighting"
+                )
+
+            _, repulsive_mask = parsing_aminoacid_sequences.get_charge_weighted_mask(
+                sequence1, sequence2
+            )
             w_matrix = matrix - (matrix * repulsive_mask * prefactor)
 
         if use_aliphatic_weighting:
-            w_ali_mask = parsing_aminoacid_sequences.get_aliphatic_weighted_mask(sequence1, sequence2)
+            w_ali_mask = parsing_aminoacid_sequences.get_aliphatic_weighted_mask(
+                sequence1, sequence2
+            )
             w_matrix = w_matrix * w_ali_mask
 
         return w_matrix
 
     # Epsilon calculation functions
 
-    def calculate_epsilon_vectors(self, sequence1, sequence2, use_charge_weighting=True, use_aliphatic_weighting=True):
+    def calculate_epsilon_vectors(
+        self,
+        sequence1,
+        sequence2,
+        use_charge_weighting=True,
+        use_aliphatic_weighting=True,
+    ):
         """
         Calculate attractive and repulsive epsilon vectors for two sequences.
-        
+
         Returns
         -------
         tuple
             (attractive_vector, repulsive_vector)
         """
         return epsilon_stateless.get_sequence_epsilon_vectors(
-            sequence1, sequence2, self,
+            sequence1,
+            sequence2,
+            self,
             use_charge_weighting=use_charge_weighting,
             use_aliphatic_weighting=use_aliphatic_weighting,
         )
 
-    def calculate_epsilon_value(self, sequence1, sequence2, use_charge_weighting=True, use_aliphatic_weighting=True):
+    def calculate_epsilon_value(
+        self,
+        sequence1,
+        sequence2,
+        use_charge_weighting=True,
+        use_aliphatic_weighting=True,
+    ):
         """
         Calculate overall epsilon value for two sequences.
-        
+
         Returns
         -------
         float
             Average sequence-sequence interaction value
         """
         return epsilon_stateless.get_sequence_epsilon_value(
-            sequence1, sequence2, self,
+            sequence1,
+            sequence2,
+            self,
             use_charge_weighting=use_charge_weighting,
             use_aliphatic_weighting=use_aliphatic_weighting,
         )
@@ -238,22 +365,28 @@ class InteractionMatrixConstructor:
     ):
         """
         Calculate sliding window epsilon values between two sequences.
-        
+
         Returns
         -------
         tuple
-            (epsilon_matrix, seq2_indices, seq1_indices)
-            Matrix values are smoothed over window_size residues.
+            (epsilon_matrix, seq1_indices, seq2_indices) where epsilon_matrix has
+            shape (len(seq1_indices), len(seq2_indices)); i.e. axis 0 indexes
+            sequence1 and axis 1 indexes sequence2. Indices are 1-based protein
+            positions corresponding to each window centre.
         """
-        
+
         def __matrix2eps(in_matrix):
             """Calculate epsilon value for a matrix."""
-            attractive_matrix, repulsive_matrix = epsilon_stateless.get_attractive_repulsive_matrices(
-                in_matrix, self.null_interaction_baseline
+            attractive_matrix, repulsive_matrix = (
+                epsilon_stateless.get_attractive_repulsive_matrices(
+                    in_matrix, self.null_interaction_baseline
+                )
             )
             attractive_matrix = attractive_matrix - self.null_interaction_baseline
             repulsive_matrix = repulsive_matrix - self.null_interaction_baseline
-            return np.sum(np.mean(attractive_matrix, axis=1)) + np.sum(np.mean(repulsive_matrix, axis=1))
+            return np.sum(np.mean(attractive_matrix, axis=1)) + np.sum(
+                np.mean(repulsive_matrix, axis=1)
+            )
 
         # Ensure odd window size
         if window_size % 2 == 0:
@@ -262,14 +395,17 @@ class InteractionMatrixConstructor:
 
         # Calculate weighted pairwise matrix
         w_matrix = self.calculate_weighted_pairwise_matrix(
-            sequence1, sequence2,
+            sequence1,
+            sequence2,
             use_charge_weighting=use_charge_weighting,
             use_aliphatic_weighting=use_aliphatic_weighting,
         )
 
         # Use cython implementation if available
         if use_cython:
-            return matrix_manipulation.matrix_scan(w_matrix, window_size, self.null_interaction_baseline)
+            return matrix_manipulation.matrix_scan(
+                w_matrix, window_size, self.null_interaction_baseline
+            )
 
         # Python fallback implementation
         l1, l2 = w_matrix.shape
@@ -281,14 +417,18 @@ class InteractionMatrixConstructor:
         for i in range((l1 - window_size) + 1):
             row = []
             for j in range((l2 - window_size) + 1):
-                row.append(__matrix2eps(w_matrix[i:i + window_size, j:j + window_size]))
+                row.append(
+                    __matrix2eps(w_matrix[i : i + window_size, j : j + window_size])
+                )
             everything.append(row)
 
         everything = np.array(everything)
 
-        # Calculate indices (1-based for protein numbering)
+        # Calculate indices (1-based for protein numbering). everything has shape
+        # (l1 - window + 1, l2 - window + 1), so axis 0 maps to sequence1 and axis 1
+        # to sequence2 - return the indices in that order to match the Cython path.
         start = (window_size - 1) // 2 + 1
         seq1_indices = np.arange(start, l1 - start + 2)
         seq2_indices = np.arange(start, l2 - start + 2)
 
-        return (everything, seq2_indices, seq1_indices)
+        return (everything, seq1_indices, seq2_indices)
