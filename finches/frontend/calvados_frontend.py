@@ -389,6 +389,7 @@ class CALVADOS_frontend(FinchesFrontend):
         seq2_domains=[],
         seq1_lines=[],
         seq2_lines=[],
+        linewidth=1,
         vmin=-7.5,
         vmax=7.5,
         cmap="PRGn",
@@ -455,6 +456,9 @@ class CALVADOS_frontend(FinchesFrontend):
 
         seq2_lines : list, optional
             List of residue positions where horizontal lines will be drawn.
+
+        linewidth : float, optional
+            Width of domain boundary and marker lines. Default is 1.
 
         vmin : float, optional
             Minimum value for the colorbar scale. Default is -7.5.
@@ -564,6 +568,7 @@ class CALVADOS_frontend(FinchesFrontend):
             seq2_domains=seq2_domains,
             seq1_lines=seq1_lines,
             seq2_lines=seq2_lines,
+            linewidth=linewidth,
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,

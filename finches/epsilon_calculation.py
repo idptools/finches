@@ -13,6 +13,40 @@ from finches.data import forcefield_dependencies
 from finches.utils import matrix_manipulation
 
 
+def _get_calibrated_config(parameters, key):
+    """
+    Read a calibration constant out of a forcefield's CONFIGS dictionary.
+
+    Forcefield versions that have not yet been calibrated store their constants
+    as NaN (see, for example, CALVADOS1). A NaN passes an ``in CONFIGS``
+    membership test but then propagates silently through every downstream
+    calculation, so NaN is treated here as equivalent to the key being absent.
+
+    Parameters
+    ----------
+    parameters : forcefield object
+        Forcefield object which may or may not define a CONFIGS dictionary.
+
+    key : str
+        Name of the calibration constant to read.
+
+    Returns
+    -------
+    float or None
+        The calibrated value, or None if it is missing or uncalibrated (NaN).
+
+    """
+    if not hasattr(parameters, "CONFIGS"):
+        return None
+
+    value = parameters.CONFIGS.get(key)
+
+    if value is None or np.isnan(value):
+        return None
+
+    return value
+
+
 # -------------------------------------------------------------------------------------------------
 class InteractionMatrixConstructor:
     def __init__(
@@ -65,13 +99,11 @@ class InteractionMatrixConstructor:
 
         # Set defaults from forcefield configs if not provided
         if self.null_interaction_baseline is None:
-            if (
-                hasattr(self.parameters, "CONFIGS")
-                and "null_interaction_baseline" in self.parameters.CONFIGS
-            ):
-                self.null_interaction_baseline = self.parameters.CONFIGS[
-                    "null_interaction_baseline"
-                ]
+            config_baseline = _get_calibrated_config(
+                self.parameters, "null_interaction_baseline"
+            )
+            if config_baseline is not None:
+                self.null_interaction_baseline = config_baseline
             elif compute_forcefield_dependencies:
                 print(
                     f"Recomputing null_interaction_baseline for {self.parameters.version}..."
@@ -80,20 +112,23 @@ class InteractionMatrixConstructor:
                     forcefield_dependencies.get_null_interaction_baseline(self)
                 )
             else:
-                print(
-                    f"WARNING: null_interaction_baseline not found for {parameters.version}"
+                raise ValueError(
+                    f"null_interaction_baseline has not been calibrated for "
+                    f"{self.parameters.version}. Pass one explicitly, or construct with "
+                    f"compute_forcefield_dependencies=True to calibrate it."
                 )
 
         if self.charge_prefactor is None:
-            if (
-                hasattr(self.parameters, "CONFIGS")
-                and "charge_prefactor" in self.parameters.CONFIGS
-            ):
-                self.charge_prefactor = self.parameters.CONFIGS["charge_prefactor"]
-            else:
+            config_prefactor = _get_calibrated_config(
+                self.parameters, "charge_prefactor"
+            )
+            if config_prefactor is None:
                 raise ValueError(
-                    "charge_prefactor must be provided or defined in forcefield CONFIGS"
+                    f"charge_prefactor has not been calibrated for "
+                    f"{self.parameters.version}. Pass one explicitly, or define it in "
+                    f"the forcefield CONFIGS."
                 )
+            self.charge_prefactor = config_prefactor
 
     def _update_lookup_dict(self, unknown_set_to_zero=False):
         """

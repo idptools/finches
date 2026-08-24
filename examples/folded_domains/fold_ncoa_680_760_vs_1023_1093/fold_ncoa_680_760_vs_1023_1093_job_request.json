@@ -1,0 +1,25 @@
+[{
+ "name": "NCOA 680_760 VS 1023_1093",
+ "modelSeeds": [
+  "612878968"
+ ],
+ "sequences": [
+  {
+   "proteinChain": {
+    "sequence": "GTQNRPLLRNSLDDLVGPPSNLEGQSDERALLDQLHTLLSNTDATGLEEIDRALGIPELVNQGQALEPKQD",
+    "count": 1,
+    "useStructureTemplate": true
+   }
+  },
+  {
+   "proteinChain": {
+    "sequence": "EKHRILHKLLQNGNSPAEVAKITAEATGKDTSSITSCGDGNVVKQEQLSPKKKENNALLRYLLDRDDPSDALSKELQPQVE",
+    "count": 1,
+    "useStructureTemplate": true
+   }
+  }
+ ],
+ "dialect": "alphafoldserver",
+ "version": 3
+}
+]

@@ -21,6 +21,7 @@ As of the spring of 2025 we re-implemented how IDR:FD surfaces are calculated to
     from finches import CALVADOS_frontend
 
     # import for plotting
+    import numpy as np
     import matplotlib.pyplot as plt
     from matplotlib.pyplot import figure
 
@@ -44,7 +45,7 @@ As of the spring of 2025 we re-implemented how IDR:FD surfaces are calculated to
         raise Exception('window_size must be odd')
 
     # calculate surface:IDR intermap. This is where the magic happens...    
-    X = FD.calculate_idr_surface_patch_interactions(gcn4_ntd, mf.IMC_object, window_size)
+    X = FD.calculate_idr_surface_patch_interactions(gcn4_ntd, cf.IMC_object, window_size)
 
     ### PLOT FD:IDR intermap
 

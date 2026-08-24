@@ -158,6 +158,12 @@ class CALVADOS_model(ForcefieldModel):
             conditions=["salt", "pH", "temperature"],
         )
 
+        # Validate version before it is used to index the residue parameters below,
+        # otherwise an unknown version raises a bare KeyError instead of this message
+        if version not in ["CALVADOS1", "CALVADOS2"]:
+            raise Exception(f"""Passed version of model unknown: {version}
+                                Available versions are: [CALVADOS1, CALVADOS2]""")
+
         # if 'default' is passed, use the default parameters
         if input_directory == "default":
             data_prefix = finches.get_data("calvados")
@@ -187,11 +193,6 @@ class CALVADOS_model(ForcefieldModel):
                 "q": params["q"],
                 "lambdas": params[version],  # Use version-specific lambda values
             }
-
-        # Validate version
-        if version not in ["CALVADOS1", "CALVADOS2"]:
-            raise Exception(f"""Passed version of model unknown: {version}
-                                Available versions are: [CALVADOS1, CALVADOS2]""")
 
         # Set precomputed forcefield config parameters
         self.CONFIGS = CALVADOS_CONFIGS[version]

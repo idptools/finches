@@ -84,8 +84,8 @@ def write_test_weighted_matrix(filepath, model, model_name):
 #
 def write_test_matrix_manipulation(filepath, model):
 
-    from finches.epsilon_calculation import get_attractive_repulsive_matrixes
-    from finches.epsilon_calculation import mask_matrix
+    from finches.epsilon_stateless import get_attractive_repulsive_matrices
+    from finches.epsilon_stateless import mask_matrix
 
     data_file = f'{filepath}/test_matrix_manipulation'
     X_local = model 
@@ -98,7 +98,7 @@ def write_test_matrix_manipulation(filepath, model):
     test_matrix = X_local.calculate_weighted_pairwise_matrix(test_sequences[1],t0)
     all_manipulated['test_matrix'] = test_matrix
 
-    otla, otlr = get_attractive_repulsive_matrixes(all_manipulated['test_matrix'],-0.15)
+    otla, otlr = get_attractive_repulsive_matrices(all_manipulated['test_matrix'],-0.15)
     all_manipulated['attractive_repulsive_matrixes'] = otla, otlr
 
     mask = np.random.choice([0, 1], size=test_matrix.shape)

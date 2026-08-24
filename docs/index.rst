@@ -27,12 +27,15 @@ For all of these analyses, there are many caveats that should be considered. The
    :caption: Contents:
    
    getting_started
-   background   
+   background
    epsilon
    idr_idr
    idr_fd
+   intermap_caveats
    phase_diagrams
+   phase_diagram_caveats
    dms
+   examples
    general_caveats
    api
    extended_methods

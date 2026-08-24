@@ -7,10 +7,7 @@ By : Garrett M. Ginell & Alex S. Holehouse
 
 from scipy.optimize import root_scalar
 
-from scipy.stats import linregress
 from finches import epsilon_stateless
-from .reference_sequence_info import DAS_KAPPA_RG_MPIPI
-import numpy as np
 
 ## ------------------------------------------------------------------------------
 ##

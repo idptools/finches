@@ -39,7 +39,7 @@ The ``dms()`` function calculates homotypic epsilon values for all possible sing
 
     # amino_acids lists the amino acids in row order
     print(amino_acids)
-    >> ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
+    >> ['W', 'Y', 'F', 'I', 'L', 'V', 'M', 'A', 'G', 'S', 'T', 'N', 'Q', 'H', 'R', 'K', 'P', 'D', 'E', 'C']
 
     # positions gives 1-indexed position numbers
     print(positions)
@@ -88,7 +88,7 @@ Basic heatmap
     fig, ax, im, dms_data = mf.plot_dms(seq)
     plt.show()
 
-By default, ``plot_dms()`` uses ``return_delta=True``, so the heatmap shows the change in epsilon upon mutation. Green regions (negative values in the default PRGn colormap) indicate mutations that increase self-attraction, while purple regions (positive values) indicate mutations that decrease self-attraction.
+By default, ``plot_dms()`` uses ``return_delta=True``, so the heatmap shows the change in epsilon upon mutation. Purple regions (negative values in the default PRGn colormap) indicate mutations that increase self-attraction, while green regions (positive values) indicate mutations that decrease self-attraction. This matches the purple-attractive/green-repulsive convention used by the interaction maps elsewhere in FINCHES.
 
 Customizing the heatmap
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -144,7 +144,7 @@ Understanding the heatmap
 
 In a delta-epsilon DMS heatmap:
 
-- **Rows** represent the 20 standard amino acids (in alphabetical order by single-letter code)
+- **Rows** represent the 20 standard amino acids, ordered roughly aromatic, then aliphatic, then polar, then charged, so that chemically related substitutions sit next to one another
 - **Columns** represent positions in the sequence
 - **Color** represents the change in homotypic epsilon upon mutation
 - **Wild-type markers** (black circles by default) indicate the native amino acid at each position

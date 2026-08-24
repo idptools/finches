@@ -1,18 +1,18 @@
-'''
+"""
 
 Library for 2-component Flory-Huggins theory.
 
-This module implements the analytical self-consistent solution for binodal 
+This module implements the analytical self-consistent solution for binodal
 concentrations of the two-component Flory-Huggins phase separation model,
 as described in:
 
-    Qian, D., Michaels, T.C.T., & Knowles, T.P.J. (2022). 
+    Qian, D., Michaels, T.C.T., & Knowles, T.P.J. (2022).
     "Analytical Solution to the Flory-Huggins Model"
     J. Phys. Chem. Lett. 13, 7853-7860.
     https://doi.org/10.1021/acs.jpclett.2c01986
 
-The Flory-Huggins model describes liquid-liquid phase separation (LLPS) 
-driven by a competition between entropy and interaction energy. The free 
+The Flory-Huggins model describes liquid-liquid phase separation (LLPS)
+driven by a competition between entropy and interaction energy. The free
 energy density is given by:
 
     f(ϕ) = (ϕ/N)ln(ϕ) + (1-ϕ)ln(1-ϕ) + χ·ϕ·(1-ϕ)
@@ -37,19 +37,30 @@ Date created: 23 March 2022
 
 Detailed documentation provided by Alex (2026-01-12)
 
-'''
+"""
 
 import numpy as np
 
 
 def help():
-    print('Here are the list of functions included in FH.py:\n')
-    print('	critical(n = 1): returns the critical concentration and critical interaction [phi_c, chi_c]\n')
-    print('	spinodal(chi, n = 1): returns spinodal concentrations [p1, p2, chi] in the valid chi range\n')
-    print('	GL_binodal(chi, n = 1): Ginzburg-Landau binodal [p1, p2, chi]\n')
+    """
+    Print a short summary of the public functions in this module.
+
+    Kept from the original KnowlesLab-Cambridge/FloryHuggins release; the
+    per-function docstrings below are the authoritative documentation.
+    """
+    print("Here are the list of functions included in FH.py:\n")
     print(
-        '	binodal(chi, n = 1, iteration = 5, UseImprovedMap = True): self-consistent solution with speficied number of iterations [p1, p2, chi]. You can also use the simple map to see what it does\n')
-    print(' analytic_binodal(x, n = 1): analytic forms')
+        "	critical(n = 1): returns the critical concentration and critical interaction [phi_c, chi_c]\n"
+    )
+    print(
+        "	spinodal(chi, n = 1): returns spinodal concentrations [p1, p2, chi] in the valid chi range\n"
+    )
+    print("	GL_binodal(chi, n = 1): Ginzburg-Landau binodal [p1, p2, chi]\n")
+    print(
+        "	binodal(chi, n = 1, iteration = 5, UseImprovedMap = True): self-consistent solution with speficied number of iterations [p1, p2, chi]. You can also use the simple map to see what it does\n"
+    )
+    print(" analytic_binodal(x, n = 1): analytic forms")
 
 
 # .....................................................................................
@@ -61,9 +72,9 @@ def critical(n=1):
 
     The critical point is where the dense and dilute phases coincide, representing
     the minimum interaction strength (χ) required for phase separation to occur.
-    
+
     From equation (3) in Qian et al. 2022:
-    
+
         χ_c = (1/2) x (1 + 1/√N)²
         ϕ_c = 1 / (1 + √N)
 
@@ -91,7 +102,7 @@ def critical(n=1):
     --------
     >>> critical(n=1)  # Symmetric case
     array([0.5, 2.0])
-    
+
     >>> critical(n=100)  # Long polymer
     array([0.09090909, 0.605])  # Lower χ needed, more dilute critical point
 
@@ -102,8 +113,8 @@ def critical(n=1):
     at the top of the phase diagram (the "apex" of the binodal curve).
 
     """
-    x_c = 0.5 * np.power(1. + 1. / np.sqrt(n), 2)
-    phi_c = 1. / (1. + np.sqrt(n))
+    x_c = 0.5 * np.power(1.0 + 1.0 / np.sqrt(n), 2)
+    phi_c = 1.0 / (1.0 + np.sqrt(n))
     return np.array([phi_c, x_c])
 
 
@@ -117,15 +128,15 @@ def spinodal(x, n=1):
     The spinodal defines the boundary between locally stable and locally unstable
     regions. It is obtained analytically by finding where the second derivative
     of the free energy equals zero: f''(ϕ) = 0.
-    
+
     From equation (2) in Qian et al. 2022:
-    
+
         ϕ_spi± = (1/2 - gamma/(4χ)) ± √[(1/2 - gamma/(4χ))² - 1/(2χN)]
-    
+
     where γ = 1 - 1/N.
 
     Physical interpretation:
-        - Inside the spinodal: the system is unstable and will spontaneously 
+        - Inside the spinodal: the system is unstable and will spontaneously
           phase separate via spinodal decomposition
         - Between spinodal and binodal: metastable region where nucleation is required
         - The spinodal concentrations have POWER-LAW scaling at large χ:
@@ -137,7 +148,7 @@ def spinodal(x, n=1):
     x : float, int, list, or np.ndarray
         The Flory-Huggins interaction parameter χ (chi). Can be a single value
         or an array of values. Must be greater than χ_c for phase separation.
-        
+
     n : int or float
         Polymer chain length (number of lattice sites). Default is 1.
 
@@ -145,10 +156,12 @@ def spinodal(x, n=1):
     -------
     np.ndarray
         If x is a single value: array of shape (2,) with [ϕ_dense, ϕ_dilute]
-        If x is an array: array of shape (3, len(valid_x)) with 
+        If x is an array: array of shape (3, len(valid_x)) with
         [ϕ_dense_array, ϕ_dilute_array, valid_x_array]
-        
-        Note: Only χ values >= χ_c are included in the output.
+
+        Note: Only χ values strictly greater than χ_c are included in the
+        output (at χ = χ_c the binodal/spinodal collapse onto ϕ_c; use
+        critical() for that point).
 
     Raises
     ------
@@ -159,7 +172,7 @@ def spinodal(x, n=1):
     --------
     >>> spinodal(3.0, n=1)  # Single χ value
     array([0.833..., 0.166...])  # [dense, dilute] concentrations
-    
+
     >>> spinodal([2.0, 2.5, 3.0], n=1)  # Multiple χ values
     array([[dense_1, dense_2, dense_3],
            [dilute_1, dilute_2, dilute_3],
@@ -177,38 +190,36 @@ def spinodal(x, n=1):
 
     # calculate gamma (see equation 2)
     # γ = 1 - 1/N, goes to zero for N=1 (symmetric case)
-    gamma = 1. - 1. / n
+    gamma = 1.0 - 1.0 / n
 
     # if x is a single value (float or int)
     if not np.array(x).shape:
-
         # if chi is greater (equal to or stronger) than critical chi
         if x > x_c:
-
             # Calculate spinodal using equation 2
             # t1 = first term: (1/2 - γ/(4χ))
             # t2 = second term: √[(1/2 - γ/(4χ))² - 1/(2χN)]
-            t1 = 1. / 2. - gamma / (4. * x)
-            t2 = np.sqrt(np.power(t1, 2) - 1. / (2. * x * n))
+            t1 = 1.0 / 2.0 - gamma / (4.0 * x)
+            t2 = np.sqrt(np.power(t1, 2) - 1.0 / (2.0 * x * n))
             return np.array([t1 + t2, t1 - t2])
 
         # else chi is too weak for phase separation
         else:
-            raise ValueError('interaction strength too small - no LLPS!')
+            raise ValueError("interaction strength too small - no LLPS!")
 
     # else if x is an array or list
     else:
         # if the largest (strongest) chi is less than the critical chi then
         # none of the values will give rise to phase separation
-        if max(x) < x_c:
-            raise ValueError('interaction strength too small - no LLPS!')
+        if max(x) <= x_c:
+            raise ValueError("interaction strength too small - no LLPS!")
 
-        # Calculate for all valid χ values (χ >= χ_c)
+        # Calculate for all valid χ values (χ > χ_c, matching the scalar path)
         else:
             x = np.array(x)
-            x = x[x >= x_c]
-            t1 = 1. / 2. - gamma / (4. * x)
-            t2 = np.sqrt(np.power(t1, 2) - 1. / (2. * x * n))
+            x = x[x > x_c]
+            t1 = 1.0 / 2.0 - gamma / (4.0 * x)
+            t2 = np.sqrt(np.power(t1, 2) - 1.0 / (2.0 * x * n))
             return np.array([t1 + t2, t1 - t2, x])
 
 
@@ -220,12 +231,12 @@ def GL_binodal(x, n=1):
     Calculate the Ginzburg-Landau (GL) approximate binodal concentrations.
 
     The Ginzburg-Landau approximation is obtained by expanding the free energy
-    around the critical point to fourth order in δϕ = ϕ - ϕ_c. This gives a 
+    around the critical point to fourth order in δϕ = ϕ - ϕ_c. This gives a
     simple analytical form that is accurate near the critical point but diverges
     at large χ.
-    
+
     From equation (8) in Qian et al. 2022:
-    
+
         ϕ_GL± = ϕ_c ± √[3(χ - χ_c) / (2χ_c² × √N)]
 
     Physical interpretation:
@@ -244,7 +255,7 @@ def GL_binodal(x, n=1):
     x : float, int, list, or np.ndarray
         The Flory-Huggins interaction parameter χ (chi). Can be a single value
         or an array of values. Must be greater than χ_c for phase separation.
-        
+
     n : int or float
         Polymer chain length (number of lattice sites). Default is 1.
 
@@ -279,18 +290,18 @@ def GL_binodal(x, n=1):
         if x > x_c:
             # GL binodal: ϕ± = ϕ_c ± √[3(χ - χ_c) / (2χ_c² × √N)]
             t1 = phi_c
-            t2 = np.sqrt(3. * (x - x_c) / (2. * np.power(x_c, 2) * np.sqrt(n)))
+            t2 = np.sqrt(3.0 * (x - x_c) / (2.0 * np.power(x_c, 2) * np.sqrt(n)))
             return np.array([t1 + t2, t1 - t2, x])
         else:
-            raise ValueError('interaction strength too small - no LLPS!')
+            raise ValueError("interaction strength too small - no LLPS!")
     else:
-        if max(x) < x_c:
-            raise ValueError('interaction strength too small - no LLPS!')
+        if max(x) <= x_c:
+            raise ValueError("interaction strength too small - no LLPS!")
         else:
             x = np.array(x)
-            x = x[x >= x_c]
+            x = x[x > x_c]
             t1 = phi_c
-            t2 = np.sqrt(3. * (x - x_c) / (2. * np.power(x_c, 2) * np.sqrt(n)))
+            t2 = np.sqrt(3.0 * (x - x_c) / (2.0 * np.power(x_c, 2) * np.sqrt(n)))
             return np.array([t1 + t2, t1 - t2, x])
 
 
@@ -301,28 +312,28 @@ def binodal(x, n=1, iteration=5, UseImprovedMap=True):
     """
     Calculate binodal concentrations using the self-consistent iterative method.
 
-    The binodal defines the boundary between globally stable single-phase and 
-    two-phase regions. This function uses a contractive mapping (fixed-point 
+    The binodal defines the boundary between globally stable single-phase and
+    two-phase regions. This function uses a contractive mapping (fixed-point
     iteration) approach starting from the Ginzburg-Landau approximation.
-    
+
     The method is based on the self-consistent equations derived in Qian et al. 2022.
-    
+
     For N=1 (symmetric case), the map is (equation 10):
-    
+
         g(ϕ) = 1 / (1 + exp(-2χϕ + χ))
-    
+
     For general N, the 2D map uses (equations 18-19):
-    
+
         ϕ+ = (1 - e^(-y)) / (1 - e^(-N(x-y)) × e^(-y))
         ϕ- = (1 - e^(-y)) / (e^(N(x-y)) - e^(-y))
-    
+
     where x = 2χ(ϕ+ - ϕ-) and y = γ(ϕ+ - ϕ-) + χ(ϕ+² - ϕ-²).
 
     The improved map (UseImprovedMap=True) uses Newton-Raphson acceleration
     via the Jacobian matrix to achieve faster convergence (equation 39):
-    
+
         H(ϕ) = ϕ + (1 - J)^(-1) × (G(ϕ) - ϕ)
-    
+
     Key insight from the paper:
         - The dilute phase binodal has EXPONENTIAL scaling: ϕ- ~ exp(-Nχ)
         - This explains why LLPS spans orders of magnitude in concentration
@@ -333,14 +344,14 @@ def binodal(x, n=1, iteration=5, UseImprovedMap=True):
     x : float, int, list, or np.ndarray
         The Flory-Huggins interaction parameter χ (chi). Can be a single value
         or an array of values. Must be greater than χ_c for phase separation.
-        
+
     n : int or float
         Polymer chain length (number of lattice sites). Default is 1.
-        
+
     iteration : int
         Number of self-consistent iterations to perform. Default is 5.
         Typically 2-3 iterations achieve numerical accuracy (see Figure 1E,F).
-        
+
     UseImprovedMap : bool
         If True (default), use Newton-Raphson improved iteration for faster
         convergence. If False, use the simple fixed-point iteration.
@@ -356,7 +367,7 @@ def binodal(x, n=1, iteration=5, UseImprovedMap=True):
     --------
     >>> binodal(3.0, n=1)  # N=1, χ=3
     array([0.905..., 0.094..., 3.0])
-    
+
     >>> binodal(1.5, n=100, iteration=3)  # Long polymer
     array([0.85..., 0.001..., 1.5])
 
@@ -366,7 +377,7 @@ def binodal(x, n=1, iteration=5, UseImprovedMap=True):
         - |g'(ϕ)| < 1 gives stable convergence
         - Near criticality, |g'(ϕ)| ≈ 1, so convergence is slower
         - At large χ, |g'(ϕ)| ≈ 0, so convergence is fast
-    
+
     The improved map accelerates convergence especially near the critical point
     where the simple map is slow.
 
@@ -378,10 +389,12 @@ def binodal(x, n=1, iteration=5, UseImprovedMap=True):
 
     """
     assert iteration >= 0
+    if n < 1:
+        raise ValueError("chain length n must be >= 1")
     crit = critical(n)
     x_c = crit[1]
     phi_c = crit[0]
-    gamma = 1. - 1. / n
+    gamma = 1.0 - 1.0 / n
 
     if n == 1:
         # =====================================================================
@@ -400,15 +413,15 @@ def binodal(x, n=1, iteration=5, UseImprovedMap=True):
             # Improved map using Newton-Raphson (equation 31)
             # h(ϕ) = ϕ + (g(ϕ) - ϕ) / (1 - g'(ϕ))
             for _ in range(iteration):
-                ee = np.exp(- 2 * xx * pp + xx)
+                ee = np.exp(-2 * xx * pp + xx)
                 # This implements the improved map h(ϕ) with Jacobian correction
-                pp = (2. * xx * pp * ee - 1. - ee) / (2. * xx * ee - (1. + ee)**2)
+                pp = (2.0 * xx * pp * ee - 1.0 - ee) / (2.0 * xx * ee - (1.0 + ee) ** 2)
 
         else:
             # Simple fixed-point map (equation 10)
             # g(ϕ) = 1 / (1 + exp(-2χϕ + χ))
             for _ in range(iteration):
-                ee = np.exp(- 2 * xx * pp + xx)
+                ee = np.exp(-2 * xx * pp + xx)
                 pp = 1 / (1 + ee)
 
         # For N=1, ϕ- = 1 - ϕ+ by symmetry
@@ -432,31 +445,42 @@ def binodal(x, n=1, iteration=5, UseImprovedMap=True):
             # H(ϕ) = ϕ + (1 - J)^(-1) × (G(ϕ) - ϕ)
             # Requires computing the Jacobian matrix J = ∂G/∂ϕ
             for _ in range(iteration):
-
                 # Define the exponents from equation 17:
                 # x = 2χ(ϕ+ - ϕ-)  [drives apart based on concentration difference]
                 # y = γ(ϕ+ - ϕ-) + χ(ϕ+² - ϕ-²)  [includes entropic and interaction terms]
                 # a = exp(-x), b = exp(-y), c = (a/b)^N
-                a = np.exp(- 2. * xx * (p1 - p2))
-                b = np.exp(- gamma * (p1 - p2) - xx * (np.power(p1, 2) - np.power(p2, 2)))
+                a = np.exp(-2.0 * xx * (p1 - p2))
+                b = np.exp(
+                    -gamma * (p1 - p2) - xx * (np.power(p1, 2) - np.power(p2, 2))
+                )
                 c = np.power(a / b, n)
 
                 # The fixed-point map G(ϕ) from equation 18-19:
                 # g1 = ϕ+ update, g2 = ϕ- update
-                g1 = (1. - b) / (1. - np.power(a / b, n) * b)
-                g2 = (1. - b) / (np.power(b / a, n) - b)
+                g1 = (1.0 - b) / (1.0 - np.power(a / b, n) * b)
+                g2 = (1.0 - b) / (np.power(b / a, n) - b)
 
                 # Compute partial derivatives for the Jacobian matrix
                 # d1lna = ∂ln(a)/∂ϕ+, d1lnb = ∂ln(b)/∂ϕ+
                 # d2lna = ∂ln(a)/∂ϕ-, d2lnb = ∂ln(b)/∂ϕ-
-                d1lna = - 2. * xx
-                d1lnb = - gamma - xx * 2. * p1
-                d2lna = 2. * xx
-                d2lnb = gamma + xx * 2. * p2
+                d1lna = -2.0 * xx
+                d1lnb = -gamma - xx * 2.0 * p1
+                d2lna = 2.0 * xx
+                d2lnb = gamma + xx * 2.0 * p2
 
                 # Jacobian matrix elements J_ij = ∂g_i/∂ϕ_j
-                j11 = g1**2 * (- d1lnb * b * (1 - c) / (1 - b)**2 + n * (d1lna - d1lnb) * c * b / (1 - b)) - 1
-                j21 = g1**2 * (- d2lnb * b * (1 - c) / (1 - b)**2 + n * (d2lna - d2lnb) * c * b / (1 - b))
+                j11 = (
+                    g1**2
+                    * (
+                        -d1lnb * b * (1 - c) / (1 - b) ** 2
+                        + n * (d1lna - d1lnb) * c * b / (1 - b)
+                    )
+                    - 1
+                )
+                j21 = g1**2 * (
+                    -d2lnb * b * (1 - c) / (1 - b) ** 2
+                    + n * (d2lna - d2lnb) * c * b / (1 - b)
+                )
                 j12 = (j11 + 1) * c + g1 * n * c * (d1lna - d1lnb)
                 j22 = j21 * c + g1 * n * c * (d2lna - d2lnb) - 1
 
@@ -464,8 +488,8 @@ def binodal(x, n=1, iteration=5, UseImprovedMap=True):
                 # Using Cramer's rule for the 2x2 matrix inversion
                 detj = j11 * j22 - j12 * j21
 
-                p1_new = np.copy(p1 + (- (g1 - p1) * j22 + (g2 - p2) * j21) / detj)
-                p2_new = np.copy(p2 + (- (g2 - p2) * j11 + (g1 - p1) * j12) / detj)
+                p1_new = np.copy(p1 + (-(g1 - p1) * j22 + (g2 - p2) * j21) / detj)
+                p2_new = np.copy(p2 + (-(g2 - p2) * j11 + (g1 - p1) * j12) / detj)
 
                 p1 = p1_new
                 p2 = p2_new
@@ -474,18 +498,19 @@ def binodal(x, n=1, iteration=5, UseImprovedMap=True):
             # Simple fixed-point iteration (equation 19)
             # Just apply G(ϕ) repeatedly without Newton-Raphson acceleration
             for _ in range(iteration):
-
                 # Same exponent definitions as above
-                a = np.exp(- 2. * xx * (p1 - p2))
-                b = np.exp(- gamma * (p1 - p2) - xx * (np.power(p1, 2) - np.power(p2, 2)))
+                a = np.exp(-2.0 * xx * (p1 - p2))
+                b = np.exp(
+                    -gamma * (p1 - p2) - xx * (np.power(p1, 2) - np.power(p2, 2))
+                )
                 c = np.power(a / b, n)
 
-                g1 = (1. - b) / (1. - np.power(a / b, n) * b)
-                g2 = (1. - b) / (np.power(b / a, n) - b)
+                g1 = (1.0 - b) / (1.0 - np.power(a / b, n) * b)
+                g2 = (1.0 - b) / (np.power(b / a, n) - b)
 
                 # Simple update: ϕ_new = G(ϕ)
-                p1_new = np.copy((1. - b) / (1. - np.power(a / b, n) * b))
-                p2_new = np.copy((1. - b) / (np.power(b / a, n) - b))
+                p1_new = np.copy((1.0 - b) / (1.0 - np.power(a / b, n) * b))
+                p2_new = np.copy((1.0 - b) / (np.power(b / a, n) - b))
 
                 p1 = p1_new
                 p2 = p2_new
@@ -499,96 +524,96 @@ def binodal(x, n=1, iteration=5, UseImprovedMap=True):
 def analytic_binodal(x, n=1):
     """
     Compute binodal concentrations using the closed-form analytical solution.
-    
+
     This function implements equations 34-36 from Qian et al. (2022), which provide
     an explicit analytical expression for the binodal without requiring iteration.
     The solution is derived by solving the transcendental equations at the level
     of the auxiliary variable z (equations 25-28), which decouples the fixed-point
     equations into a single self-consistent equation.
-    
+
     **Mathematical Framework:**
-    
+
     For N = 1 (symmetric case), the solution is (equation 34):
-    
+
         ϕ± = 1 / (1 + exp(∓A))
-        
+
         where A = χ × tanh(χ × √(3(χ - 2)/8))
-    
+
     For N ≠ 1 (asymmetric case), the solution uses scaled variables (equation 36):
-    
+
         α = N^(1/4)           (scaling parameter)
         Δ = (χ - χ_c) / χ_c   (reduced distance from critical point)
-        
+
         ϕ+ = (1 - exp(-X)) / (1 - exp(-Y))
         ϕ- = (1 - exp(+X)) / (1 - exp(+Y))
-    
+
     where X and Y are functions of hyperbolic cotangent terms:
-    
+
         coth(A) = 1/tanh((1 + Δ/α²) × √(3Δ) / α)
         coth(B) = 1/tanh((1 + Δα²) × √(3Δ) × α)
-    
+
     **Physical Interpretation:**
-    
+
     The analytical solution captures several important physical features:
-    
+
     1. **Exponential Scaling of Dilute Phase**: Near the critical point,
        ϕ- ~ exp(-Nχ), showing exponential suppression at large N or χ.
        This is fundamentally different from the spinodal power-law scaling.
-    
+
     2. **Asymmetry in Phase Behavior**: For N > 1, the dense and dilute
        phases respond differently to changes in χ, encoded in the asymmetric
        dependence on α = N^(1/4).
-    
+
     3. **Critical Point Behavior**: The solution smoothly approaches the
        critical concentrations as χ → χ_c from above.
-    
+
     **Advantages over Iterative Methods:**
-    
+
     - No iteration required - direct evaluation
     - Numerically stable across the entire phase diagram
     - No convergence issues at extreme parameter values
     - Computationally efficient for vectorized calculations
-    
+
     **Limitations:**
-    
+
     - Only valid for χ > χ_c (within the two-phase region)
     - Raises ValueError if χ is below the critical value
-    
+
     Parameters
     ----------
     x : float or numpy.ndarray
         The Flory-Huggins interaction parameter χ (chi). Can be a scalar
         or array. Values below χ_c will be filtered out or raise an error.
-        
+
     n : float, optional
         The polymer chain length / asymmetry parameter N. Default is 1.
         The solvent is assumed to have N_solvent = 1, making n = N_polymer.
-    
+
     Returns
     -------
     numpy.ndarray
         For scalar input: [ϕ+, ϕ-]
         For array input: [ϕ+_array, ϕ-_array, χ_array]
-        
+
         where ϕ+ is the dense phase concentration and ϕ- is the dilute
         phase concentration.
-    
+
     Raises
     ------
     ValueError
         If χ < χ_c for all input values (no phase separation possible).
-    
+
     See Also
     --------
     binodal : Iterative computation using self-consistent fixed-point maps.
     critical : Compute the critical point (χ_c, ϕ_c).
-    
+
     References
     ----------
-    Qian, D., Michaels, T.C.T., Knowles, T.P.J. (2022). "Analytical Solution to 
+    Qian, D., Michaels, T.C.T., Knowles, T.P.J. (2022). "Analytical Solution to
     the Flory-Huggins Model". J. Phys. Chem. Lett. 13, 7853-7860.
     DOI: 10.1021/acs.jpclett.2c01986
-    
+
     Key equations:
     - Equation 34: Symmetric (N=1) closed-form solution
     - Equation 36: Asymmetric (N≠1) closed-form solution
@@ -612,9 +637,9 @@ def analytic_binodal(x, n=1):
             else:
                 # Asymmetric case (N≠1): Equation 36
                 # Use scaled variables α and Δ
-                
+
                 # α = N^(1/4) - scaling parameter that captures asymmetry
-                a = n ** 0.25
+                a = n**0.25
                 # Δ = (χ - χ_c) / χ_c - reduced distance from critical point
                 D = (x - x_c) / x_c
 
@@ -631,27 +656,39 @@ def analytic_binodal(x, n=1):
                 prefactor = c / (cothA + cothB)
 
                 # Exponents X and Y in ϕ± = (1 - exp(∓X)) / (1 - exp(∓Y))
-                numerator_exp = 8 * prefactor * (s / a**2 + (1 + D) * prefactor * cothB / a**2)
-                denominator_exp = 8 * prefactor * (s * (1 / a**2 - a**2) + (1 + D)
-                                                   * prefactor * (cothB / a**2 + a**2 * cothA))
+                numerator_exp = (
+                    8 * prefactor * (s / a**2 + (1 + D) * prefactor * cothB / a**2)
+                )
+                denominator_exp = (
+                    8
+                    * prefactor
+                    * (
+                        s * (1 / a**2 - a**2)
+                        + (1 + D) * prefactor * (cothB / a**2 + a**2 * cothA)
+                    )
+                )
 
                 # Final binodal concentrations
-                pp = (1 - np.exp(-numerator_exp)) / (1 - np.exp(-denominator_exp))  # Dense phase
-                pm = (1 - np.exp(+numerator_exp)) / (1 - np.exp(+denominator_exp))  # Dilute phase
+                pp = (1 - np.exp(-numerator_exp)) / (
+                    1 - np.exp(-denominator_exp)
+                )  # Dense phase
+                pm = (1 - np.exp(+numerator_exp)) / (
+                    1 - np.exp(+denominator_exp)
+                )  # Dilute phase
 
             return np.array([pp, pm])
 
         else:
-            raise ValueError('interaction strength too small - no LLPS!')
-    
+            raise ValueError("interaction strength too small - no LLPS!")
+
     # Handle array input - vectorized computation
     else:
-        if max(x) < x_c:
-            raise ValueError('interaction strength too small - no LLPS!')
+        if max(x) <= x_c:
+            raise ValueError("interaction strength too small - no LLPS!")
         else:
-            # Filter to only include χ values above critical point
+            # Filter to only include χ values strictly above the critical point
             x = np.array(x)
-            x = x[x >= x_c]
+            x = x[x > x_c]
 
             if n == 1:
                 # Symmetric case (N=1): Equation 34 - vectorized
@@ -662,8 +699,8 @@ def analytic_binodal(x, n=1):
             else:
                 # Asymmetric case (N≠1): Equation 36 - vectorized
                 # Same algorithm as scalar case, but operates element-wise on arrays
-                
-                a = n ** 0.25
+
+                a = n**0.25
                 D = (x - x_c) / x_c
 
                 c = (a + 1 / a) / 2
@@ -674,9 +711,17 @@ def analytic_binodal(x, n=1):
 
                 prefactor = c / (cothA + cothB)
 
-                numerator_exp = 8 * prefactor * (s / a**2 + (1 + D) * prefactor * cothB / a**2)
-                denominator_exp = 8 * prefactor * (s * (1 / a**2 - a**2) + (1 + D)
-                                                   * prefactor * (cothB / a**2 + a**2 * cothA))
+                numerator_exp = (
+                    8 * prefactor * (s / a**2 + (1 + D) * prefactor * cothB / a**2)
+                )
+                denominator_exp = (
+                    8
+                    * prefactor
+                    * (
+                        s * (1 / a**2 - a**2)
+                        + (1 + D) * prefactor * (cothB / a**2 + a**2 * cothA)
+                    )
+                )
 
                 pp = (1 - np.exp(-numerator_exp)) / (1 - np.exp(-denominator_exp))
                 pm = (1 - np.exp(+numerator_exp)) / (1 - np.exp(+denominator_exp))
