@@ -1,22 +1,36 @@
 """
-Module to build FH-based phase dygrams from computed epsilon
+Flory-Huggins phase diagrams from FINCHES epsilon values.
 
-Flory-Huggins phase diagrams
+This module turns a mean-field homotypic interaction parameter (epsilon) into a
+Flory-Huggins phase diagram for a chain of the same length, using the
+analytical solution to the Flory-Huggins model from
 
-This Module provides direct examples of using the binodal calculating code from:
+    Qian, D., Michaels, T. C. T., & Knowles, T. P. J. (2022). Analytical
+    Solution to the Flory-Huggins Model. Journal of Physical Chemistry
+    Letters, 13(33), 7853-7860.
 
-Qian, D., Michaels, T. C. T., & Knowles, T. P. J. (2022). Analytical Solution to the Flory-Huggins Model.
-    Journal of Physical Chemistry Letters, 13(33), 7853–7860.
+The Flory-Huggins code itself lives in finches.analytical_fh: backend.py is the
+code released with the paper (https://github.com/KnowlesLab-Cambridge/FloryHuggins)
+and floryhuggins.py is our wrapper around it.
 
-In the context of generating phase diagrams. We have integrated the code for computing FH phase diagrams into finches.
-Specifically, there's an easy-to=use wrapper around the code released with the paper.
+How epsilon becomes a phase diagram
+-----------------------------------
+For a chain of N residues we scan chi over a fixed range, compute the binodal
+and spinodal at each chi, and convert chi to a temperature with
 
-The actual code can be found in finches/analytical_fh. In here backend.py is code taken from the original GitHub repo:
+    chi = delta_eps / T,   i.e.   T = delta_eps / chi
 
- https://github.com/KnowlesLab-Cambridge/FloryHugginsfloryhuggins.py
+where delta_eps = -epsilon / N is the per-residue contact energy (the sign flips
+because a negative FINCHES epsilon is attractive, whereas a positive chi is).
+The temperature is therefore in the units of epsilon with kB = 1: it is a
+relative scale for comparing sequences, not a temperature in Kelvin. Note that
+epsilon = 0 maps onto chi = 0 (an athermal solvent) with no reference offset,
+so only the shape of a phase diagram and its position relative to other
+sequences' diagrams are meaningful.
 
-This module is a wrapper that takes the analytical_fh method and builds a phase diagram using the Analytical approximation
-    of FH theory to build a phase diagram and our computed mean-field interaction parameter (epsilon).
+The build_*_dependent_phase_diagrams functions repeat this over a list of
+solution conditions (salt, pH or dielectric), rebuilding the forcefield at each
+condition.
 
 By : Garrett M. Ginell & Alex S. Holehouse
 2023-08-18
@@ -27,6 +41,171 @@ import numpy as np
 from finches.epsilon_stateless import get_sequence_epsilon_value
 from finches.analytical_fh import floryhuggins
 
+# the chi range scanned when building a phase diagram, and the number of grid
+# points used for the binodal and spinodal
+_CHI_MAX = 0.8
+_N_BINODAL_POINTS = 50000
+_N_SPINODAL_POINTS = 10000
+
+
+## ---------------------------------------------------------------------------
+##
+def _check_condition(X_class, condition):
+    """
+    Check that the forcefield behind an InteractionMatrixConstructor actually
+    lets us vary a given environmental condition.
+
+    Every forcefield model declares the conditions it can vary in its
+    ``parameters.conditions`` list (e.g. Mpipi: salt and dielectric; CALVADOS:
+    salt, pH and temperature). Simply having the attribute is not enough - the
+    base class sets salt, pH, dielectric and temperature on every model, so
+    e.g. ``parameters.pH`` exists on an Mpipi model even though nothing in
+    Mpipi depends on it. Varying a condition the model ignores would silently
+    return the same phase diagram for every value, so we raise instead.
+
+    Parameters
+    ----------
+    X_class : InteractionMatrixConstructor
+        The constructor whose ``parameters`` model is being varied.
+
+    condition : str
+        Name of the condition attribute ('salt', 'pH', 'dielectric', ...).
+
+    Raises
+    ------
+    ValueError
+        If the model does not list ``condition`` as something it can vary. The
+        message names the condition.
+    """
+    supported = getattr(X_class.parameters, "conditions", None)
+    if supported is None:
+        supported = []
+
+    if condition not in supported:
+        raise ValueError(
+            f'Condition "{condition}" NOT FOUND - Input parameter model '
+            f"{X_class.parameters.version} of passed X_class does not support "
+            f'"{condition}" as a variable condition. Conditions this model can '
+            f"vary are: {list(supported)}"
+        )
+
+
+## ---------------------------------------------------------------------------
+##
+def _set_condition(X_class, condition, value):
+    """
+    Set one environmental condition on the forcefield behind an
+    InteractionMatrixConstructor and rebuild everything downstream of it.
+
+    Mpipi reads salt and dielectric at call time, so setting the attribute and
+    rebuilding the lookup table is enough. CALVADOS derives its Debye screening
+    length and the histidine charge from salt, pH and temperature when the
+    model is built (``_genParams`` and ``_build_pairwise_maps``), so those
+    have to be regenerated first or the rebuilt lookup table just reproduces
+    the old conditions. We call those hooks when the model has them.
+
+    Parameters
+    ----------
+    X_class : InteractionMatrixConstructor
+        The constructor whose ``parameters`` model is being varied.
+
+    condition : str
+        Name of the condition attribute ('salt', 'pH', 'dielectric', ...).
+
+    value : float
+        New value for the condition.
+
+    Returns
+    -------
+    None
+    """
+    setattr(X_class.parameters, condition, value)
+
+    for hook in ("_genParams", "_build_pairwise_maps"):
+        if hasattr(X_class.parameters, hook):
+            getattr(X_class.parameters, hook)()
+
+    # rebuild the pairwise interaction lookup with the new conditions
+    X_class._update_lookup_dict()
+
+
+## ---------------------------------------------------------------------------
+##
+def _build_condition_dependent_phase_diagrams(
+    seq, X_class, condition, condition_list, prefactor, null_interaction_baseline
+):
+    """
+    Shared implementation for the build_*_dependent_phase_diagrams functions.
+
+    For each value in ``condition_list`` the condition is set on the model and
+    the interaction lookup is rebuilt; the homotypic epsilon is computed, and
+    the phase diagram is built from that same epsilon, so the two outputs
+    always agree. The model is returned to its original condition afterwards,
+    even if a condition fails part way through.
+
+    Parameters
+    ----------
+    seq : str
+        Input sequence.
+
+    X_class : InteractionMatrixConstructor
+        Constructor whose model is re-initialized for each condition.
+
+    condition : str
+        Name of the condition attribute to vary ('salt', 'pH', 'dielectric').
+
+    condition_list : list
+        Values the condition is set to, one at a time.
+
+    prefactor : float or None
+        Charge prefactor passed through to get_sequence_epsilon_value(). If
+        None the constructor's own charge_prefactor is used.
+
+    null_interaction_baseline : float or None
+        Baseline passed through to get_sequence_epsilon_value(). If None the
+        constructor's own null_interaction_baseline is used.
+
+    Returns
+    -------
+    list
+        [condition_list, {condition value: phase diagram},
+        {condition value: epsilon}], where each phase diagram is the 8-element
+        list returned by epsilon_to_phase_diagram().
+
+    Raises
+    ------
+    ValueError
+        If the model behind X_class cannot vary ``condition``.
+    """
+    _check_condition(X_class, condition)
+
+    out_diagrams = {}
+    out_epsilons = {}
+
+    base_value = getattr(X_class.parameters, condition)
+
+    try:
+        # iterate conditions to get epsilon values and phase diagrams at each one
+        for i in condition_list:
+            _set_condition(X_class, condition, i)
+
+            out_epsilons[i] = get_sequence_epsilon_value(
+                seq,
+                seq,
+                X_class,
+                charge_prefactor=prefactor,
+                null_interaction_baseline=null_interaction_baseline,
+                use_charge_weighting=True,
+                use_aliphatic_weighting=True,
+            )
+            out_diagrams[i] = epsilon_to_phase_diagram(seq, out_epsilons[i])
+    finally:
+        # always put the model back the way we found it, even if a condition
+        # blew up part way through
+        _set_condition(X_class, condition, base_value)
+
+    return [condition_list, out_diagrams, out_epsilons]
+
 
 ## ---------------------------------------------------------------------------
 ##
@@ -34,82 +213,55 @@ def build_DIELECTRIC_dependent_phase_diagrams(
     seq, X_class, condition_list, prefactor=None, null_interaction_baseline=None
 ):
     """
-    Fuction that iterativly calls return_phase_diagram base on a list
-    of passed conditions for dielectric that re-intialize the input parameter_model
+    Build a phase diagram for a sequence at each of a list of dielectric
+    constants.
+
+    For each dielectric constant the forcefield is rebuilt, the homotypic
+    epsilon is computed, and a phase diagram is built from that epsilon (see
+    epsilon_to_phase_diagram()). The model is returned to its original
+    dielectric constant afterwards.
 
     Parameters
-    ---------------
+    ----------
     seq : str
-        Input sequence
+        Input sequence.
 
-    X_model : object
-        instantiation of the InteractionMatrixConstructor object for which gets
-         re-initialized for each condition in the condition dict
+    X_class : InteractionMatrixConstructor
+        The constructor to use. The underlying model must list 'dielectric' in
+        its ``parameters.conditions`` (Mpipi does; CALVADOS does not, because
+        it derives the dielectric from temperature).
 
-    prefactor : object
-        instantiation
+    condition_list : list of float
+        Dielectric constants, each set in turn as
+        ``X_class.parameters.dielectric``.
 
-    null_interaction_baseline : object
-        instantiation
+    prefactor : float, optional
+        Charge prefactor used when computing epsilon. If None (default) the
+        constructor's own charge_prefactor is used.
 
-    condition_list : list
-        list of conditions values where:
-        conditions_list = list of values (v) passed one at
-                            a time to X_model.parameters.salt = v
+    null_interaction_baseline : float, optional
+        Baseline used to split attractive and repulsive interactions when
+        computing epsilon. If None (default) the constructor's own
+        null_interaction_baseline is used.
 
     Returns
-    ---------------
-    out_list : list
+    -------
+    list
+        A list with three elements:
 
-        The function returns a list with the following elements
+        [0] - the input condition_list
+        [1] - dict mapping each dielectric constant to its phase diagram (the
+              8-element list returned by epsilon_to_phase_diagram())
+        [2] - dict mapping each dielectric constant to its epsilon
 
-        [0] - List of concentrations
-        [1] - Dictionary of outputs from return_phase_diagram with keys as concentrations
-        [2] - Dictionary of outputs from epsilons for each concentrations keys as concentrations
+    Raises
+    ------
+    ValueError
+        If the model behind X_class cannot vary its dielectric constant.
     """
-
-    out_diagrams = {}
-    out_epsilons = {}
-
-    # check if condition_parameter exists and if so set base condition_parameter
-    try:
-        base_value = X_class.parameters.dielectric
-    except Exception as E:
-        print(E)
-        raise Exception(f"""Condition "dielectric" NOT FOUND - Input parameter model {X_class.parameters.version} of passed X_model does 
-                            not contain parameters.dielectric as viable condition. Properties of the passed parameter model are below:
-                            {vars(X_class.parameters).keys()}""")
-
-    base_params = X_class.parameters
-
-    # itterate conditions to get epsilon values at different conditions
-    for i in condition_list:
-        # get local parameters
-        l_param = X_class.parameters
-        l_param.dielectric = i
-
-        # update constructor with for new parameters
-        X_class._update_lookup_dict()
-
-        # get phase diagram for condition
-        out_diagrams[i] = return_phase_diagram(seq, X_class)
-        out_epsilons[i] = get_sequence_epsilon_value(
-            seq,
-            seq,
-            X_class,
-            charge_prefactor=prefactor,
-            null_interaction_baseline=null_interaction_baseline,
-            use_charge_weighting=True,
-            use_aliphatic_weighting=True,
-        )
-
-    # reset parameters to base_value
-    X_class.parameters.dielectric = base_value
-
-    # update base parameters
-    X_class._update_parameters(base_params)
-
-    return [condition_list, out_diagrams, out_epsilons]
+    return _build_condition_dependent_phase_diagrams(
+        seq, X_class, "dielectric", condition_list, prefactor, null_interaction_baseline
+    )
 
 
 ## ---------------------------------------------------------------------------
@@ -118,345 +270,250 @@ def build_PH_dependent_phase_diagrams(
     seq, X_class, condition_list, prefactor=None, null_interaction_baseline=None
 ):
     """
-    Fuction that iterativly calls return_phase_diagram base on a list
-    of passed conditions for ph that re-intialize the input parameter_model
+    Build a phase diagram for a sequence at each of a list of pH values.
+
+    For each pH the forcefield is rebuilt, the homotypic epsilon is computed,
+    and a phase diagram is built from that epsilon (see
+    epsilon_to_phase_diagram()). The model is returned to its original pH
+    afterwards.
 
     Parameters
-    ---------------
+    ----------
     seq : str
-        Input sequence
+        Input sequence.
 
-    X_model : object
-        instantiation of the InteractionMatrixConstructor object for which gets
-         re-initialized for each condition in the condition dict
+    X_class : InteractionMatrixConstructor
+        The constructor to use. The underlying model must list 'pH' in its
+        ``parameters.conditions`` (CALVADOS does, via the histidine charge;
+        Mpipi does not).
 
-    prefactor : object
-        instantiation
+    condition_list : list of float
+        pH values, each set in turn as ``X_class.parameters.pH``.
 
-    null_interaction_baseline : object
-        instantiation
+    prefactor : float, optional
+        Charge prefactor used when computing epsilon. If None (default) the
+        constructor's own charge_prefactor is used.
 
-    condition_list : list
-        list of conditions values where:
-        conditions_list = list of values (v) passed one at
-                            a time to X_model.parameters.salt = v
+    null_interaction_baseline : float, optional
+        Baseline used to split attractive and repulsive interactions when
+        computing epsilon. If None (default) the constructor's own
+        null_interaction_baseline is used.
 
     Returns
-    ---------------
-    out_list : list
+    -------
+    list
+        A list with three elements:
 
-        The function returns a list with the following elements
+        [0] - the input condition_list
+        [1] - dict mapping each pH to its phase diagram (the 8-element list
+              returned by epsilon_to_phase_diagram())
+        [2] - dict mapping each pH to its epsilon
 
-        [0] - List of concentrations
-        [1] - Dictionary of outputs from return_phase_diagram with keys as concentrations
-        [2] - Dictionary of outputs from epsilons for each concentrations keys as concentrations
+    Raises
+    ------
+    ValueError
+        If the model behind X_class cannot vary pH.
     """
-
-    out_diagrams = {}
-    out_epsilons = {}
-
-    # check if condition_parameter exists and if so set base condition_parameter
-    try:
-        base_value = X_class.parameters.pH
-    except Exception as E:
-        print(E)
-        raise Exception(f"""Condition "pH" NOT FOUND - Input parameter model {X_class.parameters.version} of passed X_model does 
-                            not contain parameters.pH as viable condition. Properties of the passed parameter model are below:
-                            {vars(X_class.parameters).keys()}""")
-
-    base_params = X_class.parameters
-
-    # itterate conditions to get epsilon values at different conditions
-    for i in condition_list:
-        # get local parameters
-        l_param = X_class.parameters
-        l_param.pH = i
-
-        # update constructor with for new parameters
-        X_class._update_lookup_dict()
-
-        # get phase diagram for condition
-        out_diagrams[i] = return_phase_diagram(seq, X_class)
-        out_epsilons[i] = get_sequence_epsilon_value(
-            seq,
-            seq,
-            X_class,
-            charge_prefactor=prefactor,
-            null_interaction_baseline=null_interaction_baseline,
-            use_charge_weighting=True,
-            use_aliphatic_weighting=True,
-        )
-
-    # reset parameters to base_value
-    X_class.parameters.pH = base_value
-
-    # update base parameters
-    X_class._update_parameters(base_params)
-
-    return [condition_list, out_diagrams, out_epsilons]
+    return _build_condition_dependent_phase_diagrams(
+        seq, X_class, "pH", condition_list, prefactor, null_interaction_baseline
+    )
 
 
 ## ---------------------------------------------------------------------------
 ##
-def build_SALT_dependent_phase_diagrams(seq, X_class, condition_list):
+def build_SALT_dependent_phase_diagrams(
+    seq, X_class, condition_list, prefactor=None, null_interaction_baseline=None
+):
     """
-    Fuction that iterativly calls return_phase_diagram base on a list
-    of passed conditions for salt that re-intialize the input parameter_model
+    Build a phase diagram for a sequence at each of a list of salt
+    concentrations.
+
+    For each salt concentration the forcefield is rebuilt, the homotypic
+    epsilon is computed, and a phase diagram is built from that epsilon (see
+    epsilon_to_phase_diagram()). The model is returned to its original salt
+    concentration afterwards.
 
     Parameters
-    ---------------
+    ----------
     seq : str
-        Input sequence
+        Input sequence.
 
-    X_model : object
-        instantiation of the InteractionMatrixConstructor object for which gets
-         re-initialized for each condition in the condition dict
+    X_class : InteractionMatrixConstructor
+        The constructor to use. The underlying model must list 'salt' in its
+        ``parameters.conditions`` (both Mpipi and CALVADOS do).
 
-    prefactor : object
-        instantiation
+    condition_list : list of float
+        Salt concentrations in M, each set in turn as
+        ``X_class.parameters.salt``.
 
-    null_interaction_baseline : object
-        instantiation
+    prefactor : float, optional
+        Charge prefactor used when computing epsilon. If None (default) the
+        constructor's own charge_prefactor is used.
 
-    condition_list : list
-        list of conditions values where:
-        conditions_list = list of values (v) passed one at
-                            a time to X_model.parameters.salt = v
+    null_interaction_baseline : float, optional
+        Baseline used to split attractive and repulsive interactions when
+        computing epsilon. If None (default) the constructor's own
+        null_interaction_baseline is used.
 
     Returns
-    ---------------
-    out_list : list
+    -------
+    list
+        A list with three elements:
 
-        The function returns a list with the following elements
+        [0] - the input condition_list
+        [1] - dict mapping each salt concentration to its phase diagram (the
+              8-element list returned by epsilon_to_phase_diagram())
+        [2] - dict mapping each salt concentration to its epsilon
 
-        [0] - List of concentrations
-        [1] - Dictionary of outputs from return_phase_diagram with keys as concentrations
-        [2] - Dictionary of outputs from epsilons for each concentrations keys as concentrations
+    Raises
+    ------
+    ValueError
+        If the model behind X_class cannot vary salt.
     """
-
-    out_diagrams = {}
-    out_epsilons = {}
-
-    # check if condition_parameter exists and if so set base condition_parameter
-    try:
-        base_value = X_class.parameters.salt
-    except Exception as E:
-        print(E)
-        raise Exception(f"""Condition "salt" NOT FOUND - Input parameter model {X_class.parameters.version} of passed X_model does 
-                            not contain parameters.salt as viable condition. Properties of the passed parameter model are below:
-                            {vars(X_class.parameters).keys()}""")
-
-    null_interaction_baseline = X_class.null_interaction_baseline
-
-    # itterate conditions to get epsilon values at different conditions
-    for i in condition_list:
-        # set local parameters salt
-        X_class.parameters.salt = i
-
-        # update constructor with for new parameters
-        X_class._update_lookup_dict()
-
-        # get phase diagram for condition
-        out_diagrams[i] = return_phase_diagram(seq, X_class)
-        out_epsilons[i] = get_sequence_epsilon_value(
-            seq,
-            seq,
-            X_class,
-            charge_prefactor=X_class.charge_prefactor,
-            null_interaction_baseline=null_interaction_baseline,
-            use_charge_weighting=True,
-            use_aliphatic_weighting=True,
-        )
-
-    # reset parameters to base_value
-    X_class.parameters.salt = base_value
-
-    # update base parameters
-    X_class._update_lookup_dict()
-
-    return [condition_list, out_diagrams, out_epsilons]
+    return _build_condition_dependent_phase_diagrams(
+        seq, X_class, "salt", condition_list, prefactor, null_interaction_baseline
+    )
 
 
 ## ---------------------------------------------------------------------------
 ##
 def return_phase_diagram(seq, X_class):
     """
-    Wrapper function that takes in a sequence and builds a phase diagram using the
-    Analytical approximation of FH theory to build a phase diagram. This works by
-    computing a phase diagram in terms of chi vs. T, and then converting this to
-    chi vs. phi.
+    Build the Flory-Huggins phase diagram for a sequence.
 
-    We can recast chi in terms of T given that.
-
-        chi = delta_eps / (kB * T)
-
-    where delta_eps here is the site-to-site contact energy, i.e. a larger (positive)
-    value means more attractive.
-
-    If kB=1 the delta_eps is in terms of kB, therefore
-
-        chi = delta_eps / (T)
-
-    and therefore
-
-        T = delta_eps/chi
-
-    The code below does a few things:
-
-    1. Uses get_sequence_epsilon_value() to calculate the mean-field
-       interaction parameter (epsilon)
-
-    2. Using sequence length calculates the phi vs. chi phase diagram
-
-    3. Converts epsilon so a positive (repulsive) epsilon becomes mildly
-       attractive but not enough to cause phase separation. We do this
-       as a hack otherwise the math breaks down...
-
-    4. Converts the chi array into T by converting in terms of
-       delta_eps * 1/chi
-
-    This approach is repeated to also calculate the spinodal, which is also
-    then returned.
+    Computes the homotypic epsilon of ``seq`` with ``X_class`` (with charge and
+    aliphatic weighting, and the constructor's own charge prefactor and null
+    baseline) and passes it to epsilon_to_phase_diagram(), which does the
+    conversion to a phase diagram; see that function for how, and for what the
+    returned values mean.
 
     Parameters
-    ---------------
+    ----------
     seq : str
-        Input sequence
+        Input sequence.
+
+    X_class : InteractionMatrixConstructor
+        The constructor used to compute the homotypic epsilon.
 
     Returns
-    ---------------
+    -------
     list
-        The function returns a list with the following elements
-
-        [0] - Dilute phase concentrations (array of len=N) in Phi
-        [1] - Dense phase concentrations (array of len=N) in Phi
-        [2] - List with [0]: critical phi and [1]: critical T
-        [3] - List of temperatures that match with the dense and dilute phase concentrations
-        [4] - Dilute phase concentrations (array of len=N) in Phi for spinodal
-        [5] - Dense phase concentrations (array of len=N) in Phi for spinodal
-        [6] - List with [0]: critical phi and [1]: critical T  for spinodal
-        [7] - List of temperatures that match with the dense and dilute phase concentrations for spinodal
-
+        The 8-element list returned by epsilon_to_phase_diagram().
     """
-
-    charge_prefactor = X_class.charge_prefactor
-    null_interaction_baseline = X_class.null_interaction_baseline
-
-    # calculate the epilson value for the sequence
     eps_real = get_sequence_epsilon_value(
         seq,
         seq,
         X_class,
-        charge_prefactor=charge_prefactor,
-        null_interaction_baseline=null_interaction_baseline,
         use_charge_weighting=True,
         use_aliphatic_weighting=True,
     )
 
-    # get phase diagram
     return epsilon_to_phase_diagram(seq, eps_real)
+
+
+## ---------------------------------------------------------------------------
+##
+def _chi_to_temperature(scan, delta_eps):
+    """
+    Convert a chi scan from finches.analytical_fh.floryhuggins into temperatures.
+
+    Parameters
+    ----------
+    scan : tuple
+        The (chis, low, high, phi_c, chi_c) tuple returned by
+        floryhuggins.calculate_binodal() or calculate_spinodal().
+
+    delta_eps : float
+        Per-residue contact energy (positive = attractive), in the units of
+        epsilon with kB = 1.
+
+    Returns
+    -------
+    list
+        [low, high, [phi_c, T_c], T], where T = delta_eps / chi is a numpy array
+        matching the entries of ``low`` and ``high``.
+    """
+    chis, low, high, phi_c, chi_c = scan
+    temperatures = delta_eps * (1 / np.array(chis))
+    critical_temperature = (1 / chi_c) * delta_eps
+    return [low, high, [phi_c, critical_temperature], temperatures]
 
 
 ## ---------------------------------------------------------------------------
 ##
 def epsilon_to_phase_diagram(seq, epsilon):
     """
-    Function that uses input sequence (only for length) and epsilon value to
-    calculate the phase diagram.
+    Build a Flory-Huggins phase diagram from an epsilon value.
 
-    Specifically this does the following:
+    The sequence is used only for its length N. The steps are:
 
-    1. Using sequence length calculates the phi vs. chi phase diagram
+    1. A non-negative (repulsive, or exactly zero) epsilon is replaced by
+       -0.01, i.e. very weakly attractive. The conversion to temperature below
+       assumes a contact energy that cannot be repulsive: a positive epsilon
+       would give negative temperatures and an inverted diagram, and an
+       epsilon of exactly zero would put every temperature at zero. The result
+       is a diagram at very low temperature, i.e. one that says "does not
+       phase separate at any sensible temperature".
 
-    2. Converts epsilon so a positive (repulsive) epsilon becomes mildly
-       attractive but not enough to cause phase separation. We do this
-       as a hack otherwise the math breaks down...
+    2. The per-residue contact energy is delta_eps = -epsilon / N. The chain
+       length is divided out because Flory-Huggins theory already accounts for
+       it through N, and the sign flips because a negative epsilon is
+       attractive whereas a positive chi is.
 
-    3. Converts the chi array into T by converting in terms of
-       delta_eps * 1/chi
+    3. The binodal (analytic_binodal mode, 50,000 grid points) and spinodal
+       (10,000 grid points) are computed for a chain of length N over chi in
+       [0.5, 0.8), and each chi is converted to a temperature
+       T = delta_eps / chi.
 
-    This approach is repeated to also calculate the spinodal, which is also
-    then returned.
+    The temperature is in the units of epsilon with kB = 1. It is a relative
+    scale for comparing sequences with each other, not a temperature in
+    Kelvin, because epsilon = 0 maps onto chi = 0 (athermal solvent) with no
+    reference offset. Note also that the chi range is fixed, so the critical
+    chi of short chains, 0.5 * (1 + 1/sqrt(N))**2, can lie above it: sequences
+    shorter than 15 residues come back with empty binodal and spinodal lists.
 
     Parameters
-    ---------------
+    ----------
     seq : str
-        Input sequence
+        Input sequence. Only its length is used, to set the polymer length N
+        in the Flory-Huggins calculation.
+
+    epsilon : float
+        Mean-field homotypic interaction parameter for the sequence, as
+        returned by get_sequence_epsilon_value(). Negative values are
+        attractive.
 
     Returns
-    ---------------
+    -------
     list
-        The function returns a list with the following elements
+        A list with eight elements. The binodal and spinodal lists hold one
+        entry per chi grid point above the critical chi:
 
-        [0] - Dilute phase concentrations (array of len=N) in Phi
-        [1] - Dense phase concentrations (array of len=N) in Phi
-        [2] - List with [0]: critical phi and [1]: critical T
-        [3] - List of temperatures that match with the dense and dilute phase concentrations
-        [4] - Dilute phase concentrations (array of len=N) in Phi for spinodal
-        [5] - Dense phase concentrations (array of len=N) in Phi for spinodal
-        [6] - List with [0]: critical phi and [1]: critical T  for spinodal
-        [7] - List of temperatures that match with the dense and dilute phase concentrations for spinodal
-
+        [0] - list of dilute-phase volume fractions on the binodal
+        [1] - list of dense-phase volume fractions on the binodal
+        [2] - [critical volume fraction, critical temperature]
+        [3] - np.ndarray of the temperatures matching [0] and [1]
+        [4] - list of low-concentration volume fractions on the spinodal
+        [5] - list of high-concentration volume fractions on the spinodal
+        [6] - [critical volume fraction, critical temperature], from the
+              spinodal scan (identical to [2], since both come from the same
+              critical point)
+        [7] - np.ndarray of the temperatures matching [4] and [5]
     """
-
-    # if we have a positive (i.e. repulsive) epsilon set this to -0.01, which means super
-    # weakly attractive. We do this because otherwise a positive epsilon value leads to a
-    # negative kB_eps which means we get 'inverse' phase diagrams, because we're converting chi
-    # to T in a universe where delta-epsilon is a measure of site-specific interaction that
-    # CANNOT be repulsive (worset case 0). We have to set it to a small attractive value because if
-    # its 0 you get a divide by 0 error
-    if epsilon > 0:
+    # see step 1 of the docstring for why a non-negative epsilon is clamped
+    if epsilon >= 0:
         epsilon = -0.01
 
-    # note we have to
-    # 1. reverse the sign (i.e. negative eps = positive flory chi)
-    # 2. Divide epsilon by seq(len) because delta_eps is a site-specific energy whereas
-    #    epsilon is in terms of the overall chain, but the impact of length is already taken
-    #    into account in the calculate_binodal, so we need to divide epsilon by length to get the
-    #    average per-residue contribution.
-    #
+    # per-residue contact energy; negative epsilon = positive (attractive) delta_eps
     delta_eps = -epsilon / len(seq)
 
-    # use standard binodal from the floryhuggins module
-    out = floryhuggins.calculate_binodal(
-        len(seq), "analytic_binodal", n_points=50000, chi_max=0.8
+    binodal = floryhuggins.calculate_binodal(
+        len(seq), "analytic_binodal", n_points=_N_BINODAL_POINTS, chi_max=_CHI_MAX
     )
-    # out here has the following elements:
-    # [0] - chi values
-    # [1] - dilute concentration
-    # [2] - dense concentration
-    # [3] - critical volume fraction
-    # [4] - critical chi value
+    spinodal = floryhuggins.calculate_spinodal(
+        len(seq), n_points=_N_SPINODAL_POINTS, chi_max=_CHI_MAX
+    )
 
-    # convert from chi to T in kelvin by
-    # 1. taking 1/chi and multiplying that by delta_eps - i.e. T = delta_eps/chi
-    Ts_in_Kelvin = delta_eps * (1 / np.array(out[0]))
-
-    # get the critical temperature using same conversion factor
-    crit_T = (1 / out[4]) * delta_eps
-
-    # get dense and dilute concentrations and critical concentration
-    dilute = out[1]
-    dense = out[2]
-    crit_phi = out[3]
-
-    ## Do it all again for the spinodal
-    out_s = floryhuggins.calculate_spinodal(len(seq), n_points=10000, chi_max=0.8)
-
-    S_crit_T = (1 / out_s[4]) * delta_eps
-    S_Ts_in_Kelvin = delta_eps * (1 / np.array(out_s[0]))
-
-    S_dilute = out_s[1]
-    S_dense = out_s[2]
-    S_crit_phi = out_s[3]
-
-    return [
-        dilute,
-        dense,
-        [crit_phi, crit_T],
-        Ts_in_Kelvin,
-        S_dilute,
-        S_dense,
-        [S_crit_phi, S_crit_T],
-        S_Ts_in_Kelvin,
-    ]
+    return _chi_to_temperature(binodal, delta_eps) + _chi_to_temperature(
+        spinodal, delta_eps
+    )

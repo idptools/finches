@@ -18,6 +18,9 @@ interaction workflow:
 
 1. Decompose each chain into intrinsically disordered regions (IDRs) and folded
    domains (FDs), including IDR residues that are missing from the coordinates.
+   Stretches that metapredict predicts to be disordered but that pack against a
+   folded domain in the structure (for example a helix that folds on binding a
+   partner chain) are treated as folded.
 2. Within folded domains only, classify residues as solvent-exposed (surface) or
    buried (IDRs are excluded from the SASA calculation so dangling tails do not
    occlude the folded-domain surface).
@@ -30,12 +33,21 @@ interaction workflow:
    neighbourhood rather than the linear sequence.
 5. Use the folded-domain geometry to limit where an IDR can physically reach, using a
    simple polymer model ``R(i) = b * i**nu`` (defaults ``nu=0.54``, ``b=5`` Angstrom).
+6. Build and plot a surface:IDR intermap (:meth:`StructureSurface.surface_vs_idr_matrix`
+   and :meth:`StructureSurface.plot_surface_vs_idr_matrix`) that sits on the same scale
+   as a FINCHES IDR:IDR intermap, with buried residues greyed out.
 
-The existing ``finches.utils.folded_domain_utils.FoldedDomain`` class is intentionally
-left untouched; this module is additive.
+This module supersedes the patch mode in ``finches.utils.folded_domain_utils.FoldedDomain``,
+which is kept so that earlier results can be reproduced. The residue-class definitions
+and the charge and aliphatic weighting rules come from
+``finches.parsing_aminoacid_sequences``, so the structure-aware scores use exactly the
+same chemistry as an IDR:IDR calculation.
 
 By: Alex Holehouse & contributors
 """
+
+import os
+import warnings
 
 import numpy as np
 import mdtraj as md
@@ -43,14 +55,17 @@ import networkx as nx
 from scipy.spatial import cKDTree
 import metapredict as meta
 
-from finches.utils.folded_domain_utils import MAX_SASA_DATA, THREE_TO_ONE
-
-
-# residue chemistry groups (match finches.parsing_aminoacid_sequences)
-POSITIVE = {"R", "K"}
-NEGATIVE = {"E", "D"}
-CHARGED = POSITIVE | NEGATIVE
-ALIPHATIC = {"A", "V", "I", "L", "M"}
+from finches.parsing_aminoacid_sequences import (
+    ALIPHATIC_RESIDUES,
+    CHARGED_RESIDUES,
+    NEGATIVE_RESIDUES,
+    POSITIVE_RESIDUES,
+    aliphatic_weight_from_levels,
+    charge_weight_from_counts,
+    get_aliphatic_groups,
+    get_charge_window_counts,
+)
+from finches.utils.folded_domain_utils import MAX_SASA_DATA, one_letter_code
 
 # file extensions that should be read with mdtraj's dedicated PDB reader; everything
 # else (notably .cif/.mmcif/.pdbx) is dispatched through md.load, which selects the
@@ -68,6 +83,28 @@ DEFAULT_REACH_NU = 0.54
 # surface residues, i.e. one shell of touching neighbours.
 DEFAULT_CONTACT_RADIUS = 6.0  # Angstrom
 
+# Stretches that metapredict calls disordered but that are packed in the structure.
+# metapredict works from sequence alone, so a segment that only folds in context (a
+# helix packed against a partner chain, or the edge of a domain that a predicted
+# boundary cuts off) is called disordered even though the structure shows it packed.
+# Such a stretch is treated as folded when its residues touch residues of the
+# predicted folded domains (see StructureSurface._rescue_packed_idr_residues). Like the
+# other thresholds in this module these are uncalibrated: they were chosen by
+# inspecting AlphaFold models, where the stretches they rescue have high pLDDT and
+# floppy tails are left alone.
+PACKING_CONTACT_CUTOFF = 4.5  # Angstrom, heavy atom to heavy atom
+# partners closer than this along the same chain are local (helical i, i+4 contacts and
+# the residues bonded across a domain boundary) and do not count as packing
+PACKING_MIN_SEQUENCE_SEPARATION = 5  # residues
+# partner counts are averaged over a window of this many residues (odd); gaps shorter
+# than the window between packed residues are closed
+PACKING_WINDOW = 9  # residues
+# a residue is packed when its window averages at least this many distinct
+# folded-domain partners per residue
+PACKING_MIN_PARTNERS = 1.0
+# an isolated packed stretch shorter than this is ignored as noise
+PACKING_MIN_RUN = 5  # residues
+
 
 def _load_structure(path):
     """
@@ -75,8 +112,8 @@ def _load_structure(path):
 
     PDB files are read with ``mdtraj.load_pdb`` and all other extensions (including
     ``.cif``/``.mmcif``/``.pdbx``) are dispatched through ``mdtraj.load``, which
-    selects the appropriate reader. If the chosen reader fails, ``mdtraj.load`` is
-    tried as a last resort.
+    selects the appropriate reader. If ``mdtraj.load_pdb`` fails on a file with a PDB
+    extension, ``mdtraj.load`` is tried as a fallback.
 
     Parameters
     ----------
@@ -88,14 +125,120 @@ def _load_structure(path):
     mdtraj.Trajectory
         The loaded structure (single frame for a static model).
     """
-    lower = str(path).lower()
-    try:
-        if lower.endswith(_PDB_EXTENSIONS):
+    if str(path).lower().endswith(_PDB_EXTENSIONS):
+        try:
             return md.load_pdb(path)
-        return md.load(path)
-    except Exception:
-        # last resort: let mdtraj infer the format itself
-        return md.load(path)
+        except Exception:
+            # fall back to letting mdtraj pick the reader itself
+            pass
+    return md.load(path)
+
+
+def _windowed_mean(values, window):
+    """
+    Mean of each value and its neighbours, truncated at the ends of the array.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        1D array of per-residue values.
+    window : int
+        Odd window length in residues.
+
+    Returns
+    -------
+    numpy.ndarray
+        Array the same length as ``values``; element ``i`` is the mean of
+        ``values[i - window // 2 : i + window // 2 + 1]``, clipped to the array, so
+        residues near the ends average over fewer neighbours rather than over padding.
+    """
+    half_window = window // 2
+    means = np.empty(len(values))
+    for i in range(len(values)):
+        lo = max(0, i - half_window)
+        hi = min(len(values), i + half_window + 1)
+        means[i] = values[lo:hi].mean()
+    return means
+
+
+def _fill_short_gaps(packed, modeled, n_flank_folded, c_flank_folded, max_gap):
+    """
+    Close short gaps in a packed mask along one IDR run.
+
+    A gap of unpacked residues shorter than ``max_gap`` is filled when it lies between
+    two packed residues, or between a packed residue and the folded domain flanking the
+    run, and every residue in it is modeled (missing residues are never folded).
+
+    Parameters
+    ----------
+    packed : numpy.ndarray of bool
+        Packed flag for each residue of the run, in sequence order.
+    modeled : numpy.ndarray of bool
+        Whether each residue of the run has coordinates.
+    n_flank_folded, c_flank_folded : bool
+        Whether the run is flanked by a modeled folded residue at its N or C end.
+    max_gap : int
+        Gaps strictly shorter than this are filled.
+
+    Returns
+    -------
+    numpy.ndarray of bool
+        A new mask with the short gaps filled. A run with no packed residue is
+        returned unchanged, so two folded flanks alone never fill a run.
+    """
+    filled = packed.copy()
+    anchors = list(np.flatnonzero(packed))
+    if not anchors:
+        return filled
+    # the flanking folded residues sit just outside the run, at -1 and len(run)
+    if n_flank_folded:
+        anchors = [-1] + anchors
+    if c_flank_folded:
+        anchors = anchors + [len(packed)]
+    for left, right in zip(anchors[:-1], anchors[1:]):
+        gap = right - left - 1
+        if 0 < gap < max_gap and modeled[left + 1 : right].all():
+            filled[left + 1 : right] = True
+    return filled
+
+
+def _drop_short_isolated_runs(packed, n_flank_folded, c_flank_folded, min_run):
+    """
+    Remove packed stretches that are too short and do not touch a folded domain.
+
+    Parameters
+    ----------
+    packed : numpy.ndarray of bool
+        Packed flag for each residue of the run, in sequence order.
+    n_flank_folded, c_flank_folded : bool
+        Whether the run is flanked by a modeled folded residue at its N or C end. A
+        stretch reaching that end extends the folded domain, so it is kept whatever
+        its length.
+    min_run : int
+        Isolated stretches shorter than this are dropped.
+
+    Returns
+    -------
+    numpy.ndarray of bool
+        A new mask without the short isolated stretches.
+    """
+    kept = packed.copy()
+    n_residues = len(packed)
+    i = 0
+    while i < n_residues:
+        if not packed[i]:
+            i += 1
+            continue
+        j = i
+        while j < n_residues and packed[j]:
+            j += 1
+        touches_folded = (i == 0 and n_flank_folded) or (
+            j == n_residues and c_flank_folded
+        )
+        if j - i < min_run and not touches_folded:
+            kept[i:j] = False
+        i = j
+    return kept
 
 
 class Residue:
@@ -107,9 +250,10 @@ class Residue:
     chain_index : int
         0-based mdtraj chain index.
     res_seq : int
-        Author residue number (PDB ``resSeq``). For residues that are missing from
-        the coordinates a synthetic 1-based number derived from the sequence position
-        is used.
+        Author residue number (PDB ``resSeq``). A residue that is missing from the
+        coordinates carries the number it would have had: its 1-based position in a
+        provided sequence, or the ``resSeq`` that fills the numbering gap when the
+        sequence is reconstructed from the structure.
     seq_index : int
         0-based position of this residue in the full chain sequence.
     one_letter : str
@@ -118,6 +262,10 @@ class Residue:
         True if the residue has coordinates in the structure.
     domain : str
         Either ``'folded'`` or ``'idr'``.
+    packed_rescue : bool
+        True if metapredict predicts the residue to be disordered but it is treated as
+        folded because it packs against a folded domain in the structure (see
+        :meth:`StructureSurface._rescue_packed_idr_residues`).
     md_index : int or None
         Global mdtraj residue index (None for missing residues).
     position : numpy.ndarray or None
@@ -135,6 +283,7 @@ class Residue:
         "one_letter",
         "modeled",
         "domain",
+        "packed_rescue",
         "md_index",
         "position",
         "surface",
@@ -144,8 +293,8 @@ class Residue:
         """
         Create a residue record.
 
-        Newly created records default to ``domain='idr'``, ``surface=False``,
-        ``md_index=None`` and ``position=None``; these are populated by
+        Newly created records default to ``domain='idr'``, ``packed_rescue=False``,
+        ``surface=False``, ``md_index=None`` and ``position=None``; these are populated by
         :class:`StructureSurface` during decomposition and surface classification.
 
         Parameters
@@ -167,6 +316,7 @@ class Residue:
         self.one_letter = one_letter
         self.modeled = modeled
         self.domain = "idr"
+        self.packed_rescue = False
         self.md_index = None
         self.position = None
         self.surface = False
@@ -272,6 +422,15 @@ class StructureSurface:
         Passed through to ``metapredict.predict_disorder_domains``. Default None
         (metapredict default).
 
+    rescue_packed_idrs : bool, optional
+        If True (default), stretches that metapredict predicts to be disordered but
+        that pack against a predicted folded domain in the structure are treated as
+        folded (see :meth:`_rescue_packed_idr_residues`). metapredict sees only the
+        sequence, so without this a chain that folds on binding its partner is called
+        disordered, gets no surface, and is left out of the SASA calculation, which
+        makes the interface on the partner look exposed. Set to False to use the
+        metapredict decomposition unchanged.
+
     Attributes
     ----------
     residues : list of Residue
@@ -308,6 +467,7 @@ class StructureSurface:
         occlusion_surround_thresh=0.3,
         occlusion_sample_spacing=2.0,
         disorder_threshold=None,
+        rescue_packed_idrs=True,
     ):
         """
         Load a structure and run the decomposition / surface-classification pipeline.
@@ -357,6 +517,7 @@ class StructureSurface:
         self.occlusion_surround_thresh = occlusion_surround_thresh
         self.occlusion_sample_spacing = occlusion_sample_spacing
         self.disorder_threshold = disorder_threshold
+        self.rescue_packed_idrs = rescue_packed_idrs
 
         # load structure (PDB or mmCIF/PDBx)
         self.traj = _load_structure(pdbfilename)
@@ -381,6 +542,22 @@ class StructureSurface:
         self._surface_graph = None
         self._surface_neighbours = None
         self._surface_distance = None
+
+    def __repr__(self):
+        """
+        Return a one-line summary of the decomposition.
+
+        Returns
+        -------
+        str
+            The file name and the residue counts by class.
+        """
+        return (
+            f"StructureSurface({os.path.basename(str(self.pdbfilename))!r}: "
+            f"{len(self._chain_sequences)} chain(s), {len(self.residues)} residues, "
+            f"{len(self.folded_residues)} folded of which "
+            f"{len(self.surface_residues)} surface, {len(self.idr_residues)} IDR)"
+        )
 
     # ------------------------------------------------------------------
     # sequence handling
@@ -442,8 +619,15 @@ class StructureSurface:
         If a sequence was provided for the chain it is validated against the modeled
         residues (aligned by ``resSeq``, assumed 1-based into the sequence). Otherwise
         the sequence is reconstructed from the modeled residues, with any ``resSeq``
-        numbering gaps filled by placeholder glycines and recorded as missing
-        residues in ``self._gap_positions``.
+        numbering gaps filled by placeholder glycines, which become missing (IDR)
+        residues.
+
+        Terminal caps (ACE, NME and the like) are skipped: mdtraj flags them as
+        protein but they have no alpha carbon and are not residues in the sequence
+        sense. A residue whose name has no standard amino acid equivalent (see
+        :func:`finches.utils.folded_domain_utils.one_letter_code`) is kept as a
+        glycine placeholder with a warning, and is exempt from the identity check
+        against a provided sequence.
 
         Parameters
         ----------
@@ -460,6 +644,10 @@ class StructureSurface:
         map_resseq : callable
             Function mapping an author ``resSeq`` to its 0-based index in
             ``full_sequence``.
+        map_index : callable
+            The inverse of ``map_resseq``: maps a 0-based index in ``full_sequence``
+            to the author ``resSeq`` a residue at that position carries, or would
+            carry if it is missing from the coordinates.
 
         Raises
         ------
@@ -467,15 +655,30 @@ class StructureSurface:
             If a provided sequence is too short for a modeled ``resSeq`` or a residue
             identity does not match the provided sequence.
         """
-        modeled = [
-            (r.resSeq, THREE_TO_ONE.get(r.name, "G"), r.index)
-            for r in chain.residues
-            if r.is_protein
-        ]
+        modeled = []
+        unknown = set()
+        for r in chain.residues:
+            if not r.is_protein:
+                continue
+            if not any(a.name == "CA" for a in r.atoms):
+                continue
+            aa = one_letter_code(r)
+            if aa is None:
+                unknown.add(r.index)
+                aa = "G"
+            modeled.append((r.resSeq, aa, r.index))
+
+        if unknown:
+            names = sorted({self.traj.topology.residue(i).name for i in unknown})
+            warnings.warn(
+                f"Chain {chain.index}: {len(unknown)} residue(s) named {names} have "
+                "no standard amino acid equivalent and are treated as glycine "
+                "placeholders."
+            )
 
         provided = self._provided_sequences.get(chain.index)
         if provided is not None:
-            for res_seq, aa, _ in modeled:
+            for res_seq, aa, md_index in modeled:
                 pos = res_seq - 1
                 if pos < 0 or pos >= len(provided):
                     raise ValueError(
@@ -483,31 +686,26 @@ class StructureSurface:
                         f"outside the provided sequence (length {len(provided)}). "
                         "resSeq is assumed to be 1-based into the sequence."
                     )
-                if aa != "G" and provided[pos] != aa:
+                if md_index not in unknown and provided[pos] != aa:
                     raise ValueError(
                         f"Chain {chain.index}: residue identity mismatch at "
                         f"resSeq={res_seq}: structure has '{aa}' but the provided "
                         f"sequence has '{provided[pos]}'."
                     )
-            return provided, modeled, lambda rs: rs - 1
+            return provided, modeled, (lambda rs: rs - 1), (lambda idx: idx + 1)
 
         if not modeled:
-            return "", modeled, lambda rs: rs
+            return "", modeled, (lambda rs: rs), (lambda idx: idx + 1)
 
         # reconstruct from modeled residues, filling resSeq gaps as missing (IDR)
-        min_rs = modeled[0][0]
-        max_rs = modeled[-1][0]
+        # residues that keep the author number of the gap they fill
+        min_rs = min(m[0] for m in modeled)
+        max_rs = max(m[0] for m in modeled)
         seqlist = ["G"] * (max_rs - min_rs + 1)
-        present = set()
         for res_seq, aa, _ in modeled:
             seqlist[res_seq - min_rs] = aa
-            present.add(res_seq)
         full = "".join(seqlist)
-        self._gap_positions = getattr(self, "_gap_positions", {})
-        self._gap_positions[chain.index] = {
-            rs for rs in range(min_rs, max_rs + 1) if rs not in present
-        }
-        return full, modeled, lambda rs: rs - min_rs
+        return full, modeled, (lambda rs: rs - min_rs), (lambda idx: idx + min_rs)
 
     # ------------------------------------------------------------------
     # residue table + decomposition
@@ -533,7 +731,7 @@ class StructureSurface:
             if not any(r.is_protein for r in chain.residues):
                 continue
 
-            full, modeled, map_resseq = self._chain_full_sequence(chain)
+            full, modeled, map_resseq, map_index = self._chain_full_sequence(chain)
             self._chain_sequences[chain.index] = full
 
             modeled_by_seqidx = {}
@@ -547,8 +745,9 @@ class StructureSurface:
                     rec = Residue(chain.index, res_seq, seq_index, true_aa, True)
                     rec.md_index = md_index
                 else:
-                    # missing residue: use a synthetic resSeq from the sequence index
-                    res_seq = seq_index + 1
+                    # missing residue: it carries the author number it would have had,
+                    # so its key can never collide with a modeled residue's key
+                    res_seq = map_index(seq_index)
                     rec = Residue(chain.index, res_seq, seq_index, aa, False)
 
                 self.residues.append(rec)
@@ -565,8 +764,10 @@ class StructureSurface:
         ``metapredict.predict_disorder_domains``; a residue is labelled ``'folded'``
         only if it is both modeled and inside a predicted folded-domain boundary, and
         ``'idr'`` otherwise (so all missing residues are IDR). If metapredict fails for
-        a chain, its modeled region is treated as entirely folded. The contiguous IDR
-        runs and their anchors are then recorded on ``self.idr_segments``.
+        a chain, its modeled region is treated as entirely folded. If
+        ``rescue_packed_idrs`` is set, predicted-IDR stretches that pack against a
+        folded domain in the structure are then relabelled folded. The contiguous IDR
+        runs and their anchors are finally recorded on ``self.idr_segments``.
 
         Returns
         -------
@@ -583,8 +784,13 @@ class StructureSurface:
                 )
                 for start, end in dd.folded_domain_boundaries:
                     folded_positions.update(range(start, end))
-            except Exception:
-                # if metapredict fails, treat the whole modeled region as folded
+            except Exception as e:
+                # if metapredict fails, treat the whole modeled region as folded,
+                # but say so: silently losing the IDRs is worse than a warning
+                warnings.warn(
+                    f"metapredict failed on chain {chain_index} ({e!r}); treating "
+                    "every modeled residue in the chain as folded."
+                )
                 folded_positions = set(range(len(full)))
 
             for rec in self._chain_residues(chain_index):
@@ -595,8 +801,126 @@ class StructureSurface:
                 else:
                     rec.domain = "idr"
 
+        if self.rescue_packed_idrs:
+            self._rescue_packed_idr_residues()
+
         # record IDR segments (contiguous IDR runs) with their folded anchors
         self.idr_segments = self._find_idr_segments()
+
+    def _folded_partner_counts(self):
+        """
+        Count, for every modeled IDR residue, the folded-domain residues it touches.
+
+        A partner is a residue of a predicted folded domain, in any chain, with a heavy
+        atom within ``PACKING_CONTACT_CUTOFF`` Angstrom of one of the IDR residue's
+        heavy atoms. Partners on the same chain fewer than
+        ``PACKING_MIN_SEQUENCE_SEPARATION`` positions away in sequence are ignored, so
+        a residue next to a domain boundary does not count as packed just because it
+        is bonded to the domain.
+
+        Returns
+        -------
+        dict
+            Maps the ``md_index`` of each modeled IDR residue to its number of distinct
+            folded-domain partners. Residues with no partner are absent.
+        """
+        records_by_md = {r.md_index: r for r in self.residues if r.modeled}
+        topology = self.traj.topology
+
+        folded_atoms = []
+        folded_atom_residue = []
+        idr_atoms = []
+        idr_atom_residue = []
+        for atom in topology.atoms:
+            record = records_by_md.get(atom.residue.index)
+            if record is None or atom.element.symbol == "H":
+                continue
+            if record.domain == "folded":
+                folded_atoms.append(atom.index)
+                folded_atom_residue.append(record)
+            else:
+                idr_atoms.append(atom.index)
+                idr_atom_residue.append(record)
+        if not folded_atoms or not idr_atoms:
+            return {}
+
+        folded_tree = cKDTree(self._xyz[np.array(folded_atoms)])
+        hits_per_atom = folded_tree.query_ball_point(
+            self._xyz[np.array(idr_atoms)], r=PACKING_CONTACT_CUTOFF
+        )
+
+        partners = {}
+        for idr_record, hits in zip(idr_atom_residue, hits_per_atom):
+            for hit in hits:
+                folded_record = folded_atom_residue[hit]
+                is_local = (
+                    folded_record.chain_index == idr_record.chain_index
+                    and abs(folded_record.seq_index - idr_record.seq_index)
+                    < PACKING_MIN_SEQUENCE_SEPARATION
+                )
+                if is_local:
+                    continue
+                partners.setdefault(idr_record.md_index, set()).add(
+                    folded_record.md_index
+                )
+        return {md_index: len(found) for md_index, found in partners.items()}
+
+    def _rescue_packed_idr_residues(self):
+        """
+        Treat predicted-IDR stretches that pack against a folded domain as folded.
+
+        metapredict works from sequence alone, so a segment that only folds in context
+        - a helix packed against a partner chain, or the edge of a domain that a
+        predicted boundary cuts off - is called disordered even though the structure
+        shows it packed. Left as IDR, such a segment gets no surface, and because IDR
+        atoms are removed before the SASA calculation, the interface it covers on the
+        folded domain looks exposed.
+
+        Each modeled residue of a predicted IDR run is scored by its number of
+        folded-domain partners (see :meth:`_folded_partner_counts`). A residue is packed
+        when that count, averaged over a ``PACKING_WINDOW``-residue window centred on
+        it within the run, is at least ``PACKING_MIN_PARTNERS``. Gaps shorter than the
+        window between packed residues, or between a packed residue and the folded
+        domain flanking the run, are closed; isolated packed stretches shorter than
+        ``PACKING_MIN_RUN`` are dropped. Packed residues get ``domain='folded'`` and
+        ``packed_rescue=True``.
+
+        Contacts are counted only against residues that metapredict already calls
+        folded, so a structure in which every residue is predicted disordered is left
+        unchanged, and two IDRs packed only against each other are not rescued.
+
+        Returns
+        -------
+        None
+        """
+        partner_counts = self._folded_partner_counts()
+        if not partner_counts:
+            return
+
+        for segment in self._find_idr_segments():
+            run = segment["residues"]
+            modeled = np.array([r.modeled for r in run])
+            # missing residues have md_index None and so no partners
+            counts = np.array(
+                [partner_counts.get(r.md_index, 0) for r in run], dtype=float
+            )
+            packed = modeled & (
+                _windowed_mean(counts, PACKING_WINDOW) >= PACKING_MIN_PARTNERS
+            )
+
+            n_flank_folded = segment["n_anchor"] is not None
+            c_flank_folded = segment["c_anchor"] is not None
+            packed = _fill_short_gaps(
+                packed, modeled, n_flank_folded, c_flank_folded, PACKING_WINDOW
+            )
+            packed = _drop_short_isolated_runs(
+                packed, n_flank_folded, c_flank_folded, PACKING_MIN_RUN
+            )
+
+            for rec, is_packed in zip(run, packed):
+                if is_packed:
+                    rec.domain = "folded"
+                    rec.packed_rescue = True
 
     def _find_idr_segments(self):
         """
@@ -1003,8 +1327,8 @@ class StructureSurface:
             plus its contiguous-surface neighbours).
         """
         patch = self.surface_patch(key)
-        n_pos = sum(1 for k in patch if self._by_key[k].one_letter in POSITIVE)
-        n_neg = sum(1 for k in patch if self._by_key[k].one_letter in NEGATIVE)
+        n_pos = sum(1 for k in patch if self._by_key[k].one_letter in POSITIVE_RESIDUES)
+        n_neg = sum(1 for k in patch if self._by_key[k].one_letter in NEGATIVE_RESIDUES)
         return n_pos, n_neg, len(patch)
 
     def _patch_aliphatic_level(self, key):
@@ -1027,40 +1351,15 @@ class StructureSurface:
             The clustering level (0, 1, 2 or 3).
         """
         center = self._by_key[key]
-        if center.one_letter not in ALIPHATIC:
+        if center.one_letter not in ALIPHATIC_RESIDUES:
             return 0
         # count of aliphatic residues in the patch (including self), capped at 3
         count = sum(
             1
             for k in self.surface_patch(key)
-            if self._by_key[k].one_letter in ALIPHATIC
+            if self._by_key[k].one_letter in ALIPHATIC_RESIDUES
         )
         return min(count, 3)
-
-    def _ali_weight(self, level_a, level_b):
-        """
-        FINCHES aliphatic pairwise weight from two clustering levels.
-
-        Reproduces the tiered weighting of
-        ``finches.parsing_aminoacid_sequences.get_aliphatic_weighted_mask``.
-
-        Parameters
-        ----------
-        level_a, level_b : int
-            Aliphatic clustering levels of the two partners.
-
-        Returns
-        -------
-        float
-            ``3.0`` if ``min(level_a, level_b) >= 3``, ``1.5`` if it equals 2,
-            otherwise ``1.0``.
-        """
-        m = min(level_a, level_b)
-        if m >= 3:
-            return 3.0
-        if m == 2:
-            return 1.5
-        return 1.0
 
     def _chain_linear_context(self, chain_index):
         """
@@ -1083,11 +1382,11 @@ class StructureSurface:
         """
         if chain_index not in self._linear_context_cache:
             seq = self._chain_sequences[chain_index]
-            pos_w, neg_w = self._seq_charge_windows(seq)
+            pos_w, neg_w = get_charge_window_counts(seq)
             self._linear_context_cache[chain_index] = (
                 pos_w,
                 neg_w,
-                self._seq_aliphatic_groups(seq),
+                np.array(get_aliphatic_groups(seq)),
             )
 
         return self._linear_context_cache[chain_index]
@@ -1120,57 +1419,41 @@ class StructureSurface:
 
         return float(pos_w[i]), float(neg_w[i]), int(ali[i])
 
-    def _seq_charge_windows(self, sequence):
+    def _idr_context(self, idr_sequence):
         """
-        Per-position charged-residue counts over the +/-1 window of a sequence.
+        Everything the weighting needs to know about an IDR, computed once.
 
-        This is the linear-sequence analogue of :meth:`_patch_charge_counts`, used for
-        the IDR partner. It is computed as a width-3 moving sum over charge-indicator
-        arrays (matching ``finches.parsing_aminoacid_sequences.get_charge_weighted_mask``).
+        The IDR takes its charge and aliphatic context from the linear sequence,
+        exactly as it would in an IDR:IDR calculation, using the same helpers as
+        FINCHES (``finches.parsing_aminoacid_sequences``). The context is evaluated
+        over the full IDR, so residues at the edge of a sliding window keep their
+        true sequence neighbours.
 
         Parameters
         ----------
-        sequence : str
-            The (converted) amino acid sequence.
+        idr_sequence : str
+            The IDR amino acid sequence.
 
         Returns
         -------
-        tuple of numpy.ndarray
-            ``(pos_window, neg_window)``, each of length ``len(sequence)``, giving the
-            number of positive / negative residues in the +/-1 window of each position.
+        dict
+            ``seq`` (the sequence after the IMC's sequence converter), ``pos`` and
+            ``neg`` (per-position counts of positive and negative residues in the +/-1
+            window), ``ali`` (per-position aliphatic clustering levels) and
+            ``charged`` (boolean array, True where the residue is charged). All
+            arrays have length ``len(idr_sequence)``.
         """
-        pos = np.array([1.0 if r in POSITIVE else 0.0 for r in sequence])
-        neg = np.array([1.0 if r in NEGATIVE else 0.0 for r in sequence])
-        n = len(sequence)
-        if n == 0:
-            return pos, neg
-        kernel = np.ones(3)
-        pos_w = np.convolve(pos, kernel, mode="full")[1 : n + 1]
-        neg_w = np.convolve(neg, kernel, mode="full")[1 : n + 1]
-        return pos_w, neg_w
+        seq = self.IMC_object.sequence_converter(idr_sequence)
+        pos, neg = get_charge_window_counts(seq)
+        return {
+            "seq": seq,
+            "pos": pos,
+            "neg": neg,
+            "ali": np.array(get_aliphatic_groups(seq)),
+            "charged": np.array([r in CHARGED_RESIDUES for r in seq], dtype=bool),
+        }
 
-    def _seq_aliphatic_groups(self, sequence):
-        """
-        Per-position aliphatic clustering level for a linear sequence.
-
-        Delegates to ``finches.parsing_aminoacid_sequences.get_aliphatic_groups`` so
-        the IDR partner uses exactly the same clustering definition as FINCHES.
-
-        Parameters
-        ----------
-        sequence : str
-            The (converted) amino acid sequence.
-
-        Returns
-        -------
-        numpy.ndarray
-            Per-position clustering levels (0/1/2/3), length ``len(sequence)``.
-        """
-        from finches import parsing_aminoacid_sequences
-
-        return np.array(parsing_aminoacid_sequences.get_aliphatic_groups(sequence))
-
-    def _anchor_position(self, anchor):
+    def anchor_position(self, anchor):
         """
         Return the 3D position used to represent an anchoring residue.
 
@@ -1269,7 +1552,7 @@ class StructureSurface:
             "cannot be tethered for a cis calculation"
         )
 
-    def _footprint_order(self, key):
+    def footprint_order(self, key):
         """
         Surface residues ordered by geodesic distance from a centre residue.
 
@@ -1388,14 +1671,23 @@ class StructureSurface:
             ``'surface'`` (default) gives one row per folded-domain surface residue.
             ``'all'`` gives one row per residue in the structure, in chain and sequence
             order, with buried folded residues filled with ``np.nan`` so they can be
-            greyed out. IDR residues are scored against themselves only (they have no
-            surface footprint) using linear-sequence weighting context.
+            greyed out. The structure's own IDR residues are scored too: they take
+            their weighting context from the linear sequence, and their footprint runs
+            along their own disordered segment, with the typical chain distance
+            ``R(s)`` of the residue ``s`` positions away standing in for the geodesic
+            distance. That keeps IDR rows on the same scale as surface rows. In a cis
+            calculation IDR rows are ``np.nan``, because a residue with no fixed
+            position has no defined distance from the anchor.
 
         use_footprint : bool, optional
             If True (default), aggregate over the window-sized contact footprint
             described above. If False, aggregate over the contiguous-surface patch alone
             for every IDR residue, which reduces the cell exactly to
-            ``IMC.calculate_epsilon_value(window_sequence, patch_sequence)``.
+            ``IMC.calculate_epsilon_value(window_sequence, patch_sequence)``. For a row
+            belonging to one of the structure's own IDR residues it reduces to the flat
+            mean over the ``window_size`` stretch of that segment centred on the
+            residue (truncated at the segment ends), i.e. exactly an IDR:IDR intermap
+            cell.
 
         reach_b, reach_nu : float, optional
             Polymer-reach parameters ``R(n) = reach_b * n**reach_nu`` (Angstrom). These
@@ -1461,12 +1753,14 @@ class StructureSurface:
                 "a cis calculation (tether set) requires an anchor=(chain, resSeq)"
             )
 
-        imc = self.IMC_object
-        baseline = imc.null_interaction_baseline
+        if contact_radius < 0:
+            raise ValueError(f"contact_radius must be >= 0, got {contact_radius}")
 
-        idr = imc.sequence_converter(idr_sequence)
-        idr_pos, idr_neg = self._seq_charge_windows(idr)
-        idr_ali = self._seq_aliphatic_groups(idr)
+        if tether is not None and tether not in ("N", "C"):
+            raise ValueError(f"tether must be 'N', 'C' or None, got {tether!r}")
+
+        baseline = self.IMC_object.null_interaction_baseline
+        idr_ctx = self._idr_context(idr_sequence)
 
         half = window_size // 2
         n_windows = n_idr - window_size + 1
@@ -1481,26 +1775,16 @@ class StructureSurface:
         # parts, zeroing the elements that fall on the other side of the baseline, and
         # then subtracts the baseline from *both* matrices before summing them. Every
         # element therefore ends up carrying -2 * baseline rather than -baseline. This
-        # has to match for these values to be comparable with an IDR:IDR intermap.
+        # has to match for these values to be comparable with an IDR:IDR intermap, and
+        # it is what makes a poly(GS)-like contact score zero.
         surf_dev = np.zeros((len(self.surface_residues), n_idr))
         for n, rec in enumerate(self.surface_residues):
-            row = self._weighted_row(
-                rec,
-                idr,
-                idr_pos,
-                idr_neg,
-                idr_ali,
-                imc.lookup,
-                imc.charge_prefactor,
-                use_charge_weighting,
-                use_aliphatic_weighting,
+            surf_dev[n] = (
+                self._weighted_row(
+                    rec, idr_ctx, use_charge_weighting, use_aliphatic_weighting
+                )
+                - 2.0 * baseline
             )
-            surf_dev[n] = np.where(
-                row == baseline, -2.0 * baseline, row - 2.0 * baseline
-            )
-
-        if contact_radius < 0:
-            raise ValueError(f"contact_radius must be >= 0, got {contact_radius}")
 
         # how far the k-th residue from the window centre reaches (k = 0 .. half)
         reach = self._contact_reach(
@@ -1515,11 +1799,19 @@ class StructureSurface:
                 reach_nu,
                 contact_radius,
             )
-            anchor_pos = self._anchor_position(anchor)
+            anchor_pos = self.anchor_position(anchor)
 
         surf_row_of = {rec.key: n for n, rec in enumerate(self.surface_residues)}
         keys = [rec.key for rec in records]
         matrix = np.full((len(records), n_windows), np.nan)
+
+        # where each IDR residue of the structure sits in its own IDR segment, and a
+        # per-segment cache of weighted rows (only needed for rows='all')
+        seg_pos = {}
+        for si, seg in enumerate(self.idr_segments):
+            for m, r in enumerate(seg["residues"]):
+                seg_pos[r.key] = (si, m)
+        seg_dev = {}
 
         for i, rec in enumerate(records):
             if rec.domain == "folded" and not rec.surface:
@@ -1529,7 +1821,7 @@ class StructureSurface:
 
             if rec.surface:
                 if use_footprint:
-                    order, dists = self._footprint_order(rec.key)
+                    order, dists = self.footprint_order(rec.key)
                 else:
                     # patch-only aggregation: the same set for every IDR position
                     patch = [
@@ -1541,36 +1833,54 @@ class StructureSurface:
                     dists = np.zeros(len(order))
                 dev = surf_dev[order]
             else:
-                # an IDR residue has no surface footprint; it interacts as itself
-                dev = self._weighted_row(
-                    rec,
-                    idr,
-                    idr_pos,
-                    idr_neg,
-                    idr_ali,
-                    imc.lookup,
-                    imc.charge_prefactor,
-                    use_charge_weighting,
-                    use_aliphatic_weighting,
-                )
-                dev = np.where(dev == baseline, -2.0 * baseline, dev - 2.0 * baseline)[
-                    None, :
-                ]
-                dists = np.zeros(1)
+                # An IDR residue of the structure has no surface footprint, but it is
+                # not a point contact either: the challenge window lands on a stretch
+                # of the structure's own disordered chain. The residue at contour
+                # separation s from the row's residue sits a typical R(s) away, so it
+                # is weighted on the same Gaussian falloff as the surface footprint
+                # with R(s) standing in for the geodesic distance. This is what puts
+                # IDR rows on the same scale as surface rows, and as an IDR:IDR
+                # intermap cell, rather than leaving them as single-residue sums that
+                # swamp the colour scale.
+                si, m = seg_pos[rec.key]
+                if si not in seg_dev:
+                    seg_dev[si] = (
+                        np.array(
+                            [
+                                self._weighted_row(
+                                    r,
+                                    idr_ctx,
+                                    use_charge_weighting,
+                                    use_aliphatic_weighting,
+                                )
+                                for r in self.idr_segments[si]["residues"]
+                            ]
+                        )
+                        - 2.0 * baseline
+                    )
+                dev = seg_dev[si]
+                sep = np.abs(np.arange(dev.shape[0]) - m)
+                if use_footprint:
+                    dists = self.reach_radius(sep, reach_b, reach_nu)
+                else:
+                    # patch-only: the flat mean over the window of the chain centred
+                    # on the residue, which is exactly an IDR:IDR intermap cell
+                    dev = dev[sep <= half]
+                    dists = np.zeros(dev.shape[0])
 
             if dev.shape[0] == 0:
                 continue
 
             # What the k-th IDR residue out from the window centre sees, for k = 0 .. half.
-            # Each row of contact_w weights the surface by how likely that IDR residue is
-            # to be in contact with it, and is normalised, so every row of disc_mean is a
-            # weighted mean over the surface and the units of a cell are unchanged.
-            if use_footprint and rec.surface:
+            # Each row of contact_w weights the surface (or the chain) by how likely that
+            # IDR residue is to be in contact with it, and is normalised, so every row of
+            # disc_mean is a weighted mean and the units of a cell are unchanged.
+            if use_footprint:
                 contact_w = np.exp(-1.5 * (dists[None, :] / reach[:, None]) ** 2)
                 contact_w /= contact_w.sum(axis=1, keepdims=True)
                 disc_mean = contact_w @ dev
             else:
-                # patch-only (or a lone IDR residue): the same flat mean at every k
+                # patch-only: the same flat mean at every k
                 disc_mean = np.repeat(dev.mean(axis=0)[None, :], half + 1, axis=0)
 
             # In cis, an IDR position is attenuated by how far it has to stray from the
@@ -1594,6 +1904,120 @@ class StructureSurface:
             matrix[i] = total
 
         return matrix, keys, window_centres
+
+    def plot_surface_vs_idr_matrix(
+        self,
+        idr_sequence,
+        window_size=31,
+        rows="all",
+        vmax=None,
+        cmap="PRGn",
+        buried_color="0.30",
+        idr_offset=1,
+        structure_offset=0,
+        tic_frequency=10,
+        xlabel="IDR residue",
+        ylabel="structure residue",
+        figsize=(7.0, 3.5),
+        dpi=150,
+        fname=None,
+        ax=None,
+        **kwargs,
+    ):
+        """
+        Compute and draw a surface:IDR intermap.
+
+        A thin wrapper that calls :meth:`surface_vs_idr_matrix` and hands the result to
+        :func:`plot_surface_intermap`, so the map is drawn with a symmetric colour
+        scale set from the data, buried residues greyed out and both axes labelled in
+        residue numbers. Use the module-level function directly to draw a matrix you
+        have already computed (for example a cis minus trans difference map).
+
+        Parameters
+        ----------
+        idr_sequence : str
+            The IDR amino acid sequence to challenge the surface with.
+
+        window_size : int, optional
+            Sliding-window size over the IDR, forwarded to
+            :meth:`surface_vs_idr_matrix`. Default 31.
+
+        rows : str, optional
+            ``'all'`` (default) draws one row per residue in the structure, with buried
+            residues greyed out; ``'surface'`` draws surface residues only. Note the
+            default differs from :meth:`surface_vs_idr_matrix` (``'surface'``): a
+            figure reads best straight down the chain, a matrix for analysis is usually
+            wanted for the surface alone.
+
+        vmax : float or None, optional
+            Colour limit; the scale is symmetric, ``[-vmax, vmax]``. Default None sets
+            it from the 99th percentile of the absolute finite values, so a handful of
+            extreme cells cannot compress the rest of the map.
+
+        cmap : str, optional
+            Diverging matplotlib colormap. Default ``'PRGn'`` (purple attractive, green
+            repulsive), matching the FINCHES IDR:IDR figures.
+
+        buried_color : str, optional
+            Colour for rows that cannot be scored (buried residues). Default ``'0.30'``.
+
+        idr_offset : int, optional
+            Added to the 0-based window-centre index to label the x axis. Default 1,
+            so labels are 1-based residue numbers in ``idr_sequence``.
+
+        structure_offset : int, optional
+            Added to each row's ``resSeq`` to label the y axis, for a domain excised
+            from a longer protein. Default 0.
+
+        tic_frequency : int, optional
+            Spacing, in residues, between axis tick labels. Default 10.
+
+        xlabel, ylabel : str, optional
+            Axis labels.
+
+        figsize : tuple, optional
+            Figure size in inches, used only when ``ax`` is None. Default (7, 3.5).
+
+        dpi : int, optional
+            Figure resolution, used only when ``ax`` is None. Default 150.
+
+        fname : str or None, optional
+            If given, the figure is saved to this path.
+
+        ax : matplotlib.axes.Axes or None, optional
+            Draw into an existing axes instead of creating a figure.
+
+        **kwargs
+            Any further keyword arguments (``anchor``, ``tether``, ``use_footprint``,
+            ``reach_b``, ``reach_nu``, ``contact_radius``, ``use_charge_weighting``,
+            ``use_aliphatic_weighting``) are forwarded to
+            :meth:`surface_vs_idr_matrix`.
+
+        Returns
+        -------
+        tuple
+            ``(fig, ax, result)`` where ``result`` is the ``(matrix, keys,
+            window_centres)`` tuple returned by :meth:`surface_vs_idr_matrix`.
+        """
+        result = self.surface_vs_idr_matrix(
+            idr_sequence, window_size=window_size, rows=rows, **kwargs
+        )
+        fig, ax = plot_surface_intermap(
+            *result,
+            vmax=vmax,
+            cmap=cmap,
+            buried_color=buried_color,
+            idr_offset=idr_offset,
+            structure_offset=structure_offset,
+            tic_frequency=tic_frequency,
+            xlabel=xlabel,
+            ylabel=ylabel,
+            figsize=figsize,
+            dpi=dpi,
+            fname=fname,
+            ax=ax,
+        )
+        return fig, ax, result
 
     def surface_vs_idr(
         self,
@@ -1629,7 +2053,12 @@ class StructureSurface:
 
         respect_reach : bool, optional
             If True, a surface residue only accumulates interaction from IDR residues
-            that can physically reach it given the polymer-reach model. Default False.
+            that can reach it: those whose mean reach from the anchor,
+            ``R(s) = reach_b * s**reach_nu`` for contour separation ``s``, is at least
+            the straight-line distance from the anchor to the residue. This is a hard
+            cutoff, which is what makes ``n_reachable`` a count; the cis mode of
+            :meth:`surface_vs_idr_matrix` instead attenuates contributions smoothly.
+            Default False.
 
         tether : str, optional
             Which terminus of ``idr_sequence`` is attached to ``anchor``, ``'N'`` or
@@ -1647,9 +2076,13 @@ class StructureSurface:
         -------
         dict
             Maps each surface residue key ``(chain_index, res_seq)`` to a dict with
-            ``one_letter``, ``score`` (mean-field interaction value; negative =
-            attractive), and ``n_reachable`` (number of IDR residues that contributed).
-            Empty if the IDR sequence is empty or there are no surface residues.
+            ``one_letter``, ``score`` and ``n_reachable`` (number of IDR residues that
+            contributed). ``score`` is the FINCHES epsilon between the residue and the
+            contributing IDR residues divided by their number, i.e. the mean over the
+            IDR of ``value - 2 * null_interaction_baseline``, so it is on the same
+            per-residue scale as an IDR:IDR epsilon: zero is poly(GS)-like, negative
+            is attractive and positive is repulsive. Empty if the IDR sequence is empty
+            or there are no surface residues.
 
         Raises
         ------
@@ -1660,14 +2093,9 @@ class StructureSurface:
         if len(idr_sequence) == 0 or len(surf) == 0:
             return {}
 
-        imc = self.IMC_object
-        baseline = imc.null_interaction_baseline
-        prefactor = imc.charge_prefactor
-        lookup = imc.lookup
-
-        idr = imc.sequence_converter(idr_sequence)
-        idr_pos, idr_neg = self._seq_charge_windows(idr)
-        idr_ali = self._seq_aliphatic_groups(idr)
+        baseline = self.IMC_object.null_interaction_baseline
+        idr_ctx = self._idr_context(idr_sequence)
+        n_idr = len(idr_ctx["seq"])
 
         anchor_pos = None
         if respect_reach:
@@ -1675,31 +2103,23 @@ class StructureSurface:
                 raise ValueError(
                     "respect_reach=True requires an anchor=(chain, resSeq)"
                 )
-            anchor_pos = self._anchor_position(anchor)
+            anchor_pos = self.anchor_position(anchor)
             # reach is indexed by contour separation from the tethered terminus
             reach = self.reach_radius(
-                self._contour_separation(len(idr), tether), reach_b, reach_nu
+                self._contour_separation(n_idr, tether), reach_b, reach_nu
             )
 
         results = {}
         for rec in surf:
             row = self._weighted_row(
-                rec,
-                idr,
-                idr_pos,
-                idr_neg,
-                idr_ali,
-                lookup,
-                prefactor,
-                use_charge_weighting,
-                use_aliphatic_weighting,
+                rec, idr_ctx, use_charge_weighting, use_aliphatic_weighting
             )
 
             if respect_reach:
                 dist = float(np.linalg.norm(anchor_pos - rec.position))
                 mask = reach >= dist
             else:
-                mask = np.ones(len(idr), dtype=bool)
+                mask = np.ones(n_idr, dtype=bool)
 
             n_reachable = int(mask.sum())
             if n_reachable == 0:
@@ -1710,10 +2130,12 @@ class StructureSurface:
                 }
                 continue
 
-            sub = row[mask]
-            attractive = sub[sub < baseline] - baseline
-            repulsive = sub[sub > baseline] - baseline
-            score = float((attractive.sum() + repulsive.sum()) / n_reachable)
+            # FINCHES epsilon convention (see surface_vs_idr_matrix): every element
+            # carries -2 * baseline, so a residue that behaves like poly(GS) towards
+            # this IDR scores zero. The score is exactly the epsilon between this
+            # residue (with its patch context) and the reachable IDR residues, per
+            # IDR residue.
+            score = float(np.mean(row[mask] - 2.0 * baseline))
             results[rec.key] = {
                 "one_letter": rec.one_letter,
                 "score": score,
@@ -1723,77 +2145,66 @@ class StructureSurface:
 
     def _weighted_row(
         self,
-        surf_rec,
-        idr,
-        idr_pos,
-        idr_neg,
-        idr_ali,
-        lookup,
-        prefactor,
-        use_charge_weighting,
-        use_aliphatic_weighting,
+        rec,
+        idr_ctx,
+        use_charge_weighting=True,
+        use_aliphatic_weighting=True,
     ):
         """
-        Compute the FINCHES-weighted interaction values for one surface residue.
+        FINCHES-weighted interaction of one structure residue with every IDR residue.
 
-        This is the single-row analogue of FINCHES'
-        ``calculate_weighted_pairwise_matrix``: the base pairwise energies come from
-        the IMC lookup, charge weighting reduces like-charge repulsion using the
-        combined surface-patch and IDR-window charge composition, and aliphatic
-        weighting up-weights aliphatic-cluster contacts.
+        This is the single-row analogue of
+        ``InteractionMatrixConstructor.calculate_weighted_pairwise_matrix``. The base
+        pairwise energies come from the IMC lookup; the charge weighting reduces
+        like-charge repulsion between two charged residues by the charge weight
+        (``charge_weight_from_counts``) of their combined local contexts, scaled by
+        the IMC's charge prefactor; and the aliphatic weighting multiplies each pair
+        by ``aliphatic_weight_from_levels`` of the two clustering levels. The IDR's
+        context comes from its sequence; the structure residue's comes from
+        :meth:`_residue_context` (its surface patch if it is a surface residue, its
+        linear sequence window otherwise).
 
         Parameters
         ----------
-        surf_rec : Residue
-            The surface residue (provides the patch context).
-        idr : str
-            The (converted) IDR sequence.
-        idr_pos, idr_neg : numpy.ndarray
-            Per-position +/-1-window positive/negative counts for the IDR (from
-            :meth:`_seq_charge_windows`).
-        idr_ali : numpy.ndarray
-            Per-position aliphatic clustering levels for the IDR.
-        lookup : dict
-            The IMC nested base pairwise interaction lookup.
-        prefactor : float or None
-            The IMC charge prefactor (charge weighting is skipped if None).
-        use_charge_weighting, use_aliphatic_weighting : bool
-            Toggle each weighting term.
+        rec : Residue
+            The structure residue.
+
+        idr_ctx : dict
+            The IDR context returned by :meth:`_idr_context`.
+
+        use_charge_weighting, use_aliphatic_weighting : bool, optional
+            Toggle each weighting term. Default True.
 
         Returns
         -------
         numpy.ndarray
-            Weighted interaction value of ``surf_rec`` against each IDR position,
-            length ``len(idr)``.
+            Weighted interaction value of ``rec`` against each IDR position, length
+            ``len(idr_ctx["seq"])``. The null baseline has not been subtracted.
         """
-        surf_aa = surf_rec.one_letter
+        imc = self.IMC_object
+        aa = rec.one_letter
+        lookup_row = imc.lookup[aa]
 
         # the residue interacts as itself; neighbouring chemistry enters through the
-        # contact footprint in surface_vs_idr_matrix(), and through the patch-derived
-        # weighting context below
-        base = np.array([lookup[surf_aa][idr[j]] for j in range(len(idr))], dtype=float)
-        w = base.copy()
+        # contact footprint in surface_vs_idr_matrix() and through the local-context
+        # weighting below
+        w = np.array([lookup_row[r] for r in idr_ctx["seq"]], dtype=float)
 
-        # surface residues take their context from their 3D surface patch; IDR residues
-        # have no patch and fall back to the linear sequence window
-        s_pos, s_neg, s_level = self._residue_context(surf_rec)
+        s_pos, s_neg, s_level = self._residue_context(rec)
 
-        if use_charge_weighting and prefactor is not None and surf_aa in CHARGED:
-            total_pos = s_pos + idr_pos
-            total_neg = s_neg + idr_neg
-            total_charge = total_pos + total_neg
-            denom = np.where(total_charge == 0, 1.0, total_charge)
-            charge_weight = np.abs(total_pos - total_neg) / denom
+        if (
+            use_charge_weighting
+            and imc.charge_prefactor is not None
+            and aa in CHARGED_RESIDUES
+        ):
             # only IDR positions that are themselves charged get the weighting
-            idr_charged = np.array([1.0 if r in CHARGED else 0.0 for r in idr])
-            repulsive_mask = charge_weight * idr_charged
-            w = w - (w * repulsive_mask * prefactor)
+            weight = charge_weight_from_counts(
+                s_pos + idr_ctx["pos"], s_neg + idr_ctx["neg"]
+            )
+            w = w - w * (weight * idr_ctx["charged"]) * imc.charge_prefactor
 
         if use_aliphatic_weighting:
-            ali_weights = np.array(
-                [self._ali_weight(s_level, int(idr_ali[j])) for j in range(len(idr))]
-            )
-            w = w * ali_weights
+            w = w * aliphatic_weight_from_levels(s_level, idr_ctx["ali"])
 
         return w
 
@@ -1819,50 +2230,43 @@ class StructureSurface:
         -------
         dict
             Maps each surface residue pair ``(key_a, key_b)`` (with ``key_a`` earlier
-            in surface order than ``key_b``) to the baseline-subtracted interaction
-            value (negative = attractive).
+            in surface order than ``key_b``) to the interaction value on the FINCHES
+            epsilon scale (``value - 2 * null_interaction_baseline``, so zero is
+            poly(GS)-like and negative is attractive).
         """
         surf = self.surface_residues
         imc = self.IMC_object
         baseline = imc.null_interaction_baseline
         prefactor = imc.charge_prefactor
-        lookup = imc.lookup
 
-        # precompute patch context per surface residue
-        ctx = {}
-        for rec in surf:
-            n_pos, n_neg, _ = self._patch_charge_counts(rec.key)
-            ctx[rec.key] = (n_pos, n_neg, self._patch_aliphatic_level(rec.key))
+        # patch context (n_pos, n_neg, aliphatic level) per surface residue
+        ctx = {rec.key: self._residue_context(rec) for rec in surf}
 
         results = {}
         for i in range(len(surf)):
+            ra = surf[i]
+            pa, na, la = ctx[ra.key]
             for j in range(i + 1, len(surf)):
-                ra, rb = surf[i], surf[j]
-                aa, ab = ra.one_letter, rb.one_letter
-                val = float(lookup[aa][ab])
+                rb = surf[j]
+                pb, nb, lb = ctx[rb.key]
+                val = float(imc.lookup[ra.one_letter][rb.one_letter])
 
                 if (
                     use_charge_weighting
                     and prefactor is not None
-                    and aa in CHARGED
-                    and ab in CHARGED
+                    and ra.one_letter in CHARGED_RESIDUES
+                    and rb.one_letter in CHARGED_RESIDUES
                 ):
-                    pa, na, la = ctx[ra.key]
-                    pb, nb, lb = ctx[rb.key]
-                    total_pos = pa + pb
-                    total_neg = na + nb
-                    total_charge = total_pos + total_neg
-                    cw = abs(total_pos - total_neg) / (
-                        total_charge if total_charge else 1.0
+                    val = (
+                        val
+                        - val * charge_weight_from_counts(pa + pb, na + nb) * prefactor
                     )
-                    val = val - (val * cw * prefactor)
 
                 if use_aliphatic_weighting:
-                    la = ctx[ra.key][2]
-                    lb = ctx[rb.key][2]
-                    val = val * self._ali_weight(la, lb)
+                    val = val * aliphatic_weight_from_levels(la, lb)
 
-                results[(ra.key, rb.key)] = val - baseline
+                # FINCHES epsilon convention: -2 * baseline, so zero is poly(GS)-like
+                results[(ra.key, rb.key)] = val - 2.0 * baseline
         return results
 
     # ------------------------------------------------------------------
@@ -1930,9 +2334,11 @@ class StructureSurface:
         """
         Surface residues reachable by an IDR anchored at a structure residue.
 
-        A surface residue is reachable if its distance from the anchor is no greater
-        than the reach of the IDR's final residue, ``R(idr_length)``. For each
-        reachable residue the smallest IDR index able to reach it is also returned.
+        A surface residue is reachable if its straight-line distance from the anchor is
+        no greater than the mean reach of the IDR's final residue, ``R(idr_length)``.
+        This is the same hard cutoff as ``surface_vs_idr(respect_reach=True)``; for
+        each reachable residue the smallest IDR index able to reach it is also
+        returned.
 
         Parameters
         ----------
@@ -1949,7 +2355,7 @@ class StructureSurface:
             Maps each reachable surface residue key to the minimum IDR residue index
             (1-based) able to reach it.
         """
-        anchor_pos = self._anchor_position(anchor)
+        anchor_pos = self.anchor_position(anchor)
         max_reach = self.reach_radius(idr_length, reach_b, reach_nu)
 
         reachable = {}
@@ -2114,7 +2520,7 @@ class StructureSurface:
         values = {k: 1.0 for k in group}
         return self._write_pdb_with_bfactors(filename, values, default=0.0)
 
-    def write_pdb_IDR_interaction(
+    def write_pdb_idr_interaction(
         self,
         seq,
         filename="idr_interaction.pdb",
@@ -2156,6 +2562,9 @@ class StructureSurface:
         )
         values = {key: info["score"] for key, info in scores.items()}
         return self._write_pdb_with_bfactors(filename, values, default=0.0)
+
+    # the original capitalisation, kept so existing code keeps working
+    write_pdb_IDR_interaction = write_pdb_idr_interaction
 
     def write_pdb_accessible_from_position(
         self,
@@ -2241,3 +2650,162 @@ class StructureSurface:
 
         values = {k: 1.0 for k in reachable}
         return self._write_pdb_with_bfactors(filename, values, default=0.0)
+
+
+def plot_surface_intermap(
+    matrix,
+    keys,
+    window_centres,
+    vmax=None,
+    cmap="PRGn",
+    buried_color="0.30",
+    idr_offset=1,
+    structure_offset=0,
+    tic_frequency=10,
+    xlabel="IDR residue",
+    ylabel="structure residue",
+    figsize=(7.0, 3.5),
+    dpi=150,
+    fname=None,
+    ax=None,
+):
+    """
+    Draw a surface:IDR intermap returned by :meth:`StructureSurface.surface_vs_idr_matrix`.
+
+    Rows are structure residues (in the order of ``keys``) and columns are IDR
+    windows. The colour scale is symmetric about zero so attractive (negative) and
+    repulsive (positive) cells are directly comparable, and by default its limit is
+    set from the data rather than from the most extreme cell, which is what keeps the
+    dynamic range readable when a few cells are far larger than the rest. Rows that
+    are all ``np.nan`` (buried residues under ``rows='all'``) are drawn in
+    ``buried_color`` so they read as "no exposed surface" rather than as zero. When
+    the rows span more than one chain a thin black line separates the chains and the
+    y tick labels carry the chain index.
+
+    Parameters
+    ----------
+    matrix : numpy.ndarray
+        The map, shape ``(n_rows, n_windows)``.
+
+    keys : list of tuple
+        ``(chain_index, res_seq)`` for each row, as returned with the matrix.
+
+    window_centres : numpy.ndarray
+        0-based index into the IDR of each window's centre residue, as returned with
+        the matrix.
+
+    vmax : float or None, optional
+        Colour limit; the scale is ``[-vmax, vmax]``. Default None uses the 99th
+        percentile of the absolute finite values.
+
+    cmap : str, optional
+        Diverging matplotlib colormap. Default ``'PRGn'``.
+
+    buried_color : str, optional
+        Colour for all-``nan`` rows. Default ``'0.30'``.
+
+    idr_offset : int, optional
+        Added to ``window_centres`` for the x tick labels. Default 1 (1-based residue
+        numbers).
+
+    structure_offset : int, optional
+        Added to each row's ``res_seq`` for the y tick labels. Default 0.
+
+    tic_frequency : int, optional
+        Spacing in residues between tick labels. Default 10.
+
+    xlabel, ylabel : str, optional
+        Axis labels.
+
+    figsize : tuple, optional
+        Figure size in inches when a new figure is created. Default (7, 3.5).
+
+    dpi : int, optional
+        Figure resolution when a new figure is created. Default 150.
+
+    fname : str or None, optional
+        If given, save the figure to this path.
+
+    ax : matplotlib.axes.Axes or None, optional
+        Draw into this axes instead of creating a new figure.
+
+    Returns
+    -------
+    tuple
+        ``(fig, ax)``.
+
+    Raises
+    ------
+    ValueError
+        If the matrix is empty or has no finite values.
+    """
+    import matplotlib.pyplot as plt
+
+    matrix = np.asarray(matrix, dtype=float)
+    if matrix.size == 0:
+        raise ValueError("cannot plot an empty intermap")
+    finite = np.isfinite(matrix)
+    if not finite.any():
+        raise ValueError("the intermap has no finite values to plot")
+
+    if vmax is None:
+        vmax = float(np.percentile(np.abs(matrix[finite]), 99))
+        if vmax <= 0:
+            vmax = float(np.max(np.abs(matrix[finite]))) or 1.0
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+    else:
+        fig = ax.figure
+
+    cm = plt.get_cmap(cmap).copy()
+    cm.set_bad(buried_color)
+
+    n_rows = matrix.shape[0]
+    x0 = int(window_centres[0]) + idr_offset
+    x1 = int(window_centres[-1]) + idr_offset + 1
+
+    im = ax.imshow(
+        np.ma.masked_invalid(matrix),
+        extent=[x0, x1, 0, n_rows],
+        origin="lower",
+        aspect="auto",
+        vmin=-vmax,
+        vmax=vmax,
+        cmap=cm,
+        interpolation="nearest",
+    )
+
+    # x axis: IDR residue numbers
+    xt = np.arange(x0, x1, tic_frequency)
+    ax.set_xticks(xt)
+    ax.tick_params(axis="x", rotation=45)
+    ax.set_xlabel(xlabel)
+
+    # y axis: structure residue numbers, one label every tic_frequency rows; chain
+    # index is shown only when there is more than one chain
+    chains = sorted({k[0] for k in keys})
+    row_positions = np.arange(0, n_rows, tic_frequency)
+    if len(chains) > 1:
+        labels = [
+            f"{keys[i][0]}:{keys[i][1] + structure_offset}" for i in row_positions
+        ]
+    else:
+        labels = [str(keys[i][1] + structure_offset) for i in row_positions]
+    ax.set_yticks(row_positions + 0.5)
+    ax.set_yticklabels(labels)
+    ax.set_ylabel(ylabel)
+
+    # separate chains
+    for i in range(1, n_rows):
+        if keys[i][0] != keys[i - 1][0]:
+            ax.axhline(i, color="k", linewidth=0.8)
+
+    ax.set_xlim(x0, x1)
+    ax.set_ylim(0, n_rows)
+    fig.colorbar(im, ax=ax, pad=0.02)
+
+    if fname is not None:
+        fig.savefig(fname, dpi=dpi, bbox_inches="tight")
+
+    return fig, ax

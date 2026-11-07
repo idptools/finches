@@ -9,7 +9,7 @@ This is the single most important thing to understand. FINCHES phase diagrams ar
 
 The temperature axis is in arbitrary units
 .......................................................
-Chi is converted to temperature via :math:`T = \Delta\epsilon/\chi`, which sets the scale of the temperature axis by the magnitude of the per-residue interaction energy. The resulting axis is in arbitrary units. It is not in Kelvin, it is not in degrees Celsius, and a critical temperature of, say, 300 does not correspond to 300 K. Note that some internal variable names in the codebase unhelpfully suggest Kelvin; they do not mean it. Temperatures are meaningful when compared against other temperatures computed the same way, and not otherwise.
+Chi is converted to temperature via :math:`T = \Delta\epsilon/\chi`, which sets the scale of the temperature axis by the magnitude of the per-residue interaction energy. The resulting axis is in the units of epsilon with Boltzmann's constant set to one. It is not in Kelvin, it is not in degrees Celsius, and a critical temperature of, say, 300 does not correspond to 300 K. There is also no reference offset in the conversion: an epsilon of zero, which in FINCHES means "behaves like poly(GS)", maps onto chi = 0, an athermal solvent, even though a real poly(GS)-like chain sits closer to theta conditions. That is why absolute critical temperatures should not be read, and why comparing a diagram with another computed the same way is meaningful while quoting a single diagram's numbers is not.
 
 All sequence information is compressed into one number
 .......................................................
@@ -17,7 +17,7 @@ Once the homotypic epsilon has been calculated, the only inputs to the Flory-Hug
 
 Non-phase-separating sequences are not ranked meaningfully
 .............................................................
-A positive (net repulsive) epsilon cannot be converted into a sensible phase diagram - the chi-to-temperature conversion assumes a site-specific energy that cannot be repulsive, and a positive value produces inverted diagrams or divides by zero. FINCHES handles this by clamping any positive epsilon to a small attractive value of -0.01 before building the diagram. The practical consequence is that every sequence with a repulsive epsilon collapses onto essentially the same diagram with a very low critical temperature. You can read that as "this sequence is not predicted to phase separate", but you cannot rank two such sequences against one another, because the number that distinguished them has been discarded. If you are comparing sequences in this regime, compare their epsilon values directly instead.
+A positive (net repulsive) epsilon cannot be converted into a sensible phase diagram - the chi-to-temperature conversion assumes a site-specific energy that cannot be repulsive, and a positive value produces inverted diagrams or divides by zero. FINCHES handles this by clamping any epsilon of zero or above to a small attractive value of -0.01 before building the diagram. The practical consequence is that every sequence with a repulsive epsilon collapses onto essentially the same diagram with a very low critical temperature. You can read that as "this sequence is not predicted to phase separate", but you cannot rank two such sequences against one another, because the number that distinguished them has been discarded. If you are comparing sequences in this regime, compare their epsilon values directly instead.
 
 Flory-Huggins is a mean-field theory
 .......................................................
@@ -25,11 +25,11 @@ The underlying model assumes a homogeneous mixture of chains and solvent on a la
 
 Homotypic, single-component systems only
 .......................................................
-``build_phase_diagram()`` and its plotting wrappers describe one sequence interacting with itself in a two-component system of protein and solvent. They say nothing about multi-component phase behaviour, about the effect of a binding partner or of RNA, or about which of several species will partition into a given condensate. Heterotypic epsilon values can be computed, but they are not accepted by these functions.
+``build_phase_diagram()`` and its plotting wrappers describe one sequence interacting with itself in a two-component system of protein and solvent. They say nothing about multi-component phase behaviour, about the effect of a binding partner, or about which of several species will partition into a given condensate. Heterotypic epsilon values can be computed, but they are not accepted by these functions.
 
 Solution conditions enter only through epsilon
 .......................................................
-Salt, pH, dielectric and temperature are set when the frontend object is constructed and affect the phase diagram only via their effect on the computed epsilon. The temperature axis of the phase diagram is not the same thing as the temperature parameter of the underlying forcefield, and varying one does not vary the other. If you want to explore how solution conditions change predicted phase behaviour, construct separate frontend objects with different conditions and compare the resulting diagrams, and note the associated caveat about comparing values computed under different parameterizations.
+Salt, pH, dielectric and temperature are set when the frontend object is constructed and affect the phase diagram only via their effect on the computed epsilon. The temperature axis of the phase diagram is not the same thing as the temperature parameter of the underlying forcefield, and varying one does not vary the other. If you want to explore how solution conditions change predicted phase behaviour, construct separate frontend objects with different conditions, or use the condition-scanning functions described in :doc:`phase_diagrams`, and compare the resulting diagrams, noting the associated caveat about comparing values computed under different parameterizations.
 
 The spinodal is returned but is rarely what you want
 .......................................................

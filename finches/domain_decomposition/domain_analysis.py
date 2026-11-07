@@ -1,3 +1,30 @@
+"""
+Automatic extraction of interacting regions from FINCHES intermaps.
+
+An intermap often contains a handful of rectangular blocks where one stretch
+of sequence 1 interacts consistently with one stretch of sequence 2. This
+module finds those blocks automatically and reports them in sequence space.
+
+The approach works on a thresholded intermap. Every cell that meets a criterion
+(for example, an epsilon value below -0.2) counts as a hit. Summing hits down
+each column gives a 1D profile whose peaks mark columns that take part in many
+interactions; each peak is then sliced out, turned on its side and searched
+again along the rows, and once more along the columns, so that what survives is
+a rectangle that is dense in hits in both directions. Because this favours
+rectangles in one orientation, the search is run on both the intermap and its
+transpose and overlapping rectangles are merged
+(see get_bidirectional_interaction_regions()).
+
+Region bounds are reported in intermap index space as
+((x_start, x_end), (y_start, y_end)), half-open (the end index is excluded),
+where x indexes the columns of the array and y the rows. extract_regions()
+converts these into 1-based, inclusive residue numbers.
+
+Developed by Alex Keeley and Alex Holehouse.
+"""
+
+import warnings
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -5,35 +32,56 @@ from scipy.signal import find_peaks
 
 
 class PeakError(Exception):
-    # custom exception
+    """
+    Raised by peak_width() when the value at the requested peak index lies
+    below the baseline, which means it is not a peak at that baseline.
+    """
+
     pass
 
 
 class InteractingRegions:
     """
-    Data structure to represent interacting regions between two sequences.
-    This is just to make it more convenient to work with local
-    interacting regions
-    The Struct (class) has the following attributes:
+    A pair of interacting regions, one in each sequence.
 
-    r1_start : int
-        The start index of the first sequence.
+    This is a lightweight container that makes it easy to work with the regions
+    returned by extract_regions(). All positions are 1-based residue numbers,
+    and start and end are both inclusive.
 
-    r1_end : int
-        The end index of the first sequence.
+    Attributes
+    ----------
+    r1_start, r1_end : int
+        First and last residue of the region in sequence 1. These are the
+        centres of the first and last intermap windows in the region.
 
     r1_sequence : str
-        The sequence of the first region.
+        The sequence of the region in sequence 1 (residues r1_start to r1_end).
 
-    r2_start : int
-        The start index of the second sequence.
-
-    r2_end : int
-        The end index of the second sequence.
+    r2_start, r2_end : int
+        First and last residue of the region in sequence 2.
 
     r2_sequence : str
-        The sequence of the second region.
+        The sequence of the region in sequence 2.
 
+    window_size : int
+        The window size of the intermap the region was extracted from.
+
+    sequence_1, sequence_2 : str
+        The two full sequences.
+
+    r1_start_full, r1_end_full, r2_start_full, r2_end_full : int
+        The region extended by half a window at each end, i.e. every residue
+        that contributes to at least one window in the region.
+
+    r1_sequence_full, r2_sequence_full : str
+        The sequences of the extended regions.
+
+    edgecolor : str
+        Edge colour used by rectangle_info. Default is 'r'.
+
+    rectangle_kwargs : dict
+        Additional matplotlib Rectangle keyword arguments used by
+        rectangle_info. Default is an empty dictionary.
     """
 
     def __init__(
@@ -48,11 +96,40 @@ class InteractingRegions:
         sequence_1,
         sequence_2,
     ) -> None:
+        """
+        Create an InteractingRegions object.
 
-        # initialize the six attributes
-        for key, value in locals().items():
-            if key != "self":  # Exclude 'self' from being set
-                setattr(self, key, value)
+        Parameters
+        ----------
+        r1_start, r1_end : int
+            First and last residue (1-based, inclusive) of the region in
+            sequence 1.
+
+        r1_sequence : str
+            The sequence of the region in sequence 1.
+
+        r2_start, r2_end : int
+            First and last residue (1-based, inclusive) of the region in
+            sequence 2.
+
+        r2_sequence : str
+            The sequence of the region in sequence 2.
+
+        window_size : int
+            The (odd) window size of the intermap the region came from.
+
+        sequence_1, sequence_2 : str
+            The two full sequences.
+        """
+        self.r1_start = r1_start
+        self.r1_end = r1_end
+        self.r1_sequence = r1_sequence
+        self.r2_start = r2_start
+        self.r2_end = r2_end
+        self.r2_sequence = r2_sequence
+        self.window_size = window_size
+        self.sequence_1 = sequence_1
+        self.sequence_2 = sequence_2
 
         window_half = int((window_size - 1) / 2)
 
@@ -74,28 +151,57 @@ class InteractingRegions:
     @property
     def rectangle_info(self):
         """
-        Property that returns a list which can be added to a list of list to draw
-        rectangles. Note to pass additional keyword arguments to the rectangle,
-        you can set them in the rectangle_kwargs attribute. For example, if you want
-        to set the facecolor of the rectangle to 'blue', you can do the following:
-        ```
-        ir = InteractingRegions(...)
-        ir.rectangle_kwargs = {'facecolor': 'blue'}
-        ```
+        The region in the format taken by the plot_rectangles argument of the
+        frontend interaction_figure() method.
+
+        In that figure the intermap cell for residue p spans p to p + 1, so the
+        rectangle runs from each start residue to one past each end residue and
+        covers every residue in the region. Extra matplotlib Rectangle keyword
+        arguments can be set via the rectangle_kwargs attribute, for example::
+
+            ir = interactor_pairs[0]
+            ir.rectangle_kwargs = {'linestyle': '--'}
+            mf.interaction_figure(seq1, seq2, plot_rectangles=[ir.rectangle_info])
+
+        Returns
+        -------
+        list
+            [r1_start, r1_end + 1, r2_start, r2_end + 1, kwargs], where kwargs
+            holds the edge colour plus anything in rectangle_kwargs.
         """
 
         return [
             self.r1_start,
-            self.r1_end,
+            self.r1_end + 1,
             self.r2_start,
-            self.r2_end,
+            self.r2_end + 1,
             {"edgecolor": self.edgecolor, **self.rectangle_kwargs},
         ]
 
     def __str__(self):
-        return f"InteractingRegions(seq_1: {self.r1_start}-{self.r1_end} ({self.r1_end - self.r1_start}), seq2:{self.r2_start}-{self.r2_end}) ({self.r2_end - self.r2_start})"
+        """
+        Return a one-line summary of the two regions.
+
+        Returns
+        -------
+        str
+            The start, end and length of each region.
+        """
+        return (
+            f"InteractingRegions(seq1: {self.r1_start}-{self.r1_end} "
+            f"({self.r1_end - self.r1_start + 1}), seq2: {self.r2_start}-{self.r2_end} "
+            f"({self.r2_end - self.r2_start + 1}))"
+        )
 
     def __repr__(self):
+        """
+        Return the same summary as __str__().
+
+        Returns
+        -------
+        str
+            The start, end and length of each region.
+        """
         return str(self)
 
 
@@ -116,65 +222,82 @@ def extract_regions(
     offset_threshold=0.2,
 ):
     """
-    Given a frontend object and two sequences, return the intermap and
-    regions of interaction.
+    Compute the intermap between two sequences and extract its interacting
+    regions.
 
-    Parameters:
-    ------------------
+    This is the main entry point to the module. It builds the intermap with
+    the frontend's intermolecular_idr_matrix(), finds rectangular blocks that
+    meet the criterion with get_bidirectional_interaction_regions(), and
+    converts each block into a pair of regions in sequence space.
+
+    Parameters
+    ----------
     frontend_obj : finches.frontend.frontend_base.FinchesFrontend
-        The frontend object to use for the analysis. This object
-        should have a method called intermolecular_idr_matrix that
-        takes two sequences as input and returns the intermap.
+        The frontend object used to compute the intermap (for example an
+        Mpipi_frontend or CALVADOS_frontend).
 
     seq1 : str
-        The first sequence to use for the analysis.
+        The first sequence (the columns of the returned intermap).
 
     seq2 : str
-        The second sequence to use for the analysis.
+        The second sequence (the rows of the returned intermap).
 
-    window_size : int
-        The window size to use for the intermap calculation. Default
-        is 31.
+    window_size : int, optional
+        The window size for the intermap. Must be odd; an even value is rounded
+        up to the next odd number with a warning. Default is 31.
 
-    criteria : str
-        The criteria to use for the analysis. Can be 'less' or
-        'greater'. Default is 'less'.
+    criteria : str, optional
+        'less' to look for attractive regions (values at or below
+        criteria_threshold) or 'greater' to look for repulsive regions (values
+        at or above it). Default is 'less'.
 
-    criteria_threshold : float
-        The threshold to use for the criteria, i.e. the value
-        upon which masking is done to define regions.
-        Default is -0.2.
+    criteria_threshold : float, optional
+        The intermap value a cell has to reach to count as a hit. Default is
+        -0.2.
 
-    baseline : float
-        The baseline to use for the analysis. Default is 0.3.
+    baseline : float, optional
+        Fraction of a peak's height at which the peak is taken to end when
+        measuring its width (see get_column_regions()). Default is 0.3.
 
-    min_region_area : int
-        The minimum region area to use for the analysis.
-        Default is 500.
+    min_region_area : int, optional
+        Smallest region, in intermap cells (width x height), that is kept.
+        Default is 500 (e.g. 20 x 25).
 
-    min_region_size : int
-        The minimum region size (in amino acids) to use for the analysis.
-        Default is 20.
+    min_region_size : int, optional
+        Smallest width and smallest height, in intermap cells (equivalently
+        residues), that a region can have. Default is 20.
 
-    penalize_opposite : bool
-        Whether to penalize opposite interactions. Default is False.
+    penalize_opposite : bool, optional
+        If True, cells of the opposite character (repulsive when looking for
+        attractive regions and vice versa) are subtracted from the hit counts,
+        so regions do not extend across strongly opposing interactions.
+        Default is False.
 
-    offset_threshold : float
-        The threshold to use for penalizing opposite interactions.
-        Default is 0.2 to mirror default criteria_threshold.
+    offset_threshold : float, optional
+        Magnitude of the value a cell has to reach to count as opposite when
+        penalize_opposite is True: at or above +offset_threshold for
+        criteria='less', at or below -offset_threshold for criteria='greater'.
+        Default is 0.2, mirroring the default criteria_threshold.
 
+    Returns
+    -------
+    tuple
+        (interactor_pairs, regions, intermap), where:
 
-    Returns:
-    ------------------
-    interactor_pairs : list
-        A list of InteractingRegions objects that represent the interacting regions.
-
+        - interactor_pairs is a list of InteractingRegions objects, one per
+          region, with start and end in 1-based residue numbering, inclusive at
+          both ends;
+        - regions is the list of region bounds in intermap index space, as
+          returned by get_bidirectional_interaction_regions();
+        - intermap is the intermap the regions were extracted from. It is the
+          transpose of the matrix returned by intermolecular_idr_matrix(), so
+          rows are windows of seq2 and columns are windows of seq1.
     """
 
-    # guarentees odd window size; this is the design pattern we use throughout
+    # guarantees odd window size; this is the design pattern we use throughout
     if window_size % 2 == 0:
-        print(
-            f"Warning: window size is even, rounding up to next odd number {window_size + 1}"
+        warnings.warn(
+            f"window size is even, rounding up to next odd number {window_size + 1}"
         )
         window_size = window_size + 1
 
@@ -198,16 +321,22 @@ def extract_regions(
     # build out the actual interacting regions
     interactor_pairs = []
     for region in regions:
-        # seq start and end are in sequence space (i.e. 1 thru len(seq))
+        # seq start and end are in sequence space (i.e. 1 thru len(seq)) and are
+        # inclusive at both ends. Region bounds are [start, end) in intermap index
+        # space, so the exclusive end index is converted to the last included column
         seq_1_start = convert_intermap_index_to_residue_number(
             region[0][0], window_size
         )
-        seq_1_end = convert_intermap_index_to_residue_number(region[0][1], window_size)
+        seq_1_end = convert_intermap_index_to_residue_number(
+            region[0][1] - 1, window_size
+        )
 
         seq_2_start = convert_intermap_index_to_residue_number(
             region[1][0], window_size
         )
-        seq_2_end = convert_intermap_index_to_residue_number(region[1][1], window_size)
+        seq_2_end = convert_intermap_index_to_residue_number(
+            region[1][1] - 1, window_size
+        )
 
         # we do a -1 at the start to convert from amino acid space to Python indexing
         # space
@@ -235,20 +364,29 @@ def extract_regions(
 #
 def convert_intermap_index_to_residue_number(index, window_size=31):
     """
-    Given an index in an intermap, return the residue number it corresponds to.
+    Convert a 0-based intermap index into the residue number at the centre of
+    that window.
 
-    Parameters:
-    ------------------
+    Parameters
+    ----------
     index : int
-        The index in the intermap.
+        The 0-based row or column index in the intermap.
 
-    window_size : int
-        The window size used to generate the intermap.
+    window_size : int, optional
+        The (odd) window size used to generate the intermap. Default is 31.
 
-    Returns:
-    ------------------
+    Returns
+    -------
     int
-        The residue number corresponding to the index.
+        The residue number corresponding to the index, in 1-based sequence
+        numbering (i.e. 1 through len(seq)). Column ``index`` of the intermap is
+        the window centred on this residue, which matches the index vectors
+        returned by the frontend's intermolecular_idr_matrix().
+
+    Raises
+    ------
+    ValueError
+        If window_size is even.
     """
 
     if window_size % 2 == 0:
@@ -258,7 +396,7 @@ def convert_intermap_index_to_residue_number(index, window_size=31):
 
     window_half = int((window_size - 1) / 2)
 
-    return index + window_half
+    return index + window_half + 1
 
 
 # ....................................................................................
@@ -266,37 +404,41 @@ def convert_intermap_index_to_residue_number(index, window_size=31):
 #
 def peak_width(data, peak_index, baseline):
     """
-    Function that returns the width of a peak in a given data set at a
-    given x value using a given baseline value. In short, "what x range
-    does the peak span before dropping below the baseline value?".
+    Measure how far a peak extends either side of its maximum before dropping
+    below a baseline value.
 
-    Parameters:
-    ------------------
-    data : np.array
-        The data to analyze. This should be a 1D numpy array.
+    In short, "what index range does the peak span before the data fall below
+    the baseline?". The walk stops at the ends of the array.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        The 1D data containing the peak.
 
     peak_index : int
-        The index of the peak of interest along the data array.
+        The index of the peak of interest.
 
     baseline : float
-        The baseline value to use for the analysis. This is the value where
-        the peak 'ends', defined as a specific value.
+        The absolute value below which the peak is considered to have ended.
 
-    Returns:
-    ------------------
+    Returns
+    -------
     tuple
-        Returns a tuple of the form (peak_width, left_index, right_index),
+        (width, left_index, right_index), where left_index and right_index are
+        the first and last indices at or above the baseline (both inclusive) and
+        width = right_index - left_index + 1.
 
+    Raises
+    ------
+    PeakError
+        If the value at peak_index is itself below the baseline.
     """
-    # Determine peak value and check for validity
 
     # The 'y value' of the data/peak at peak_index
     peak_value = data[peak_index]
 
-    # If the peak value falls below the given baseline. Should not occur in any case
-    # where this function is used, but designed to catch critical errors.
-
-    # Raise exception if peak value is below baseline. This should not
+    # A peak cannot sit below its own baseline. This should not occur in any case
+    # where this function is used, but is designed to catch critical errors.
     if peak_value < baseline:
         raise PeakError(
             "Peak value is below baseline value. This should not occur in this context."
@@ -304,18 +446,15 @@ def peak_width(data, peak_index, baseline):
 
     ## Find the left crossing point
 
-    # Set initial left_index to peak_index, we're now looking for the left edge of the peak, where
-    # the 'edge' here is the index at which the x-value falls below the baseline value.
-
-    # to do this, we step left-wards from the starting point until we drop below the baseline
-    # value OR we get to the start of the array
+    # step left-wards from the peak until we drop below the baseline value OR we
+    # get to the start of the array
     left_index = peak_index
     while left_index > -1 and data[left_index] >= baseline:
         left_index -= 1
     left_index = left_index + 1
 
     ## Find the right crossing point
-    # repea the same thing moving right
+    # repeat the same thing moving right
     right_index = peak_index
     while right_index < len(data) and data[right_index] >= baseline:
         right_index += 1
@@ -324,7 +463,6 @@ def peak_width(data, peak_index, baseline):
     # +1 to include both endpoints
     width = right_index - left_index + 1
 
-    # Return width, left_index, and right_index
     return width, left_index, right_index
 
 
@@ -333,43 +471,37 @@ def peak_width(data, peak_index, baseline):
 #
 def remove_included_ranges(ranges):
     """
-    Given a list of index ranges (ie 1-10, 5-12, etc) in form [(1,10),
-     (5,12)], remove any ranges fully included within another range in
-     the list.
+    Remove any range that lies entirely inside another range in the list.
 
-     Parameters:
-    ------------------
-    ranges : list
-        A list of index ranges in the form [(i1,i2),(i1,i2),...].
+    Parameters
+    ----------
+    ranges : list of tuple
+        Ranges in the (width, left_index, right_index) form returned by
+        peak_width(), with right_index inclusive.
 
-    Returns:
-    ------------------
-    list
-        A list of index ranges with any fully included ranges removed.
+    Returns
+    -------
+    list of tuple
+        The ranges, sorted by left index, with every range that is fully
+        contained in another one removed.
     """
 
     # Sort ranges by left_index, then by right_index
     sorted_ranges = sorted(ranges, key=lambda x: (x[1], x[2]))
 
-    # Filter for included ranges
     filtered_ranges = []
-
-    # For each range tuple, in order
     for current in sorted_ranges:
-        ## Check if current range is included in any of the ranges already in filtered_ranges
-        included = False  # Default included (whether current range is included in any other range)
-
-        # For each already-accepted range
+        # keep current only if no already-accepted range contains it
+        included = False
         for existing in filtered_ranges:
-            # If current is included in existing
             if existing[1] <= current[1] and existing[2] >= current[2]:
-                included = True  # Say so
-                break  # And stop looking
+                included = True
+                break
 
-        if not included:  # If current range is not included in any existing range
-            filtered_ranges.append(current)  # Add it to the filtered list
+        if not included:
+            filtered_ranges.append(current)
 
-    return filtered_ranges  # Return filtered ranges
+    return filtered_ranges
 
 
 # ....................................................................................
@@ -385,47 +517,55 @@ def get_column_regions(
     offset_threshold=0.2,
 ):
     """
-    Given a 2d numpy array (an intermap), define regions based on peaks in
-    column counts of interaction values meeting a threshold criterion.
+    Find runs of columns in a 2D array that contain many cells meeting a
+    threshold criterion.
 
-    Parameters:
-    ------------------
-    array : np.array
-        The array to analyze. This should be a 2D numpy array that represents
-        an intermap.
+    Cells meeting the criterion are counted down each column, the counts are
+    smoothed with a width-3 moving sum, and every peak in the smoothed profile
+    is measured with peak_width() at baseline times its own height. Peaks at
+    least min_region_size columns wide are kept.
 
-    criteria : str
-        The criteria to use for the analysis. Can be 'less' or
-        'greater'. Default is 'less'.
+    Parameters
+    ----------
+    array : np.ndarray
+        The 2D array to analyse (an intermap, or a slice of one).
 
-    criteria_threshold : float
-        The threshold to use for the criteria, i.e. the value
-        upon which masking is done to define regions. Default is -0.2.
+    criteria : str, optional
+        'less' to count cells at or below criteria_threshold, or 'greater' to
+        count cells at or above it. Default is 'less'.
 
-    baseline : float
-        The baseline to use for the analysis. Default is 0.3.
+    criteria_threshold : float, optional
+        The value a cell has to reach to count. Default is -0.2.
 
-    min_region_size : int
-        The minimum region size (in amino acids) for a peak to be kept.
-        Default is 20.
+    baseline : float, optional
+        Fraction of each peak's height at which the peak is taken to end.
+        Default is 0.3.
 
-    penalize_opposite : bool
-        Whether to penalize opposite interactions. Default is False.
+    min_region_size : int, optional
+        Smallest width, in columns, of a peak that is kept. Default is 20.
 
-    offset_threshold : float
-        The threshold to use for penalizing opposite interactions.
-        Default is 0.2 to mirror default criteria_threshold.
+    penalize_opposite : bool, optional
+        If True, cells of the opposite character are subtracted from each
+        column's count. Default is False.
 
+    offset_threshold : float, optional
+        Magnitude of the value a cell has to reach to count as opposite: at or
+        above +offset_threshold for criteria='less', at or below
+        -offset_threshold for criteria='greater'. Default is 0.2.
 
-    Returns:
-    ------------------
+    Returns
+    -------
     tuple
-        A tuple of the form (bounds_filtered, counts), where bounds_filtered
-        is a list of accepted peaks with included ranges removed, and counts
-        is the raw column count data of interaction values meeting the threshold
-        criterion (i.e. counts = is the sum of the masked intermap along the
-        columns). The bounds_filtered list elements are themselelves tuples of
-        the form (width, left_index, right_index).
+        (bounds_filtered, counts), where bounds_filtered is a list of the kept
+        peaks as (width, left_index, right_index) tuples (right_index
+        inclusive), and counts is the unsmoothed per-column count of cells
+        meeting the criterion (minus opposite cells if penalize_opposite is
+        True).
+
+    Raises
+    ------
+    ValueError
+        If criteria is not 'less' or 'greater'.
     """
 
     # Filter for values in array that meet criterion and threshold
@@ -437,23 +577,24 @@ def get_column_regions(
         raise ValueError(f"criteria must be 'less' or 'greater', not {criteria}")
 
     # Count of interaction values that meet the criterion/threshold in each column
-    # counts then is a 1D array
     counts = np.sum(within_range, axis=0)
 
-    # not implemented, BUT we could also rather than masking, make the penality
-    # absolute; i.e. this would involve multiplying offset matrix a large number
-    # so no peaks will be found if the residues are overlapping with a 'bad' region
+    # optionally subtract cells of the opposite character: repulsive cells when
+    # looking for attractive regions, attractive cells when looking for repulsive
+    # ones. offset_threshold is a magnitude, and its sign follows the criterion.
     if penalize_opposite:
         if criteria == "less":
-            offset = array >= offset_threshold
-        elif criteria == "greater":
-            offset = array <= offset_threshold
+            offset = array >= abs(offset_threshold)
+        else:
+            offset = array <= -abs(offset_threshold)
 
-        # apply offset based on penalize_opposite
         counts = counts - np.sum(offset, axis=0)
 
-    # Smooth counts via moving average to denoise slightly
-    counts_smooth = np.convolve(counts, [1, 1, 1], mode="same")
+    # Smooth counts with a width-3 moving sum to denoise slightly. We take the
+    # centre of the full convolution rather than mode="same", which returns three
+    # values for an array with fewer than three columns.
+    n = len(counts)
+    counts_smooth = np.convolve(counts, np.ones(3, dtype=int), mode="full")[1 : n + 1]
 
     # Use scipy find_peaks to get indices of peaks in counts_smooth
     peaks_raw = find_peaks(counts_smooth)[0]
@@ -469,14 +610,10 @@ def get_column_regions(
         except PeakError:
             pass
 
-    # filter out peaks that are too small
-    bounds_filtered = []
-    for i in bounds:
-        # we use >= to to mirror logic of the get_interaction_regions() function
-        if i[0] >= min_region_size:
-            bounds_filtered.append(i)
+    # filter out peaks that are too small; >= mirrors get_interaction_regions()
+    bounds_filtered = [i for i in bounds if i[0] >= min_region_size]
 
-    return bounds_filtered, counts  # Return bounds_filtered, counts
+    return bounds_filtered, counts
 
 
 # ....................................................................................
@@ -493,54 +630,54 @@ def get_interaction_regions(
     offset_threshold=0.2,
 ):
     """
-    Given a 2d numpy array (intermap), use get_column_regions iteratively to find 2d
-    regions of specified interaction character and size.
+    Find rectangular regions of a 2D array that are dense in cells meeting a
+    threshold criterion.
 
-    array is the 2d numpy array to analyze.
-    criteria is whether to look for values 'less' than or 'greater' than threshold.
-    threshold is the thresholding value for interaction values.
+    get_column_regions() is applied three times: to the array, to find runs of
+    columns; to each run turned on its side, to find runs of rows within it;
+    and to each resulting block, to trim its columns again. Blocks that are
+    large enough in both directions are returned. This favours rectangles in
+    one orientation, which is why get_bidirectional_interaction_regions() runs
+    it on both the array and its transpose.
 
-    baseline is the coefficient multiplied by peak height that is passed onto peak_width.
-    Note that it is passed here as a multiple of peak height, but is absolute in peak_width.
-    min_region_area is the minimal acceptable area of a region.
+    Parameters
+    ----------
+    array : np.ndarray
+        The 2D array to analyse (an intermap).
 
-    Returns:
-    regions defined as a list of regions of format [((lower_left_x, lower_right_x), (lower_left_y, upper_left_y))], with x being the axis of sequence 1 and y being the axis of sequence 2.
-    counts, carried forwards from the first of 3 get_column_regions for visualization purposes.
+    criteria : str, optional
+        'less' or 'greater'; see get_column_regions(). Default is 'less'.
 
-    Parameters:
-    ------------------
-    array : np.array
-        The array to analyze. This should be a 2D numpy array that represents
-        an intermap.
+    criteria_threshold : float, optional
+        The value a cell has to reach to count. Default is -0.2.
 
-    criteria : str
-        The criteria to use for the analysis. Can be 'less' or
-        'greater'. Default is 'less'.
+    baseline : float, optional
+        Fraction of each peak's height at which the peak is taken to end.
+        Default is 0.3.
 
-    criteria_threshold : float
-        The threshold to use for the criteria, i.e. the value
-        upon which masking is done to define regions. Default is -0.2.
+    min_region_area : int, optional
+        Smallest region area, in cells (width x height), that is kept. Default
+        is 500 (e.g. 20 x 25).
 
-    baseline : float
-        The baseline to use for the analysis. Default is 0.3.
+    min_region_size : int, optional
+        Smallest width and smallest height, in cells, that a region can have.
+        Default is 20.
 
-    min_region_area : int
-        The minimum region area to use for the analysis. Area here is
-        defined in terms of x * y in the array. Default is 500 (e.g. 20x25).
+    penalize_opposite : bool, optional
+        Whether to subtract cells of the opposite character; see
+        get_column_regions(). Default is False.
 
-    penalize_opposite : bool
-        Whether to penalize opposite interactions. Default is False.
+    offset_threshold : float, optional
+        Magnitude of the value a cell has to reach to count as opposite; see
+        get_column_regions(). Default is 0.2.
 
-    offset_threshold : float
-        The threshold to use for penalizing opposite interactions.
-        Default is 0.2 to mirror default criteria_threshold.
-
-    Returns:
-    ------------------
-    regions : list
-        A list of regions that represent the interacting regions. Each region
-        is a tuple of the form ((lower_left_x, lower_right_x), (lower_left_y, upper_left_y))
+    Returns
+    -------
+    tuple
+        (regions, counts), where regions is a list of region bounds
+        ((x_start, x_end), (y_start, y_end)), half-open, with x the column index
+        and y the row index, and counts is the per-column count from the first
+        call to get_column_regions(), returned for visualisation.
     """
 
     # List containing regions fitting given parameters
@@ -558,8 +695,9 @@ def get_interaction_regions(
 
     # For each columnar region (or 'peak')
     for peak in bounds:
-        # submap is that region, sliced out and turned on its side
-        submap = array[:, peak[1] : peak[2]]
+        # submap is that region, sliced out and turned on its side. Note that
+        # peak_width() returns an inclusive right index, hence the +1
+        submap = array[:, peak[1] : peak[2] + 1]
 
         # Get columnar regions of the submap, which are actually row slices of the original intermap/array
         submap_bounds = get_column_regions(
@@ -575,7 +713,9 @@ def get_interaction_regions(
         # For each columnar region of submap
         for submap_peak in submap_bounds:
             # Turn it on its side again (now back in our original orientation) and do the same
-            subsubmap = array[submap_peak[1] : submap_peak[2], peak[1] : peak[2]]
+            subsubmap = array[
+                submap_peak[1] : submap_peak[2] + 1, peak[1] : peak[2] + 1
+            ]
 
             # Find the peaks/regions in subsubmap
             subsubmap_bounds = get_column_regions(
@@ -592,19 +732,13 @@ def get_interaction_regions(
             for subsubmap_peak in subsubmap_bounds:
                 # Define the index boundaries within the original array/intermap
                 low_left_x = peak[1] + subsubmap_peak[1]
-
                 low_left_y = submap_peak[1]
 
-                # peak[0]
                 width = subsubmap_peak[0]
-
                 height = submap_peak[0]
-
                 area = width * height
 
-                # The actual slice out of the array could be obtained with
-                # array[submap_peak[1]:submap_peak[2], subsubmap_peak[1]:subsubmap_peak[2]]
-                # but is not currently used; 'region_bounds' defines its extent.
+                # half-open bounds in index space
                 region_bounds = (
                     (low_left_x, low_left_x + width),
                     (low_left_y, low_left_y + height),
@@ -626,29 +760,20 @@ def get_interaction_regions(
 #
 def rectangles_overlap(R1, R2):
     """
-    Given two regions of the form ((lower_left_x, lower_right_x), (lower_left_y, upper_left_y)),
-    do they overlap? Returns a boolean.
+    Test whether two regions overlap or touch.
 
-    Parameters:
-    ------------------
-    R1 : tuple
-        The first region of interest; a tuple of the form
-        ((lower_left_x, lower_right_x), (lower_left_y, upper_left_y)).
+    Parameters
+    ----------
+    R1, R2 : tuple
+        Regions of the form ((x_start, x_end), (y_start, y_end)).
 
-    R2 : tuple
-        The second region of interest; a tuple of the form
-        ((lower_left_x, lower_right_x), (lower_left_y, upper_left_y)).
-
-    Returns:
-    ------------------
+    Returns
+    -------
     bool
-        True if the rectangles overlap, False otherwise
+        True if the rectangles overlap. Rectangles that only share an edge
+        (one's end equals the other's start) also count as overlapping, so that
+        get_bidirectional_interaction_regions() merges adjacent blocks.
     """
-    # Unpack the rectangle coordinates
-    # left = left hand side of rectangle (min x)
-    # right = right hand side of rectangle  (max x)
-    # bottom = bottom of rectangle (min y)
-    # top = top of rectangle (max y)
     (left1, right1), (bottom1, top1) = R1
     (left2, right2), (bottom2, top2) = R2
 
@@ -669,22 +794,20 @@ def rectangles_overlap(R1, R2):
 #
 def rectangle_area(rect):
     """
-    Given a region of the form ((lower_left_x, lower_right_x), (lower_left_y, upper_left_y)),
-    calculate the area of the rectangle.
+    Area of a region.
 
-    Parameters:
-    rect is the region of interest.
+    Parameters
+    ----------
+    rect : tuple
+        A region of the form ((x_start, x_end), (y_start, y_end)), half-open.
 
+    Returns
+    -------
+    int or float
+        (x_end - x_start) * (y_end - y_start), the number of cells covered.
     """
-    # Unpack the rectangle coordinates
     (left, right), (bottom, top) = rect
-
-    # Calculate the width and height
-    width = right - left
-    height = top - bottom
-
-    # Return the area
-    return width * height
+    return (right - left) * (top - bottom)
 
 
 # ....................................................................................
@@ -701,59 +824,60 @@ def get_bidirectional_interaction_regions(
     offset_threshold=0.2,
 ):
     """
-    Running get_interaction_regions will have a heavy bias against
-    'horizontal' rectangles. We can mitigate this by running it 'vertically'
-    AND 'horizontally' on the same array,and then filtering for overlap to capture everything.
+    Find interacting regions in both orientations of an array and merge them.
 
-    Parameters:
-    ------------------
-    array : np.array
-        The array to analyze. This should be a 2D numpy array that represents
-        an intermap
+    get_interaction_regions() is biased against rectangles in one orientation,
+    so it is run on the array and on its transpose, the second set of regions is
+    transposed back, and any regions that overlap or touch are repeatedly merged
+    into their bounding rectangle until none do.
 
-    criteria : str
-        The criteria to use for the analysis. Can be 'less' or
-        'greater'. Default is 'less'.
+    Parameters
+    ----------
+    array : np.ndarray
+        The 2D array to analyse (an intermap).
 
-    criteria_threshold : float
-        The threshold to use for the criteria, i.e. the value
-        upon which masking is done to define regions. Default is -0.2.
+    criteria : str, optional
+        'less' or 'greater'; see get_column_regions(). Default is 'less'.
 
-    baseline : float
-        The baseline to use for the analysis. Default is 0.3.
+    criteria_threshold : float, optional
+        The value a cell has to reach to count. Default is -0.2.
 
-    min_region_area : int
-        The minimum region area to use for the analysis. Area here is
-        defined in terms of x * y in the array. Default is 500 (e.g. 20x25).
+    baseline : float, optional
+        Fraction of each peak's height at which the peak is taken to end.
+        Default is 0.3.
 
-    min_region_size : int
-        The minimum region size (in amino acids) to use for the analysis.
+    min_region_area : int, optional
+        Smallest region area, in cells, that is kept. Default is 500.
+
+    min_region_size : int, optional
+        Smallest width and smallest height, in cells, that a region can have.
         Default is 20.
 
-    penalize_opposite : bool
-        Whether to penalize opposite interactions. Default is False.
+    penalize_opposite : bool, optional
+        Whether to subtract cells of the opposite character; see
+        get_column_regions(). Default is False.
 
-    offset_threshold : float
-        The threshold to use for penalizing opposite interactions.
-        Default is 0.2 to mirror default criteria_threshold.
+    offset_threshold : float, optional
+        Magnitude of the value a cell has to reach to count as opposite. Default
+        is 0.2.
 
-    Returns:
-    ------------------
-    regions : list
-        A list of regions that represent the interacting regions. Each region
-        is a tuple of the form ((lower_left_x, lower_right_x), (lower_left_y, upper_left_y))
+    Returns
+    -------
+    list of tuple
+        The merged regions, each ((x_start, x_end), (y_start, y_end)),
+        half-open, with x the column index and y the row index of array.
 
+    Raises
+    ------
+    ValueError
+        If criteria is not 'less' or 'greater'.
     """
 
     # sanity check criteria
     if criteria not in ["less", "greater"]:
         raise ValueError(f"criteria must be 'less' or 'greater', not {criteria}")
 
-    array_T = array.T
-
-    # get regions in both directions
-    regions_1, counts_1 = get_interaction_regions(
-        array,
+    shared = dict(
         criteria=criteria,
         criteria_threshold=criteria_threshold,
         baseline=baseline,
@@ -762,26 +886,13 @@ def get_bidirectional_interaction_regions(
         penalize_opposite=penalize_opposite,
         offset_threshold=offset_threshold,
     )
-    regions_2_, counts_2 = get_interaction_regions(
-        array_T,
-        criteria=criteria,
-        criteria_threshold=criteria_threshold,
-        baseline=baseline,
-        min_region_area=min_region_area,
-        min_region_size=min_region_size,
-        penalize_opposite=penalize_opposite,
-        offset_threshold=offset_threshold,
-    )
-    regions_2 = [(j, i) for (i, j) in regions_2_]
 
-    # combine get all the regions from both lists
-    regions = []
-    for r in regions_1:
-        regions.append(r)
-    for r in regions_2:
-        regions.append(r)
+    # get regions in both directions, transposing the second set back
+    regions_1, _ = get_interaction_regions(array, **shared)
+    regions_2, _ = get_interaction_regions(array.T, **shared)
+    regions = list(regions_1) + [(j, i) for (i, j) in regions_2]
 
-    # algorithm to merge overlapping rectangles
+    # merge overlapping rectangles until no pair overlaps
     merged = True
     while merged:
         merged = False
@@ -812,44 +923,57 @@ def get_bidirectional_interaction_regions(
 #
 def plot_regions_on_intermap(array, regions_lists, colors, filename=None):
     """
-    Convenient function that will plot rectangles onto an intermap.
+    Draw an intermap with sets of regions outlined on top of it.
 
-    Parameters:
-    ------------------
-    array : np.array
-        The array to plot. This should be a 2D numpy array that represents
-        an intermap.
+    The array is drawn with imshow on a fixed -2.5 to 2.5 PRGn colour scale,
+    with row 0 at the bottom, and each region is outlined so that it covers
+    exactly the cells in its half-open bounds.
 
-    regions_lists : list
-        A list of lists of regions. Each list in the list should contain
-        a set of regions that are to be plotted with the same color.
+    Parameters
+    ----------
+    array : np.ndarray
+        The 2D intermap to draw, for example the intermap returned by
+        extract_regions() (rows are seq2, columns are seq1).
+
+    regions_lists : list of list
+        One list of regions per colour. Each region is
+        ((x_start, x_end), (y_start, y_end)) in index space.
 
     colors : list
-        A list of colors to use for each set of regions in regions_lists.
+        One matplotlib colour per list in regions_lists.
 
-    filename : str
-        The filename to save the plot to. If None, the plot will be shown
-        instead of saved.
+    filename : str, optional
+        If given, the figure is saved to this path; otherwise it is shown with
+        plt.show(). Default is None.
 
-    Returns:
-    ------------------
-    None
-        Nothing is returned, but a plot is shown.
+    Returns
+    -------
+    tuple
+        (fig, ax), the matplotlib figure and axes.
 
+    Raises
+    ------
+    ValueError
+        If regions_lists and colors do not have the same length.
     """
     if len(regions_lists) != len(colors):
-        return
+        raise ValueError(
+            f"regions_lists ({len(regions_lists)}) and colors ({len(colors)}) must "
+            "have the same length; pass one colour per list of regions"
+        )
+
     fig, ax1 = plt.subplots(figsize=(12, 6))
     cax = ax1.imshow(array, cmap="PRGn", vmin=-2.5, vmax=2.5)
     fig.colorbar(cax, ax=ax1, label="Repulsion/Interaction Strength")
-    for i in range(len(regions_lists)):
-        for region in regions_lists[i]:
+    for region_list, color in zip(regions_lists, colors):
+        for region in region_list:
+            # imshow centres cell i on i, so cell edges sit at i - 0.5
             rect = patches.Rectangle(
-                (region[0][0], region[1][0]),
+                (region[0][0] - 0.5, region[1][0] - 0.5),
                 region[0][1] - region[0][0],
                 region[1][1] - region[1][0],
                 linewidth=2,
-                edgecolor=colors[i],
+                edgecolor=color,
                 facecolor="none",
                 alpha=1,
             )
@@ -864,3 +988,5 @@ def plot_regions_on_intermap(array, regions_lists, colors, filename=None):
         plt.savefig(filename)
     else:
         plt.show()
+
+    return fig, ax1

@@ -1,61 +1,103 @@
+"""
+The Mpipi forcefield for FINCHES.
+
+Implements the Mpipi coarse-grained forcefield of Joseph et al. (2021): a
+Wang-Frenkel short-range potential plus a Debye-Huckel screened Coulomb potential
+between one-bead-per-residue particles. Mpipi_model reads a parameter set,
+evaluates these potentials for any residue pair, and turns them into the
+interaction parameters FINCHES builds its interaction matrices from. The
+stand-alone potentials (wang_frenkel(), coulomb() and harmonic()) are also exposed
+at module level.
+
+Three parameter sets are available (see Mpipi_model):
+
+* 'Mpipi_GGv1' (default): the Mpipi-GG re-parameterization used throughout
+  FINCHES, which covers the 20 amino acids and the RNA nucleotide U.
+* 'Mpipi_original': the unmodified Joseph et al. parameters, amino acids only.
+* 'OLD_Mpipi_GGv1': a legacy snapshot of the GGv1 parameters kept only so that
+  old results can be reproduced.
+
+Reference
+---------
+Joseph, J. A., Reinhardt, A., Aguirre, A., Chew, P. Y., Russell, K. O.,
+Espinosa, J. R., Garaizar, A., & Collepardo-Guevara, R. (2021). Physics-driven
+coarse-grained model for biomolecular phase separation with near-quantitative
+accuracy. Nature Computational Science, 1(11), 732-743.
+
+By: Alex S. Holehouse & Garrett M. Ginell
+"""
+
 import pickle
-import numpy as np
-import finches
 from os.path import exists
-from finches.forcefields.model_base import ForcefieldModel
 
-## Code that implements the key forcefield functions in the Mpipi model. For more details on this see
-#     Joseph, J. A., Reinhardt, A., Aguirre, A., Chew, P. Y., Russell, K. O., Espinosa, J. R., Garaizar, A.,
-#     & Collepardo-Guevara, R. (2021). Physics-driven coarse-grained model for biomolecular phase separation
-#     with near-quantitative accuracy. Nature Computational Science, 1(11), 732–743.
-#
-# Note - as of right now the model loads the parameters for amino acids in IDRs and does not support nucleic acids,
-# although this of course could easily be extended in the future!
-#
-# For a demo of these functions
+import numpy as np
 
-VALID_AA = [
-    "A",
-    "D",
-    "E",
-    "F",
-    "G",
-    "H",
-    "I",
-    "K",
-    "L",
-    "M",
-    "N",
-    "P",
-    "Q",
-    "R",
-    "S",
-    "T",
-    "V",
-    "W",
-    "Y",
-    "C",
-]
+import finches
+from finches.forcefields.model_base import ForcefieldModel, STANDARD_AMINO_ACIDS
+
+# residues Mpipi can cover: the 20 amino acids and, for the GGv1 parameters, the
+# RNA nucleotide U (poly-U)
+VALID_AA = list(STANDARD_AMINO_ACIDS)
 VALID_RNA = ["U"]
 
-MPIPI_CONFIGS = {}
+# Calibration constants per version. The charge prefactor was fitted as described
+# in the FINCHES paper and then rounded to 0.20 for every version (the unrounded
+# fits are given in the comments); the null interaction baseline makes poly(GS)
+# score zero against itself.
+MPIPI_CONFIGS = {
+    "Mpipi_original": {
+        "charge_prefactor": 0.20,  # 0.184890
+        "null_interaction_baseline": -0.066265,
+    },
+    "Mpipi_GGv1": {
+        "charge_prefactor": 0.20,  # 0.216145
+        "null_interaction_baseline": -0.128533,
+    },
+    "OLD_Mpipi_GGv1": {
+        "charge_prefactor": 0.20,  # 0.216145
+        "null_interaction_baseline": -0.128533,
+    },
+}
 
-# different versions can have different parameters
-MPIPI_CONFIGS["Mpipi_original"] = {}
-MPIPI_CONFIGS["Mpipi_GGv1"] = {}
-MPIPI_CONFIGS["OLD_Mpipi_GGv1"] = {}
-
-MPIPI_CONFIGS["Mpipi_original"]["charge_prefactor"] = 0.20  # 0.184890
-MPIPI_CONFIGS["Mpipi_original"]["null_interaction_baseline"] = -0.066265
-
-MPIPI_CONFIGS["Mpipi_GGv1"]["charge_prefactor"] = 0.20  # 0.216145
-MPIPI_CONFIGS["Mpipi_GGv1"]["null_interaction_baseline"] = -0.128533
-
-MPIPI_CONFIGS["OLD_Mpipi_GGv1"]["charge_prefactor"] = 0.20  # 0.216145
-MPIPI_CONFIGS["OLD_Mpipi_GGv1"]["null_interaction_baseline"] = -0.128533
+# The five parameter pickles each version is read from, as (prefix, suffix) around
+# the parameter name: e.g. ('', '_ggv1') gives sigma_ggv1.pickle.
+_PARAMETER_NAMES = ("sigma", "epsilon", "nu", "mu", "charge")
+_PARAMETER_FILE_PATTERN = {
+    "Mpipi_original": ("", ""),
+    "Mpipi_GGv1": ("", "_ggv1"),
+    "OLD_Mpipi_GGv1": ("old_", "_ggv1"),
+}
 
 
 class Mpipi_model(ForcefieldModel):
+    """
+    The Mpipi forcefield as a FINCHES forcefield model.
+
+    Holds one Mpipi parameter set and evaluates the Wang-Frenkel and Coulomb pair
+    potentials from it. Pass an instance to InteractionMatrixConstructor (or use
+    finches.frontend.mpipi_frontend.Mpipi_frontend, which does this for you).
+
+    Attributes
+    ----------
+    SIGMA_ALL, EPSILON_ALL, NU_ALL, MU_ALL : dict of dict
+        Pairwise Wang-Frenkel parameters, indexed as [residue_1][residue_2]:
+        sigma in Angstroms, epsilon (well depth) in kJ/mol, and the
+        dimensionless exponents nu and mu.
+
+    CHARGE_ALL : dict
+        Per-residue charge in units of the elementary charge.
+
+    CONFIGS : dict
+        Calibration constants for the version (see MPIPI_CONFIGS).
+
+    ALL_RESIDUES_TYPES : list of list of str
+        The residue groups the loaded parameter set covers (see ForcefieldModel).
+
+    conditions : list of str
+        ['salt', 'dielectric']. The temperature and pH attributes are set to 300 K
+        and 7.4 for a uniform interface but have no effect on Mpipi energies.
+    """
+
     def __init__(
         self,
         version="Mpipi_GGv1",
@@ -64,70 +106,105 @@ class Mpipi_model(ForcefieldModel):
         salt=0.150,
     ):
         """
-        The Mpipi_model class defines an Mpipi_model Object which lets you calculate
-        and return both individual components of the Mpipi forcefield potential
-        alongside an 'interaction parameter' that reflects
-
+        Load an Mpipi parameter set.
 
         Parameters
-        ---------------
-        version : str
-            Defines which base parameter set to read-in and use. Default reads in the base
-            pickle files un-modified. If not defult the parameter calls a ansociated
-            list of tuples where:
-                x = (class_function update_XY, [list of input functions to pass x[0]])
+        ----------
+        version : str, optional
+            Which parameter set to load. One of:
 
-            CURRENT OPTIONS : ['Mpipi_original', 'Mpipi_GGv1']
+            * 'Mpipi_GGv1' (default): the Mpipi-GG re-parameterization (Ginell &
+              Holehouse) used throughout FINCHES. Covers the 20 amino acids and
+              the RNA nucleotide U. It also contains parameters for ten
+              context-dependent aliphatic codes (a, l, m, i, v and b, o, x, y, z;
+              see finches.data.Mpipi.mPiPi_GGv1_modification_fxns), which FINCHES
+              does not use: its aliphatic weighting is applied to the interaction
+              matrix instead.
+            * 'Mpipi_original': the unmodified Joseph et al. 2021 parameters,
+              which cover the 20 amino acids only.
+            * 'OLD_Mpipi_GGv1': a legacy snapshot of the GGv1 parameters from when
+              they were rebuilt on every initialization. Among the 20 amino acids
+              and U it differs from 'Mpipi_GGv1' in the epsilons of the 15
+              aliphatic-aliphatic pairs (A, I, L, M, V), the P-U sigma, and the
+              exponents of every U pair, which are swapped (mu = 1, nu = 3 rather
+              than mu = 3, nu = 1). It also has no U-to-aliphatic-code entries.
+              Kept for reproducibility only; do not use it for new work.
 
+        input_directory : str, optional
+            Directory to read the parameter pickles from. Default 'default', which
+            uses the files shipped in finches/data/Mpipi.
 
-        input_directory : str
-            Defines the directory where the input parameter files are found. The Mpipi
-            forcefield depends on a set of per-residue (and per-pairwise residue)
-            parameters. These parameters should be stored in a Python dictionary and
-            will be loaded into the Mpipi_model object for manipulation.
+            To use your own parameters, point this at a directory holding five
+            pickled dictionaries whose names depend on the version: for
+            'Mpipi_original' they are
 
-            By default, Mpipi_model uses the original parameters defined by Joseph et
-            al. 2021, and you can use the default directory ('default') to load these.
+            * sigma.pickle: 2D dictionary, [R1][R2] gives sigma (Angstroms).
+            * epsilon.pickle: 2D dictionary, [R1][R2] gives epsilon (kJ/mol).
+            * nu.pickle: 2D dictionary, [R1][R2] gives nu.
+            * mu.pickle: 2D dictionary, [R1][R2] gives mu.
+            * charge.pickle: 1D dictionary, [R1] gives the residue's charge.
 
-            However, if you wanted to load your own pre-computed parameters, you can
-            define a directory that must have five pickled dictionaries in them with
-            the following names:
+            For 'Mpipi_GGv1' the same five files carry a _ggv1 suffix
+            (sigma_ggv1.pickle and so on), and for 'OLD_Mpipi_GGv1' an old_
+            prefix as well (old_sigma_ggv1.pickle and so on). The 2D dictionaries
+            must be symmetric and cover every pair of the 20 amino acids; if they
+            also cover U, U is added as an RNA residue group.
 
-            sigma.pickle   : 2D dictionary that enables indexing in as [R1][R2] to get
-                             the R1,R2 sigma parameter.
+        dielectric : float, optional
+            Dielectric constant of the solvent. Default 80.0 (water).
 
-            epsilon.pickle : 2D dictionary that enables indexing in as [R1][R2] to get
-                             the R1,R2 epsilon parameter.
+        salt : float, optional
+            Monovalent salt concentration in molar, used for the Debye screening
+            of the Coulomb potential. Default 0.150 (150 mM).
 
-            nu.pickle      : 2D dictionary that enables indexing in as [R1][R2] to get
-                             the R1,R2 nu parameter.
+        Raises
+        ------
+        ValueError
+            If version is not one of the options above.
 
-            mu.pickle      : 2D dictionary that enables indexing in as [R1][R2] to get
-                             the R1,R2 mu parameter.
-
-            charge.pickle : 1D dictionary that enables indexing in as [R1] to get the
-                            charge associated with the residue
-
-            Each of these dictionaries contains a 20x20 dictionary keyed by the 20
-            amino acids that defines the pairwise parameter for each of the five
-            parameters named here. In this way, you could in principle define
-            and save arbitrary parameters and then feed these into the Mpipi_object
-            via the input_directory keyword. Alternatively a series of update
-            commands exist so you can update parameters on the fly.
-
-        dielectric : float
-            Defines the dielectric constant of the solvent when computing the interactions
-            in the reference model.
-
-        salt : float
-            Defines the general salt concentration build the reference model.
-            this salt values tune the electrostatic interactions
-
-        Returns
-        -------------
-        finches.methods.forcefields.Mpipi object
-
+        FileNotFoundError
+            If one of the parameter pickles is missing from the directory.
         """
+        if version not in MPIPI_CONFIGS:
+            raise ValueError(
+                f"Unrecognized version [{version}] passed to Mpipi_model. Must be "
+                f"one of {list(MPIPI_CONFIGS)}"
+            )
+
+        if input_directory == "default":
+            data_prefix = finches.get_data("Mpipi")
+        else:
+            data_prefix = input_directory
+
+        # check all five files are present before reading any of them
+        prefix, suffix = _PARAMETER_FILE_PATTERN[version]
+        paths = {
+            name: f"{data_prefix}/{prefix}{name}{suffix}.pickle"
+            for name in _PARAMETER_NAMES
+        }
+        for path in paths.values():
+            if not exists(path):
+                raise FileNotFoundError(
+                    f"Using [{data_prefix}] as our data directory but no "
+                    f"{path.split('/')[-1]} file found"
+                )
+
+        params = {}
+        for name, path in paths.items():
+            with open(path, "rb") as fh:
+                params[name] = pickle.load(fh)
+
+        self.SIGMA_ALL = params["sigma"]
+        self.EPSILON_ALL = params["epsilon"]
+        self.NU_ALL = params["nu"]
+        self.MU_ALL = params["mu"]
+        self.CHARGE_ALL = params["charge"]
+
+        # RNA is only a valid residue group if this parameter set covers it
+        # (Mpipi_original does not)
+        residue_groups = [list(VALID_AA)]
+        if all(r in self.SIGMA_ALL for r in VALID_RNA):
+            residue_groups.append(list(VALID_RNA))
 
         super().__init__(
             version=version,
@@ -135,178 +212,40 @@ class Mpipi_model(ForcefieldModel):
             salt=salt,
             temperature=300,
             pH=7.4,
-            all_residues_types=[
-                [
-                    "M",
-                    "G",
-                    "K",
-                    "T",
-                    "Y",
-                    "A",
-                    "D",
-                    "E",
-                    "V",
-                    "L",
-                    "Q",
-                    "W",
-                    "R",
-                    "F",
-                    "S",
-                    "H",
-                    "N",
-                    "P",
-                    "C",
-                    "I",
-                ],
-                ["U"],
-            ],
+            all_residues_types=residue_groups,
             conditions=["salt", "dielectric"],
         )
 
-        # if 'default' is passed, use the default parameters. Note that if in the future
-        # we want to add additional precomputed parameters this is easy and we just need
-        # to include an additional directory
-        if input_directory == "default":
-            # initialize the prarameters from a pickle file
-            data_prefix = finches.get_data("Mpipi")
-
-        else:
-            data_prefix = input_directory
-
-        if version == "Mpipi_original":
-            # check files are present
-            for n in [
-                "sigma.pickle",
-                "epsilon.pickle",
-                "nu.pickle",
-                "mu.pickle",
-                "charge.pickle",
-            ]:
-                if not exists(f"{data_prefix}/{n}"):
-                    raise Exception(
-                        f"Using [{data_prefix}] as our data directory but no {n} file found"
-                    )
-
-            # load each parameter file once (these were previously loaded inside the
-            # existence-check loop, which re-read every file on each iteration)
-            with open(f"{data_prefix}/sigma.pickle", "rb") as fh:
-                self.SIGMA_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/epsilon.pickle", "rb") as fh:
-                self.EPSILON_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/nu.pickle", "rb") as fh:
-                self.NU_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/mu.pickle", "rb") as fh:
-                self.MU_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/charge.pickle", "rb") as fh:
-                self.CHARGE_ALL = pickle.load(fh)
-
-        elif version == "Mpipi_GGv1":
-            # check files are present
-            for n in [
-                "sigma_ggv1.pickle",
-                "epsilon_ggv1.pickle",
-                "nu_ggv1.pickle",
-                "mu_ggv1.pickle",
-                "charge_ggv1.pickle",
-            ]:
-                if not exists(f"{data_prefix}/{n}"):
-                    raise Exception(
-                        f"Using [{data_prefix}] as our data directory but no {n} file found"
-                    )
-
-            # load each parameter file once (previously re-read on every loop iteration)
-            with open(f"{data_prefix}/sigma_ggv1.pickle", "rb") as fh:
-                self.SIGMA_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/epsilon_ggv1.pickle", "rb") as fh:
-                self.EPSILON_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/nu_ggv1.pickle", "rb") as fh:
-                self.NU_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/mu_ggv1.pickle", "rb") as fh:
-                self.MU_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/charge_ggv1.pickle", "rb") as fh:
-                self.CHARGE_ALL = pickle.load(fh)
-
-        elif version == "OLD_Mpipi_GGv1":
-            # check files are present. NOTE - these should note be used but are basically identical to Mpipi_GGv1; essentially these params
-            # are the values that in earlier versions of finches were dynamically re-computed on initialization every time. We then changed
-            # the code to precompute these values and store them in a pickle file to save time, and there were some extremely minor differences
-            # due to a couple of small changes in the code, so we kept these as a 'snapshot' of the old values, but they should not be used (although
-            # will give basically the same results as the Mpipi_GGv1 values)
-            for n in [
-                "old_sigma_ggv1.pickle",
-                "old_epsilon_ggv1.pickle",
-                "old_nu_ggv1.pickle",
-                "old_mu_ggv1.pickle",
-                "old_charge_ggv1.pickle",
-            ]:
-                if not exists(f"{data_prefix}/{n}"):
-                    raise Exception(
-                        f"Using [{data_prefix}] as our data directory but no {n} file found"
-                    )
-
-            # load each parameter file once (previously re-read on every loop iteration)
-            with open(f"{data_prefix}/old_sigma_ggv1.pickle", "rb") as fh:
-                self.SIGMA_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/old_epsilon_ggv1.pickle", "rb") as fh:
-                self.EPSILON_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/old_nu_ggv1.pickle", "rb") as fh:
-                self.NU_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/old_mu_ggv1.pickle", "rb") as fh:
-                self.MU_ALL = pickle.load(fh)
-
-            with open(f"{data_prefix}/old_charge_ggv1.pickle", "rb") as fh:
-                self.CHARGE_ALL = pickle.load(fh)
-
-        else:
-            raise Exception(
-                f"Unrecognized version [{version}] passed to Mpipi_model. Must be one of 'Mpipi_original', 'Mpipi_GGv1', or 'OLD_Mpipi_GGv1'"
-            )
-
-        # set precomputed forcfield parameters
+        # set precomputed forcefield calibration constants
         self.CONFIGS = MPIPI_CONFIGS[version]
 
     # .....................................................................................
     #
     def compute_wang_frenkel(self, residue_1, residue_2, r):
         """
-        Function that returns the values in kJ/mol for the Wang-Frenkel
-        potential associated with the pairwise interaction of the two
-        passed residues.
-
-        Takes two residues and an input distance, which can be a single
-        value or a np.array.
+        Wang-Frenkel potential between two residues.
 
         Parameters
-        -------------
+        ----------
         residue_1 : str
-            Must be one of the 20 valid amino acid one-letter codes
+            One-letter code of the first residue.
 
         residue_2 : str
-            Must be one of the 20 valid amino acid one-letter codes
+            One-letter code of the second residue.
 
-        r : int, float, array-like
-            Actual distance (in Angstroms) between the beads. Can be a single
-            number or a numpy array.
+        r : float or array-like
+            Distance(s) between the beads in Angstroms.
 
         Returns
-        ------------
-        float or np.array
-            Returns energy in kJ/mol that corresponds to the distance provided
-            from r.
+        -------
+        float or np.ndarray
+            Energy in kJ/mol at each distance; a float if r is a scalar.
 
+        Raises
+        ------
+        KeyError
+            If the parameter set has no entry for the pair.
         """
-
         return wang_frenkel(
             r,
             self.SIGMA_ALL[residue_1][residue_2],
@@ -317,39 +256,37 @@ class Mpipi_model(ForcefieldModel):
 
     # .....................................................................................
     #
-    def compute_colulomb(self, residue_1, residue_2, r, dielectric=None, salt=None):
+    def compute_coulomb(self, residue_1, residue_2, r, dielectric=None, salt=None):
         """
-        Function that returns the values in kJ/mol for the Coulombic
-        potential associated with the pairwise interaction of the two
-        passed residues.
-
-        Takes two residues and an input distance, which can be a single
-        value or a np.array.
+        Debye-Huckel screened Coulomb potential between two residues.
 
         Parameters
-        -------------
+        ----------
         residue_1 : str
-            Must be one of the 20 valid amino acid one-letter codes
+            One-letter code of the first residue.
 
         residue_2 : str
-            Must be one of the 20 valid amino acid one-letter codes
+            One-letter code of the second residue.
 
-        r : int, float, array-like
-            Actual distance (in Angstroms) between the beads. Can be a single
-            number or a numpy array.
+        r : float or array-like
+            Distance(s) between the beads in Angstroms.
 
-        dielectric : float
-            Dielectric constant of the solvent. Generally safe to assume 80.0
+        dielectric : float, optional
+            Dielectric constant. If None (default), the model's dielectric is used.
 
-        salt : float
-            Salt concentration in M, used for Debye screening. Default=0.15.
+        salt : float, optional
+            Monovalent salt concentration in molar. If None (default), the
+            model's salt concentration is used.
 
         Returns
-        ------------
-        float or np.array
-            Returns energy in kJ/mol that corresponds to the distance provided
-            from r.
+        -------
+        float or np.ndarray
+            Energy in kJ/mol at each distance.
 
+        Raises
+        ------
+        KeyError
+            If the parameter set has no charge for one of the residues.
         """
         if salt is None:
             salt = self.salt
@@ -365,134 +302,144 @@ class Mpipi_model(ForcefieldModel):
             salt=salt,
         )
 
-    # .....................................................................................
-    #
-    def compute_full_Mpipi(self, residue_1, residue_2, r, dielectric=None, salt=None):
+    def compute_colulomb(self, residue_1, residue_2, r, dielectric=None, salt=None):
         """
-        Function that returns the values in kJ/mol for the full Mpipi potential,
-        with a sum from the Wang-Frenkel and Coulombic potentials. Returns the
-        instantaneous energy of the two residues at a given distance or set of
-        distances.
-
-        Takes two residues and an input distance, which can be a single
-        value or a np.array.
+        Alias of compute_coulomb(), kept under its original (misspelt) name.
 
         Parameters
-        -------------
-
-        residue_1 : str
-            Must be one of the 20 valid amino acid one-letter codes
-
-        residue_2 : str
-            Must be one of the 20 valid amino acid one-letter codes
-
-        r : int, float, array-like
-            Actual distance (in Angstroms) between the beads. Can be a single
-            number or a numpy array.
-
-        dielectric : float
-            Dielectric constant of the solvent. Generally safe to assume 80.0
-
-        salt : float
-            Salt concentration in M, used for Debye screening. Default=0.15.
-
+        ----------
+        residue_1, residue_2, r, dielectric, salt
+            As for compute_coulomb().
 
         Returns
-        ------------
-        float or np.array
-            Returns energy in kJ/mol that corresponds to the distance provided
-            from r.
-
+        -------
+        float or np.ndarray
+            Energy in kJ/mol at each distance.
         """
-        if salt is None:
-            salt = self.salt
+        return self.compute_coulomb(
+            residue_1, residue_2, r, dielectric=dielectric, salt=salt
+        )
 
-        if dielectric is None:
-            dielectric = self.dielectric
+    # .....................................................................................
+    #
+    def compute_full_potential(
+        self, residue_1, residue_2, r, dielectric=None, salt=None
+    ):
+        """
+        Full Mpipi pair potential: Wang-Frenkel plus screened Coulomb.
 
+        Parameters
+        ----------
+        residue_1 : str
+            One-letter code of the first residue.
+
+        residue_2 : str
+            One-letter code of the second residue.
+
+        r : float or array-like
+            Distance(s) between the beads in Angstroms.
+
+        dielectric : float, optional
+            Dielectric constant. If None (default), the model's dielectric is used.
+
+        salt : float, optional
+            Monovalent salt concentration in molar. If None (default), the
+            model's salt concentration is used.
+
+        Returns
+        -------
+        float or np.ndarray
+            Energy in kJ/mol at each distance.
+
+        Raises
+        ------
+        KeyError
+            If the parameter set has no entry for the pair.
+        """
         wf = self.compute_wang_frenkel(residue_1, residue_2, r)
-        c = self.compute_colulomb(
+        c = self.compute_coulomb(
             residue_1, residue_2, r, dielectric=dielectric, salt=salt
         )
         return wf + c
 
+    def compute_full_Mpipi(self, residue_1, residue_2, r, dielectric=None, salt=None):
+        """
+        Alias of compute_full_potential(), kept under its original name.
+
+        Parameters
+        ----------
+        residue_1, residue_2, r, dielectric, salt
+            As for compute_full_potential().
+
+        Returns
+        -------
+        float or np.ndarray
+            Energy in kJ/mol at each distance.
+        """
+        return self.compute_full_potential(
+            residue_1, residue_2, r, dielectric=dielectric, salt=salt
+        )
+
     # ................................................................................
-    #
     #
     def compute_interaction_parameter(
         self, residue_1, residue_2, r=None, dielectric=None, salt=None
     ):
         """
-        NOTE - the name of this function must match name in other forcefield modules
+        Interaction parameter between two residue types.
 
-        Standalone function that computes pariwise interaction parameter
-        between two residue types based on the finite integral between 1
-        and 3 sigma.
+        The full Mpipi potential is evaluated on a distance grid and integrated
+        between the grid points closest to one and three sigma (see
+        ForcefieldModel._integrate_sigma_window()). Three sigma is also the
+        Wang-Frenkel cutoff.
 
         Parameters
-        --------------
+        ----------
         residue_1 : str
-            Must be one of the 20 valid amino acid one-letter codes
+            One-letter code of the first residue.
 
         residue_2 : str
-            Must be one of the 20 valid amino acid one-letter codes
+            One-letter code of the second residue.
 
-        r : array-like
-            Actual distance (in Angstroms) between the beads. Can be a single
-            number or a numpy array. If not provided uses 0.1 to 30 in
-            increments of 0.01; suggest this is  safe range to basically always
-            use unless your sigmas start getting really big...
+        r : array-like, optional
+            Distance grid in Angstroms. If None (default), 0.1 to 30 Angstroms in
+            0.01 Angstrom steps, which comfortably spans three sigma for every
+            residue pair.
 
-        dielectric : float
-            Dielectric constant of the solvent. Generally safe to assume 80.0
+        dielectric : float, optional
+            Dielectric constant. If None (default), the model's dielectric is used.
 
-        salt : float
-            Salt concentration in M, used for Debye screening. Default=0.15.
+        salt : float, optional
+            Monovalent salt concentration in molar. If None (default), the
+            model's salt concentration is used.
 
         Returns
-        -----------
+        -------
         tuple
-            Returns a tuple with several values:
+            [0] : float, the interaction parameter (kJ/mol times Angstroms).
+            [1] : np.ndarray, the full potential (kJ/mol) at every distance in [4].
+            [2] : int, index in [4] closest to one sigma.
+            [3] : int, index in [4] closest to three sigma.
+            [4] : np.ndarray, the distance grid in Angstroms.
 
-            [0] - float -  interaction parameter (sum of integral)
-            [1] - np.array - full pairwise potential energy vs. distance profile
-            [2] - int - index for one sigma
-            [3] - int - index for 3 sigma
-            [4] - np.array - distance array
-
+        Raises
+        ------
+        KeyError
+            If the parameter set has no entry for the pair.
         """
-
         if r is None:
-            r = np.arange(0.1, 30, 0.01)
+            r = self._get_default_distance_array()
 
-        if salt is None:
-            salt = self.salt
+        # the docstring promises array-like input, so make sure a plain list works
+        r = np.asarray(r, dtype=float)
 
-        if dielectric is None:
-            dielectric = self.dielectric
-
-        # determine
-        sig1 = self.SIGMA_ALL[residue_1][residue_2]
-        sig3 = self.SIGMA_ALL[residue_1][residue_2] * 3
-
-        # get index in distance-dependent energy that matches 1 sigma
-        s1 = np.argmin(abs(sig1 - np.array(r)))
-
-        # get index of 3*sigma
-        s3 = np.argmin(abs(sig3 - np.array(r)))
-
-        # calculate the combined energy vector of the rage
-        combo = self.compute_full_Mpipi(
+        combo = self.compute_full_potential(
             residue_1, residue_2, r, dielectric=dielectric, salt=salt
         )
 
-        # take the numerical finite integral between 1 and 3 sigma to calculate
-        # an interacion parameter
-        try:
-            interaction_param = np.trapezoid(combo[s1:s3], x=r[s1:s3])
-        except AttributeError:
-            # np.trapezoid was added in NumPy 2.0; fall back to the old name
-            interaction_param = np.trapz(combo[s1:s3], x=r[s1:s3])
+        interaction_param, s1, s3 = self._integrate_sigma_window(
+            combo, r, self.SIGMA_ALL[residue_1][residue_2]
+        )
 
         return (interaction_param, combo, s1, s3, r)
 
@@ -507,30 +454,37 @@ class Mpipi_model(ForcefieldModel):
 #
 def harmonic(r, mode="protein", k=8.03, ideal_length=None):
     """
-    Standard harmonic potential. Equation (2) from Mpipi paper.
+    Harmonic bond potential, equation (2) of the Mpipi paper.
+
+    E = (k / 2) (r - r_ref)^2, with k = 8.03 J mol^-1 pm^-2 and r_ref = 381 pm
+    (protein) or 500 pm (RNA), as in Joseph et al. 2021. Not used by FINCHES
+    itself, which only needs non-bonded interactions, but provided for
+    completeness.
 
     Parameters
-    -------------
-    r : float
-        Actual distance (in Angstroms)
+    ----------
+    r : float or array-like
+        Bond length(s) in Angstroms.
 
-    mode : str
-        mode to be used. Must be 'protein' or 'nucleic'.
-        Default='protein'
+    mode : str, optional
+        'protein' (equilibrium length 3.81 Angstroms) or 'nucleic' (5.00
+        Angstroms). Default 'protein'. Ignored if ideal_length is given.
 
-    k : float
-        If provided allows you to change the spring constant. Default
-        in the Mpipi paper is 8.03 J mol-1 pm-2.
+    k : float, optional
+        Spring constant in J mol^-1 pm^-2. Default 8.03.
 
-    ideal_length : float or None
-        IF provided over-rides the standard ideal_length distances which are
-        defined based on mode. Default = None.
+    ideal_length : float, optional
+        Equilibrium bond length in Angstroms, overriding the value set by mode.
 
     Returns
-    ------------
-    float
-        Returns an energy in kJ/mol
+    -------
+    float or np.ndarray
+        Energy in kJ/mol.
 
+    Raises
+    ------
+    ValueError
+        If mode is not 'protein' or 'nucleic' and no ideal_length is given.
     """
 
     # define the ideal bond length; if we passed an ideal_length
@@ -538,20 +492,19 @@ def harmonic(r, mode="protein", k=8.03, ideal_length=None):
     if ideal_length is not None:
         r_ref = ideal_length
 
-    # if not, use one of the two default values defined in the
-    # paper
+    # if not, use one of the two default values defined in the paper
+    elif mode == "protein":
+        r_ref = 3.81
+    elif mode == "nucleic":
+        r_ref = 5.00
     else:
-        if mode == "protein":
-            r_ref = 3.81
+        raise ValueError(
+            f"Invalid mode [{mode}] passed to harmonic(); must be 'protein' or "
+            "'nucleic'"
+        )
 
-        elif mode == "nucleic":
-            r_ref = 5.00
-        else:
-            raise Exception("Invalid mode passed to harmonic()")
-
-    # calculate (r - r_ref)^2 and convert from Angstroms
-    # to picometers
-    distance_deviation_in_pm = np.power(100 * (r - r_ref), 2)
+    # calculate (r - r_ref)^2 and convert from Angstroms to picometers
+    distance_deviation_in_pm = np.power(100 * (np.asarray(r, dtype=float) - r_ref), 2)
 
     # the /1000 is so we go from J to kJ
     return 0.5 * k * distance_deviation_in_pm / 1000
@@ -562,65 +515,64 @@ def harmonic(r, mode="protein", k=8.03, ideal_length=None):
 #
 def coulomb(qi, qj, rij, dielectric=80.0, salt=0.150):
     """
-    Coulombic potential with a Debye-Huckel screening term. Takes in two point
-    charge values and either a single distance or a numpy array of distances and
-    returns the distance dependent energy.
+    Coulomb potential with Debye-Huckel screening.
 
-    Note that this is a stand-alone Coloumbic potential with Debye screening and
-    actually does not use any of the Mpipi parameters.
+    A stand-alone potential that does not use any Mpipi parameters. The Debye
+    screening length is 3.06 / sqrt(salt) Angstroms (salt in molar), the room-
+    temperature value for a monovalent salt in water; see
+    https://minds.wisconsin.edu/bitstream/handle/1793/79225/1923-debye-huckel-theory-2020-braus-translation-with-preface.pdf
+    for a translation of the original paper in which the 3.06 appears. At 150 mM
+    this gives 7.90 Angstroms, against the 7.95 Angstroms used in the Mpipi paper.
 
     Parameters
-    -------------
-
+    ----------
     qi : float
-        Charge (in 'elemental' units - i.e. 1, 0 -1 0.5 etc) of the first
-        bead.
+        Charge of the first bead in units of the elementary charge.
 
     qj : float
-        Charge (in 'elemental' units - i.e. 1, 0 -1 0.5 etc) of the second
-        bead.
+        Charge of the second bead in units of the elementary charge.
 
-    rij : int, float, array-like
-        Actual distance (in Angstroms) between the beads. Can be a single
-        number or a numpy array.
+    rij : float or array-like
+        Distance(s) between the beads in Angstroms.
 
-    dielectric : float
-        Defines the overal medium dielectric. Default = 80 for water.
+    dielectric : float, optional
+        Dielectric constant of the medium. Default 80.0 (water).
 
-    salt : float
-        Defines the concentration of monovalent salt in molar (i.e.)
-        0.150 = 150 mM. Default=0.150.
+    salt : float, optional
+        Monovalent salt concentration in molar. Default 0.150. A value of 0 turns
+        screening off.
 
     Returns
-    ------------
-    float
-        Returns an energy in kJ/mol
+    -------
+    float or np.ndarray
+        Energy in kJ/mol at each distance.
 
+    Notes
+    -----
+    Avogadro's number is taken as 6.023e23 rather than 6.02214e23. The Mpipi
+    calibration constants were fitted with this value, so it is left as is (the
+    difference is 0.013%).
     """
 
-    # based on Dan's code - thanks Dan!
-    sqrt_salt = np.sqrt(salt)
+    # distances as a float array so a list works as well as a scalar or array
+    rij = np.asarray(rij, dtype=float)
 
-    # 3.06 comes the Debye equation - notably see
-    # https://minds.wisconsin.edu/bitstream/handle/1793/79225/1923-debye-huckel-theory-2020-braus-translation-with-preface.pdf?sequence=3&isAllowed=y
-    # which has a nice translation of the paper where 3.06 is explicitly deconvolved
-    kappa = sqrt_salt / 3.06
+    # inverse Debye length in 1/Angstrom
+    kappa = np.sqrt(salt) / 3.06
 
     # define some constants
-    C = 1.602176634e-19  # elementary charge constant (in Coulombs)
-    Na = 6.023e23  # Avogadro's number (unitless - just a big ol number)
+    C = 1.602176634e-19  # elementary charge (Coulombs)
+    Na = 6.023e23  # Avogadro's number (see Notes)
 
-    # converts charge from elemental units into columbs and then into C mol, and then
-    # divides by pi *4 * e0 - this is in units of j m mol-1
+    # converts charge from elemental units into Coulombs and then into C mol, and
+    # divides by 4 pi e0 - this is in units of J m mol-1
     conversion_constant = (C * C * Na) / (np.pi * 4 * 8.854187812799999e-12)
 
     # convert A to meters
     rij_m = rij * 1e-10
 
-    # debye dampening factor (this is unitless). Note if salt=0 this goes
-    # to 1 and screening is turned off, otherwise this will be a value between
-    # 1 and 0. Note that rij is in Angstroms here because of the units that
-    # emerge for kappa above
+    # Debye damping factor (unitless). If salt=0 this is 1 and screening is off,
+    # otherwise it is between 1 and 0. rij stays in Angstroms here to match kappa
     DH = np.exp(-kappa * rij)
 
     energy_in_J = (conversion_constant * qi * qj) / (dielectric * rij_m) * DH
@@ -633,46 +585,41 @@ def coulomb(qi, qj, rij, dielectric=80.0, salt=0.150):
 #
 def wang_frenkel(r, sigma_ij, epsilon_ij, mu_ij=2, nu_ij=1):
     """
-    Wang-Frenkel potential, takes four parameters and a distance
-    (or numpy array of distances) and returns the distance-dependent
-    potential energy in kj/mol.
+    Wang-Frenkel potential.
 
-    Note that this is a stand-alone Wang-Frenkel potential and
-    actually does not use any of the Mpipi parameters.
+    A stand-alone potential that does not use any Mpipi parameters. The cutoff
+    R_ij is three sigma: the potential goes smoothly to zero there and is zero
+    beyond it.
 
     Parameters
-    -------------
-    r : int, float, array-like
-        Actual distance (in Angstroms) between the beads. Can be a single
-        number or a numpy array.
+    ----------
+    r : float or array-like
+        Distance(s) between the beads in Angstroms.
 
     sigma_ij : float
-        Size parameter in Angstroms. Reports on the size of the bead
-        in terms of cutoff distance; specifically defines the distance
-        at which the WF potential crosses the 0 line on the Y axis.
-        Should be positive.
+        Size parameter in Angstroms: the distance at which the potential crosses
+        zero. Should be positive.
 
     epsilon_ij : float
-        Energy in kj/mol for bead-bead energy (well depth). Specifically
-        defines the lowest value in the minimum. Should be positive.
+        Well depth in kJ/mol. Should be positive.
 
-    mu_ij : float
-        Value that controls the width and steepness of the well
+    mu_ij : float, optional
+        Exponent that sets the width and steepness of the well. Default 2.
 
-    nu_ij : float
-        Second that controls the width and steepness of the well
+    nu_ij : float, optional
+        Second exponent that sets the width and steepness of the well. Default 1.
 
     Returns
-    ------------
-    float
-        Returns an energy in kJ/mol
-
+    -------
+    float or np.ndarray
+        Energy in kJ/mol at each distance; a float if r is a scalar.
     """
 
-    # define R_ij
-    R_ij = 3 * sigma_ij
+    # distances as a float array so a list works as well as a scalar or array
+    r = np.asarray(r, dtype=float)
 
-    # DO MATH!
+    # define R_ij - this is the cutoff distance of the potential
+    R_ij = 3 * sigma_ij
 
     alpha_ij_term1 = 2 * nu_ij * np.power(R_ij / sigma_ij, 2 * mu_ij)
 
@@ -688,4 +635,15 @@ def wang_frenkel(r, sigma_ij, epsilon_ij, mu_ij=2, nu_ij=1):
 
     main_term3 = np.power(np.power(R_ij / r, 2 * mu_ij) - 1, 2 * nu_ij)
 
-    return main_term1 * main_term2 * main_term3
+    energy = main_term1 * main_term2 * main_term3
+
+    # Evaluating the closed form past the cutoff does not give zero (the
+    # (R_ij/r)^(2mu) - 1 factor changes sign and the energy tends to
+    # -epsilon*alpha at large r), so truncate here.
+    energy = np.where(r <= R_ij, energy, 0.0)
+
+    # hand back a plain float if a single distance was passed
+    if energy.ndim == 0:
+        return float(energy)
+
+    return energy

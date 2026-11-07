@@ -49,7 +49,7 @@ All of the examples in the documentation here make use of the frontend objects. 
 
 Development:
 -------------------
-FINCHES is in active development with new features planned over the summer of 2025. If you have specific feature requests or identify bugs, please open an issue on the GitHub repository.
+FINCHES is in active development. If you have specific feature requests or identify bugs, please open an issue on the GitHub repository.
 
 
 How to cite:

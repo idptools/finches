@@ -73,13 +73,31 @@ The conversion from epsilon to a phase diagram happens in ``finches.epsilon_to_F
 
 The homotypic epsilon is divided by the sequence length to give a per-residue interaction energy, because epsilon is an extensive quantity in the length of the chain whereas the Flory-Huggins treatment needs a site-specific energy - chain length is accounted for separately in the binodal calculation. The sign is also reversed, so that a negative (attractive) epsilon becomes a positive Flory chi.
 
-The binodal is then solved analytically over a grid of chi values, and chi is converted to temperature using :math:`T = \Delta\epsilon/\chi`. The spinodal is computed the same way. The resulting temperature axis is therefore in arbitrary units set by the epsilon-to-chi conversion, not in Kelvin or any other physical temperature scale.
+The binodal is then solved analytically over a grid of chi values running up to 0.8, and chi is converted to temperature using :math:`T = \Delta\epsilon/\chi`. The spinodal is computed the same way. The resulting temperature is in the units of epsilon with Boltzmann's constant set to one: a relative scale set by the epsilon-to-chi conversion, not Kelvin or any other physical temperature. An epsilon of zero, which in FINCHES means "behaves like poly(GS)", maps onto chi = 0 (an athermal solvent) with no reference offset, so the diagram's absolute position means nothing on its own; what carries information is how diagrams for different sequences sit relative to one another. Because the chi grid stops at 0.8, a chain shorter than 15 residues, whose critical chi is above 0.8, gives an empty diagram.
 
 Reading the diagram
 .....................................
 The binodal separates a one-phase region above the curve, where the solution is homogeneous, from a two-phase region below it, where the system separates into coexisting dilute and dense phases. The left arm of the curve is the dilute-phase concentration and the right arm is the dense-phase concentration; at any temperature below the critical point, a horizontal line between the two arms is the tie line connecting the two coexisting concentrations. The critical point sits at the top of the curve.
 
 A higher critical temperature means the sequence is predicted to phase separate more readily. When comparing variants, the direction and rough magnitude of the shift in critical temperature is the signal to pay attention to.
+
+Scanning solution conditions
+.....................................
+``finches.epsilon_to_FHtheory`` also has ``build_SALT_dependent_phase_diagrams()``, ``build_PH_dependent_phase_diagrams()`` and ``build_DIELECTRIC_dependent_phase_diagrams()``, which rebuild the forcefield at each value in a list of conditions and compute the epsilon and phase diagram there. They take the ``IMC_object`` of a frontend and return the list of conditions, a dictionary of phase diagrams (each in the ``build_phase_diagram()`` format) and a dictionary of epsilon values, both keyed by condition. The forcefield is returned to its original condition afterwards. Each model can only vary the conditions it depends on (Mpipi: salt and dielectric; CALVADOS: salt and pH), and asking for any other raises a ``ValueError``.
+
+.. code-block:: python
+
+    from finches import Mpipi_frontend
+    from finches.epsilon_to_FHtheory import build_SALT_dependent_phase_diagrams
+
+    mf = Mpipi_frontend()
+
+    conditions, diagrams, epsilons = build_SALT_dependent_phase_diagrams(
+        seq, mf.IMC_object, [0.05, 0.15, 0.5])
+
+    # critical temperature at each salt concentration
+    for salt in conditions:
+        print(salt, epsilons[salt], diagrams[salt][2][1])
 
 Caveats
 .....................................

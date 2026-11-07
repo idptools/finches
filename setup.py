@@ -12,9 +12,6 @@ from setuptools.extension import Extension
 
 cython_file = os.path.join("finches", "utils", "matrix_manipulation.pyx")
 
-# pyx_path = "finches/utils/matrix_manipulation.pyx"
-print("Absolute path:", os.path.abspath(cython_file))
-
 extensions = [
     Extension(
         "finches.utils.matrix_manipulation",

@@ -5,14 +5,30 @@ Extended Methods
 
 Implementation
 ------------------
-FINCHES is fully open source and hosted at https://github.com/idptools/finches. It is implemented in Python (https://www.python.org/) (version 3.7 or higher) with Cython implementations for a subset of performance-sensitive algorithms (https://cython.org/). FINCHES also makes extensive use of NumPy, SciPy, and Matplotlib. Version control is provided via git (https://git-scm.com/). Bugs and features can be reported/requested at https://github.com/idptools/finches/. Additional forcefields can be implemented in the finches.forcefields module.
+FINCHES is fully open source and hosted at https://github.com/idptools/finches. It is implemented in Python (https://www.python.org/) (version 3.9 or higher) with Cython implementations for a subset of performance-sensitive algorithms (https://cython.org/). FINCHES also makes extensive use of NumPy, SciPy, and Matplotlib. Version control is provided via git (https://git-scm.com/). Bugs and features can be reported/requested at https://github.com/idptools/finches/. Additional forcefields can be implemented in the finches.forcefields module.
 
 The finches-online webserver (http://finches-online.com/) is built using Flask (https://flask.palletsprojects.com/) and uses nginx (https://nginx.org/en/) and gunicorn (https://gunicorn.org/) for backend infrastructure. It provides front-facing services for intermap construction and phase diagram prediction.
 
 
 Calculating Epsilon
 ------------------------
-The calculation of the overal mean-field :math:`\epsilon` value (:math:`\epsilon^{MF}`) is done in several steps.
+The calculation of the overall mean-field :math:`\epsilon` value (:math:`\epsilon^{MF}`) between two sequences is done in several steps.
+
+1. **Residue-residue interaction parameters.** For every pair of residue types, a single interaction parameter is obtained by numerically integrating the non-bonded pair potential of the underlying coarse-grained forcefield (Mpipi-GG or CALVADOS2) over the inter-bead distance, from one to three bead diameters, at the solution conditions the frontend was built with (salt and dielectric for Mpipi; salt, pH and temperature for CALVADOS). Each potential is truncated at the cutoff of the original model (for CALVADOS2, 2 nm for the Ashbaugh-Hatch term and 4 nm for the Yukawa term), so contributions beyond it are zero. Negative values are attractive. These parameters are tabulated once per frontend.
+
+2. **The raw interaction matrix.** For sequences of length :math:`n` and :math:`m`, the raw matrix :math:`M^{raw}` is the :math:`n \times m` matrix whose element :math:`(i, j)` is the interaction parameter between residue :math:`i` of the first sequence and residue :math:`j` of the second.
+
+3. **Local sequence context.** Two corrections are applied element-wise to give the weighted matrix :math:`M`. The charge correction reduces like-charge repulsion between pairs of charged residues according to the net charge of their :math:`\pm 1` sequence neighbourhoods, scaled by a forcefield-specific prefactor (see "Calibration of Charge Prefactor" below). The aliphatic correction up-weights contacts between clusters of aliphatic residues (A, V, I, L, M), where a cluster is a run of aliphatic residues in which single non-aliphatic residues are tolerated. Each aliphatic residue is given a level equal to the size of its cluster, capped at 3, and a pair is scaled by a factor set by the smaller of the two levels: 3 when both residues sit in clusters of three or more, 1.5 when the smaller cluster is a pair, and 1 otherwise, to approximate the cooperative release of water from a hydrophobic interface. Both corrections can be switched off. The residue classes and both weighting rules live in ``finches.parsing_aminoacid_sequences`` (``get_charge_window_counts()``, ``charge_weight_from_counts()``, ``get_aliphatic_groups()`` and ``aliphatic_weight_from_levels()``), and the structure-aware folded-domain code uses the same functions, with a residue's surface neighbourhood standing in for its sequence window.
+
+4. **The null baseline.** A forcefield-specific constant, the null interaction baseline :math:`b`, is calibrated so that a poly(GS) sequence has :math:`\epsilon^{MF} = 0` against itself. It plays two roles. Elements of :math:`M` below :math:`b` are classed as attractive and elements above it as repulsive, which is what the attractive and repulsive per-residue vectors report. And the epsilon is measured from it: :math:`M` is split into an attractive matrix (elements at or below :math:`b`, zero elsewhere) and a repulsive matrix (elements above :math:`b`, zero elsewhere), :math:`b` is subtracted from every element of both, and the two are summed. Each element therefore contributes :math:`M_{ij} - 2b`, so the pair interaction that corresponds to "no net interaction" is :math:`2b`, which by construction is the mean poly(GS) pair interaction for that forcefield.
+
+5. **Averaging.** :math:`\epsilon^{MF}` is the sum over the residues of the first sequence of the mean over the residues of the second:
+
+   .. math::
+
+      \epsilon^{MF} = \sum_{i=1}^{n} \frac{1}{m} \sum_{j=1}^{m} \left( M_{ij} - 2b \right)
+
+   It is therefore extensive in the first sequence and intensive in the second; dividing by :math:`n` gives a per-residue value that is symmetric in the two sequences. Because the average runs over every pair of residues, :math:`\epsilon^{MF}` depends on the two compositions and on the local context captured in step 3, but not otherwise on how residues are arranged along either chain. The intermaps described next are what resolve that arrangement.
 
 
 Calculating Intermaps

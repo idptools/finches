@@ -2,8 +2,6 @@
 Comprehensive tests for the parsing_aminoacid_sequences module.
 
 Run with: pytest test_parsing_aminoacid_sequences.py -v
-
-By: Auto-generated test suite
 """
 
 import pytest
@@ -14,6 +12,7 @@ from finches import parsing_aminoacid_sequences
 # =============================================================================
 # Tests for get_aliphatic_groups
 # =============================================================================
+
 
 class TestGetAliphaticGroups:
     """Tests for aliphatic residue clustering classification."""
@@ -94,6 +93,7 @@ class TestGetAliphaticGroups:
 # Tests for get_aliphatic_weighted_mask
 # =============================================================================
 
+
 class TestGetAliphaticWeightedMask:
     """Tests for aliphatic clustering weight matrix."""
 
@@ -171,6 +171,7 @@ class TestGetAliphaticWeightedMask:
 # Tests for get_charge_weighted_mask
 # =============================================================================
 
+
 class TestGetChargeWeightedMask:
     """Tests for charge-weighted interaction mask."""
 
@@ -186,18 +187,24 @@ class TestGetChargeWeightedMask:
         """Output shapes match input sequence lengths."""
         seq1 = "KKKKK"
         seq2 = "DDD"
-        attractive, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask(seq1, seq2)
+        attractive, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask(
+            seq1, seq2
+        )
         assert attractive.shape == (len(seq1), len(seq2))
         assert repulsive.shape == (len(seq1), len(seq2))
 
     def test_attractive_matrix_is_zeros(self):
         """Attractive matrix is currently always zeros."""
-        attractive, _ = parsing_aminoacid_sequences.get_charge_weighted_mask("KKKEEE", "KKKEEE")
+        attractive, _ = parsing_aminoacid_sequences.get_charge_weighted_mask(
+            "KKKEEE", "KKKEEE"
+        )
         assert np.all(attractive == 0.0)
 
     def test_non_charged_residues_are_zero(self):
         """Non-charged residue positions have zero weight."""
-        _, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask("GGGKG", "GGGDG")
+        _, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask(
+            "GGGKG", "GGGDG"
+        )
         # Only position 3 in each sequence is charged
         # All other rows/columns should be zero
         for i in [0, 1, 2, 4]:
@@ -210,7 +217,9 @@ class TestGetChargeWeightedMask:
         """All same charge in windows gives max weight of 1.0."""
         # KKK + KKK = 6 positives, 0 negatives
         # |NCPR|/FCR = |6/6| / (6/6) = 1.0
-        _, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask("KKK", "KKK")
+        _, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask(
+            "KKK", "KKK"
+        )
         # Center position (1, 1) should have weight close to 1.0
         assert repulsive[1, 1] == pytest.approx(1.0)
 
@@ -218,15 +227,17 @@ class TestGetChargeWeightedMask:
         """Balanced charges (|NCPR| = 0) gives weight 0."""
         # KKK + EEE = 3 positive, 3 negative
         # |NCPR|/FCR = |0|/1 = 0.0
-        _, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask("KKK", "EEE")
+        _, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask(
+            "KKK", "EEE"
+        )
         # All intersections should be 0 due to balanced charges
         assert repulsive[1, 1] == pytest.approx(0.0)
 
     def test_all_charged_residues_recognized(self):
         """K, R, E, D are all recognized as charged."""
         # Test each charged residue type
-        for pos in ['K', 'R']:
-            for neg in ['E', 'D']:
+        for pos in ["K", "R"]:
+            for neg in ["E", "D"]:
                 _, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask(
                     f"G{pos}G", f"G{neg}G"
                 )
@@ -243,7 +254,9 @@ class TestGetChargeWeightedMask:
             ("KEKEK", "EKEKE"),
         ]
         for seq1, seq2 in test_cases:
-            _, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask(seq1, seq2)
+            _, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask(
+                seq1, seq2
+            )
             assert np.all(repulsive >= 0.0)
             assert np.all(repulsive <= 1.0)
 
@@ -258,7 +271,7 @@ class TestGetChargeWeightedMask:
         seq1 = "AKAKA"  # Charged at 1, 3
         seq2 = "GEGEG"  # Charged at 1, 3 (E)
         _, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask(seq1, seq2)
-        
+
         # Non-charged positions (0, 2, 4) should be all zeros
         for i in [0, 2, 4]:
             assert np.all(repulsive[i, :] == 0.0)
@@ -268,6 +281,7 @@ class TestGetChargeWeightedMask:
 # =============================================================================
 # Tests for get_aliphaticgroup_sequence
 # =============================================================================
+
 
 class TestGetAliphaticgroupSequence:
     """Tests for aliphatic group sequence reassignment."""
@@ -305,14 +319,14 @@ class TestGetAliphaticgroupSequence:
         # Note: space is not aliphatic, so VV should be pair
         # Actually "AALLMMIIVV" has continuous aliphatics
         result = parsing_aminoacid_sequences.get_aliphaticgroup_sequence("GAA")
-        assert 'a' in result  # A -> a for level 2
+        assert "a" in result  # A -> a for level 2
 
     def test_all_aliphatic_mappings_group2(self):
         """All aliphatic residues map correctly for group2."""
         # Group 2 mappings: A->b, L->o, M->x, I->y, V->z
         # Create clusters (level 3)
         result = parsing_aminoacid_sequences.get_aliphaticgroup_sequence("GAAAA")
-        assert 'b' in result  # A -> b for level 3
+        assert "b" in result  # A -> b for level 3
 
     def test_output_length_preserved(self):
         """Output length matches input length."""
@@ -330,22 +344,23 @@ class TestGetAliphaticgroupSequence:
         seq = "GAAGGGAG"
         result = parsing_aminoacid_sequences.get_aliphaticgroup_sequence(seq)
         # AA should become 'aa', isolated A stays 'A'
-        assert result[1] == 'a'
-        assert result[2] == 'a'
-        assert result[6] == 'A'  # Isolated, stays uppercase
+        assert result[1] == "a"
+        assert result[2] == "a"
+        assert result[6] == "A"  # Isolated, stays uppercase
 
     def test_non_aliphatic_unchanged(self):
         """Non-aliphatic residues are never changed."""
         seq = "KAAAK"
         result = parsing_aminoacid_sequences.get_aliphaticgroup_sequence(seq)
         # K should stay K
-        assert result[0] == 'K'
-        assert result[-1] == 'K'
+        assert result[0] == "K"
+        assert result[-1] == "K"
 
 
 # =============================================================================
 # Integration tests
 # =============================================================================
+
 
 class TestIntegration:
     """Integration tests combining multiple functions."""
@@ -353,13 +368,13 @@ class TestIntegration:
     def test_aliphatic_groups_feeds_weighted_mask(self):
         """get_aliphatic_groups output is used by get_aliphatic_weighted_mask."""
         seq = "AAAGGGAAA"
-        
+
         # Get groups directly
         groups = parsing_aminoacid_sequences.get_aliphatic_groups(seq)
-        
+
         # Get weighted mask
         weights = parsing_aminoacid_sequences.get_aliphatic_weighted_mask(seq, seq)
-        
+
         # Verify relationship: where both groups >= 3, weight should be 3.0
         for i in range(len(seq)):
             for j in range(len(seq)):
@@ -376,13 +391,15 @@ class TestIntegration:
         # A sequence with charged clusters
         seq1 = "AAAAKKKAAAADDDAAAA"
         seq2 = "GGGRRRGGGEEEGGG"
-        
-        attractive, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask(seq1, seq2)
-        
+
+        attractive, repulsive = parsing_aminoacid_sequences.get_charge_weighted_mask(
+            seq1, seq2
+        )
+
         # Should have non-zero weights where charged residues intersect
         assert attractive.shape == (len(seq1), len(seq2))
         assert repulsive.shape == (len(seq1), len(seq2))
-        
+
         # All weights should be valid
         assert np.all(repulsive >= 0.0)
         assert np.all(repulsive <= 1.0)
@@ -390,22 +407,22 @@ class TestIntegration:
     def test_aliphatic_sequence_transformation(self):
         """Full workflow: groups -> weighted mask -> sequence transformation."""
         seq = "AAAGGGAAAA"
-        
+
         # Get clustering groups
         groups = parsing_aminoacid_sequences.get_aliphatic_groups(seq)
-        
+
         # Transform sequence
         transformed = parsing_aminoacid_sequences.get_aliphaticgroup_sequence(seq)
-        
+
         # Verify transformation matches group levels
         for i, (orig, new, group) in enumerate(zip(seq, transformed, groups)):
             if orig in "AVILM":  # Aliphatic
                 if group == 1:
                     assert new == orig  # Unchanged
                 elif group == 2:
-                    assert new.islower() and new != 'b'  # Group 1 symbol
+                    assert new.islower() and new != "b"  # Group 1 symbol
                 elif group == 3:
-                    assert new in ['b', 'o', 'x', 'y', 'z']  # Group 2 symbol
+                    assert new in ["b", "o", "x", "y", "z"]  # Group 2 symbol
             else:
                 assert new == orig  # Non-aliphatic unchanged
 
@@ -413,6 +430,7 @@ class TestIntegration:
 # =============================================================================
 # Edge case tests
 # =============================================================================
+
 
 class TestEdgeCases:
     """Edge cases and boundary conditions."""
@@ -422,12 +440,12 @@ class TestEdgeCases:
         # Aliphatic groups
         assert parsing_aminoacid_sequences.get_aliphatic_groups("A") == [1]
         assert parsing_aminoacid_sequences.get_aliphatic_groups("G") == [0]
-        
+
         # Weighted mask
         result = parsing_aminoacid_sequences.get_aliphatic_weighted_mask("A", "A")
         assert result.shape == (1, 1)
         assert result[0, 0] == 1.0  # Isolated aliphatic
-        
+
         # Charge mask
         attr, rep = parsing_aminoacid_sequences.get_charge_weighted_mask("K", "K")
         assert attr.shape == (1, 1)
@@ -436,21 +454,23 @@ class TestEdgeCases:
     def test_very_long_sequences(self):
         """Very long sequences should work."""
         long_seq = "A" * 100
-        
+
         groups = parsing_aminoacid_sequences.get_aliphatic_groups(long_seq)
         assert len(groups) == 100
-        
-        weights = parsing_aminoacid_sequences.get_aliphatic_weighted_mask(long_seq, long_seq)
+
+        weights = parsing_aminoacid_sequences.get_aliphatic_weighted_mask(
+            long_seq, long_seq
+        )
         assert weights.shape == (100, 100)
 
     def test_asymmetric_sequence_lengths(self):
         """Different length sequences in masks."""
         seq1 = "AA"
         seq2 = "AAAAA"
-        
+
         weights = parsing_aminoacid_sequences.get_aliphatic_weighted_mask(seq1, seq2)
         assert weights.shape == (2, 5)
-        
+
         attr, rep = parsing_aminoacid_sequences.get_charge_weighted_mask("KK", "EEEEE")
         assert attr.shape == (2, 5)
         assert rep.shape == (2, 5)
@@ -458,10 +478,10 @@ class TestEdgeCases:
     def test_all_20_standard_amino_acids(self):
         """Test with all 20 standard amino acids."""
         all_aa = "ACDEFGHIKLMNPQRSTVWY"
-        
+
         groups = parsing_aminoacid_sequences.get_aliphatic_groups(all_aa)
         assert len(groups) == 20
-        
+
         # A(0), I(7), L(9), M(10), V(17) are aliphatic
         # Note: I, L, M are adjacent so they form a cluster
         aliphatic_positions = {0, 7, 9, 10, 17}
@@ -470,3 +490,130 @@ class TestEdgeCases:
                 assert g >= 1, f"Position {i} ({all_aa[i]}) should be aliphatic"
             else:
                 assert g == 0, f"Position {i} ({all_aa[i]}) should NOT be aliphatic"
+
+
+# =============================================================================
+# Tests for the shared residue classes and elementary weighting rules
+# =============================================================================
+
+
+class TestResidueClasses:
+    """The residue classes shared with the structure-surface code."""
+
+    def test_classes(self):
+        assert parsing_aminoacid_sequences.POSITIVE_RESIDUES == frozenset("RK")
+        assert parsing_aminoacid_sequences.NEGATIVE_RESIDUES == frozenset("ED")
+        assert parsing_aminoacid_sequences.CHARGED_RESIDUES == frozenset("RKED")
+        assert parsing_aminoacid_sequences.ALIPHATIC_RESIDUES == frozenset("AVILM")
+
+
+class TestGetChargeWindowCounts:
+    """Tests for get_charge_window_counts()."""
+
+    def test_window_is_truncated_at_the_ends(self):
+        pos, neg = parsing_aminoacid_sequences.get_charge_window_counts("KGEKD")
+        # windows: KG, KGE, GEK, EKD, KD
+        np.testing.assert_array_equal(pos, [1, 1, 1, 1, 1])
+        np.testing.assert_array_equal(neg, [0, 1, 1, 2, 1])
+
+    def test_short_and_empty_sequences(self):
+        pos, neg = parsing_aminoacid_sequences.get_charge_window_counts("R")
+        np.testing.assert_array_equal(pos, [1])
+        np.testing.assert_array_equal(neg, [0])
+        pos, neg = parsing_aminoacid_sequences.get_charge_window_counts("RE")
+        np.testing.assert_array_equal(pos, [1, 1])
+        np.testing.assert_array_equal(neg, [1, 1])
+        pos, neg = parsing_aminoacid_sequences.get_charge_window_counts("")
+        assert pos.shape == (0,) and neg.shape == (0,)
+
+    def test_matches_brute_force(self):
+        rng = np.random.default_rng(0)
+        for _ in range(50):
+            seq = "".join(rng.choice(list("ACDEGKRS"), size=rng.integers(1, 40)))
+            pos, neg = parsing_aminoacid_sequences.get_charge_window_counts(seq)
+            for i in range(len(seq)):
+                window = seq[max(0, i - 1) : i + 2]
+                assert pos[i] == sum(r in "RK" for r in window)
+                assert neg[i] == sum(r in "ED" for r in window)
+
+
+class TestChargeWeightFromCounts:
+    """Tests for charge_weight_from_counts()."""
+
+    def test_scalar_values(self):
+        f = parsing_aminoacid_sequences.charge_weight_from_counts
+        assert f(3, 0) == 1.0
+        assert f(0, 3) == 1.0
+        assert f(2, 2) == 0.0
+        assert f(3, 1) == 0.5
+        # no charges at all is defined as zero weight, not a division by zero
+        assert f(0, 0) == 0.0
+        assert isinstance(f(3, 1), float)
+
+    def test_array_input(self):
+        w = parsing_aminoacid_sequences.charge_weight_from_counts(
+            np.array([[3, 1], [0, 2]]), np.array([[0, 1], [0, 0]])
+        )
+        np.testing.assert_allclose(w, [[1.0, 0.0], [0.0, 1.0]])
+
+
+class TestAliphaticWeightFromLevels:
+    """Tests for aliphatic_weight_from_levels()."""
+
+    @pytest.mark.parametrize(
+        "a, b, expected",
+        [(0, 3, 1.0), (1, 1, 1.0), (1, 3, 1.0), (2, 2, 1.5), (2, 3, 1.5), (3, 3, 3.0)],
+    )
+    def test_scalar_values(self, a, b, expected):
+        w = parsing_aminoacid_sequences.aliphatic_weight_from_levels(a, b)
+        assert w == expected
+        assert parsing_aminoacid_sequences.aliphatic_weight_from_levels(b, a) == w
+
+    def test_broadcasting_matches_mask(self):
+        seq1, seq2 = "AVIGGLMAGGSSA", "LLLGAGGVVKM"
+        g1 = np.array(parsing_aminoacid_sequences.get_aliphatic_groups(seq1))
+        g2 = np.array(parsing_aminoacid_sequences.get_aliphatic_groups(seq2))
+        w = parsing_aminoacid_sequences.aliphatic_weight_from_levels(
+            g1[:, None], g2[None, :]
+        )
+        np.testing.assert_array_equal(
+            w, parsing_aminoacid_sequences.get_aliphatic_weighted_mask(seq1, seq2)
+        )
+
+
+class TestAliphaticClusterRule:
+    """The clustering level is the cluster size capped at 3."""
+
+    def test_gap_rule(self):
+        # one non-aliphatic residue keeps a cluster together, two split it
+        assert parsing_aminoacid_sequences.get_aliphatic_groups("AGAGGA") == [
+            2,
+            0,
+            2,
+            0,
+            0,
+            1,
+        ]
+
+    def test_level_is_capped_cluster_size(self):
+        rng = np.random.default_rng(1)
+        for _ in range(200):
+            seq = "".join(rng.choice(list("AVGGS"), size=rng.integers(1, 60)))
+            levels = parsing_aminoacid_sequences.get_aliphatic_groups(seq)
+            # build clusters by hand
+            expected = [0] * len(seq)
+            cluster = []
+            gap = 0
+            for i, r in enumerate(seq + "GG"):
+                if r in "AV":
+                    if gap >= 2 and cluster:
+                        for j in cluster:
+                            expected[j] = min(len(cluster), 3)
+                        cluster = []
+                    cluster.append(i)
+                    gap = 0
+                else:
+                    gap += 1
+            for j in cluster:
+                expected[j] = min(len(cluster), 3)
+            assert levels == expected, seq

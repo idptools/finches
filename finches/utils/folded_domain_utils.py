@@ -1,19 +1,39 @@
+"""
+Folded-domain utilities: the original patch mode for IDR:folded domain intermaps.
+
+This module holds the FoldedDomain class, which reads a folded domain from a PDB
+file, classifies its residues as surface or buried from their solvent accessible
+surface area, groups surface residues into straight-line patches, and scores those
+patches against an IDR with FINCHES. It is the original ("patch mode") route to
+IDR:folded domain intermaps and is kept so that earlier results can be reproduced;
+for new work use finches.utils.structure_surface.StructureSurface, which decomposes
+the structure into folded domains and IDRs, works over a contiguous-surface net and
+models the contact footprint of an IDR window.
+
+The module also provides the residue tables (MAX_SASA_DATA, THREE_TO_ONE,
+NONSTANDARD_TO_ONE and one_letter_code()) that StructureSurface shares, and
+extract_and_write_domains() for excising a domain from a larger structure.
+"""
+
+import warnings
+
 import mdtraj as md
 import numpy as np
 
 from scipy.spatial import distance
 import networkx as nx
 
+from finches.parsing_aminoacid_sequences import (
+    ALIPHATIC_RESIDUES,
+    NEGATIVE_RESIDUES,
+    POSITIVE_RESIDUES,
+)
 
-# sidechain/backbone max SASA data
 
-# NB: note on approach for identifying surface residues
-#
-#
-
-# MAX_SASA_DATA calculated by running all-atom simulations of GXG tripeptides
-# with an excluded volume simulation (i.e. all attractive non-bonded interactions
-# turned off
+# Maximum solvent accessible surface area (Angstrom^2) of each residue type as
+# [side chain, backbone], calculated from all-atom excluded-volume simulations of
+# GXG tripeptides (i.e. with all attractive non-bonded interactions turned off). A
+# residue is called surface when its SASA exceeds a fraction of these maxima.
 MAX_SASA_DATA = {
     "A": [7.581871795654296875e01, 7.607605743408203125e01],
     "C": [1.154064483642578125e02, 6.787722015380859375e01],
@@ -61,12 +81,155 @@ THREE_TO_ONE = {
     "TYR": "Y",
 }
 
+# One-letter codes for residue names that turn up in real structure files but are not
+# the canonical twenty: protonation and disulfide variants written by MD engines, and
+# selenomethionine. These take precedence over mdtraj's own residue-name table, which
+# for example maps GLH (protonated glutamate) to glutamine.
+NONSTANDARD_TO_ONE = {
+    "HID": "H",
+    "HIE": "H",
+    "HIP": "H",
+    "HSD": "H",
+    "HSE": "H",
+    "HSP": "H",
+    "CYX": "C",
+    "CYM": "C",
+    "ASH": "D",
+    "GLH": "E",
+    "LYN": "K",
+    "ARN": "R",
+    "MSE": "M",
+}
+
+_STANDARD_LETTERS = frozenset(THREE_TO_ONE.values())
+
+
+def one_letter_code(residue):
+    """
+    Return the one-letter amino acid code for an mdtraj residue.
+
+    The residue name is looked up in ``THREE_TO_ONE``, then in ``NONSTANDARD_TO_ONE``
+    (protonation/disulfide variants and selenomethionine), and finally in mdtraj's
+    own residue-name table, whose answer is accepted only if it is one of the twenty
+    standard letters. This is the one place structure-reading code should go to turn
+    a residue into a letter, so that an unusual residue name is never silently
+    turned into the wrong chemistry.
+
+    Parameters
+    ----------
+    residue : mdtraj.core.topology.Residue
+        The residue to translate.
+
+    Returns
+    -------
+    str or None
+        The one-letter code, or None if the residue has no standard amino acid
+        equivalent (terminal caps, ligands, waters, unknown modified residues).
+    """
+    aa = THREE_TO_ONE.get(residue.name)
+    if aa is None:
+        aa = NONSTANDARD_TO_ONE.get(residue.name)
+    if aa is None:
+        code = residue.code
+        if code in _STANDARD_LETTERS:
+            aa = code
+    return aa
+
 
 # internal notes 2024-10-20
 # NB: In earlier versions of finches, FoldedDomain was defined as FoldeDomain (missing the
 # ending 'd' of folded. To maintain backwards compatibility, we alias the old name to the
 # new correct one at the end of this class.
 class FoldedDomain:
+    """
+    A folded domain read from a PDB file, for the patch mode of IDR:folded domain
+    intermaps.
+
+    On construction the structure is loaded, the solvent accessible surface area
+    (SASA) of every residue is computed with the Shrake-Rupley algorithm, and each
+    residue is classified as surface or buried. The surface neighbour graph and the
+    distances between surface residues are built lazily, on first access to any of
+    the properties that need them.
+
+    Every protein residue in the file is treated as part of the folded domain. For a
+    structure that also contains disordered regions, or for new work in general, use
+    finches.utils.structure_surface.StructureSurface instead.
+
+    Parameters
+    ----------
+    pdbfilename : str
+        Path to the PDB file.
+
+    start, end : int, optional
+        0-based mdtraj residue indices (inclusive) of a sub-range to keep. Either
+        both or neither must be given. This path is not well tested, so it raises
+        unless ``ignore_warnings=True``; we recommend excising the domain with
+        extract_and_write_domains() and passing the new file instead. Default None.
+
+    probe_radius : float, optional
+        Probe radius for the SASA calculation, in Angstrom. Default 1.4.
+
+    residue_overide_mapping : dict, optional
+        Maps residue names that have no standard amino acid equivalent (see
+        one_letter_code()) to a one-letter code, e.g. ``{'XYZ': 'K'}``. Default None.
+
+    surface_thresh : float, optional
+        Fraction of the maximum SASA (MAX_SASA_DATA) above which a residue is called
+        surface. Default 0.10.
+
+    sasa_mode : str, optional
+        ``'v1'`` (default) compares the residue SASA to the maximum side-chain SASA
+        only. Glycine has no side chain, so it counts as surface unless its SASA is
+        exactly zero. ``'v2'`` compares it to the maximum side-chain plus backbone
+        SASA, which is more stringent.
+
+    ignore_warnings : bool, optional
+        If True, allow the untested ``start``/``end`` path. Default False.
+
+    SASA_ONLY : bool, optional
+        If True, stop after computing SASA and the sequence. Nothing else is set up,
+        so every other method will fail. Default False.
+
+    SASA_override : dict, optional
+        Maps 0-based residue indices to SASA values (Angstrom^2) that replace the
+        calculated ones. A value above 250 forces a residue to the surface and 0
+        forces it to be buried. Default None.
+
+    Attributes
+    ----------
+    traj : mdtraj.Trajectory
+        The structure, restricted to protein residues (waters, ions, ligands and
+        terminal caps are removed).
+
+    sequence : str
+        One-letter sequence of the domain.
+
+    sasa : numpy.ndarray
+        Per-residue SASA in Angstrom^2.
+
+    surface_vector : list of int
+        1 for a surface residue and 0 for a buried one, per residue.
+
+    surface_fraction : float
+        Fraction of residues that are surface.
+
+    surface_indices : list of int
+        0-based indices of the surface residues.
+
+    surface_positions : dict
+        Maps each surface residue index to the centre of mass of its side chain (the
+        alpha carbon for glycine), in nanometres.
+
+    Raises
+    ------
+    ValueError
+        If ``sasa_mode`` is not ``'v1'`` or ``'v2'``, if only one of ``start`` and
+        ``end`` is given, if ``start``/``end`` are given without
+        ``ignore_warnings=True``, if the file contains no protein residues, or if a
+        residue has no standard amino acid equivalent and no entry in
+        ``residue_overide_mapping``.
+    """
+
     # ................................................................................
     #
     #
@@ -76,7 +239,7 @@ class FoldedDomain:
         start=None,
         end=None,
         probe_radius=1.4,
-        residue_overide_mapping={},
+        residue_overide_mapping=None,
         surface_thresh=0.10,
         sasa_mode="v1",
         ignore_warnings=False,
@@ -84,101 +247,36 @@ class FoldedDomain:
         SASA_override=None,
     ):
         """
-        Class to handle folded domains and perform folded domain structure
-        analysis related to epsilon-associated interacions.
+        Load the structure, compute SASA and classify the surface.
 
-        Object variables available after initialization:
-
-        self.sequence: string of the full amino acid sequence of the folded domain
-        self.traj: mdtraj trajectory object of the folded domain
-        self.sasa: numpy array of the SASA of each residue in the folded domain
-        self.surface_residues: list of surface residues
-        self.surface_vector: numpy array of where each element is 0 (interior) or 1 (surface)
-        self.surface_indices: numpy array of the indices of the surface residues
-        self.surface_positions: x,y,z coordinate of the surface residues
-
-
-        # further, a few things do not automatically initialize but will be
-        # calculated as needed:
-        self.all_shortes_paths:
-        self.surface_neighbours:
-        self.surface_epsilon:
-
-        self.surface_graph: networkX graph of surface residues
-        self.surface_neighbours:
-        self.surface_distance_surface:
-        self.surface_distance_straight_line:
-
-
-        Parameters
-        ----------
-
-        pdbfilename: str
-            path to pdb file
-
-        start: int
-            start residue index
-
-        end: int
-            end residue index
-
-        probe_radius: float
-            probe radius for SASA calculation (default 1.4)
-
-        residue_overide_mapping: dict
-            dictionary to map non-standard residue names to standard residue names
-
-        surface_thresh: float
-            threshold for surface residues (default 0.10)
-
-        sasa_mode: str
-            mode for SASA calculation (default 'v1'). Could be v1 or v2. Default is v1.
-
-            v1 means we calculate the SASA of the residue, but then compare ONLY to the
-            the sidechain SASA and define a residue as solvent exposed if the RESIDUE SASA
-            is above surface_thresh * max sidechain SASA. This means glycines are always solvent
-            exposed, unless they are fully hidden, in which case max sidechain SASA = 0 and
-            residue SASA = 0 and 0 is not > 0. Not we focus on
-
-            v2 means we calculate the SASA of the residue, but then compare to the summed max
-            SASA of the sidechain with the backbone. This is more stringent
-
-        ignore_warnings: bool
-            ignore warnings (default False)
-
-        SASA_ONLY: bool
-            Only calculate SASA and return (default False). If this is set, all other
-            functionality will fail.
-
-        SASA_override: dict
-            Dictionary to override the SASA values calculated from the structure. Lets you map
-            residue indices to SASA values. This is useful if you want to manually set the SASA
-            values for certain residues. The dictionary should be in the form {residue_index: SASA_value}
-            where residue_index is the index of the residue in the sequence (0-indexed) and SASA_value
-            is the SASA value you want to set for that residue. To ensure a residue is counted as solvent
-            exposed, set the SASA value to be greater than 250. To ensure a residue is counted as buried,
-            set the SASA value to be 0.
+        All parameters are documented in the class docstring.
         """
+        if residue_overide_mapping is None:
+            residue_overide_mapping = {}
 
         if sasa_mode not in ["v1", "v2"]:
             raise ValueError("sasa_mode must be v1 or v2")
 
         # safety feature for now...
         if start is not None and end is not None:
-            print(
-                "WARNING: Using non standard start and end residues has not been throughly tested and if this is super important to you please contact Alex and he'll make sure it's really working correctly. We recommended excising out a domain using the extract_and_write_domain() function and then using the full PDB file."
+            message = (
+                "Using non-standard start and end residues has not been thoroughly "
+                "tested. We recommend excising the domain with "
+                "extract_and_write_domains() and passing the new PDB file instead."
             )
             if ignore_warnings is False:
-                raise Exception(
-                    "This warning tiggers an exception; to ignore set ignore_warnings=True"
+                raise ValueError(
+                    message + " To use start/end anyway, set ignore_warnings=True."
                 )
+            warnings.warn(message)
 
         # parse pdbfile
         try:
             p = md.load_pdb(pdbfilename)
         except Exception as e:
-            print(
-                f"Error loading PDB file {pdbfilename} with mdtraj load_pdb function, trying load function instead.\nError was: {e}\n"
+            warnings.warn(
+                f"mdtraj.load_pdb could not read {pdbfilename} ({e}); trying "
+                "mdtraj.load instead."
             )
             p = md.load(pdbfilename)
 
@@ -190,6 +288,21 @@ class FoldedDomain:
             raise ValueError(
                 "Either start and end passed or neither passed; one of start or end was passed"
             )
+
+        # keep protein residues only, and drop terminal caps (which have no alpha
+        # carbon). Waters, ions and ligands would otherwise be counted in the SASA
+        # array but skipped when the sequence is built, silently misaligning every
+        # downstream per-residue index.
+        keep = [
+            a.index
+            for r in p.topology.residues
+            if r.is_protein and any(a.name == "CA" for a in r.atoms)
+            for a in r.atoms
+        ]
+        if len(keep) == 0:
+            raise ValueError(f"No protein residues found in {pdbfilename}")
+        if len(keep) < p.n_atoms:
+            p = p.atom_slice(keep)
 
         # assign trajectory info
         self.traj = p
@@ -206,20 +319,22 @@ class FoldedDomain:
             for k in SASA_override:
                 self.sasa[k] = SASA_override[k]
 
-        # create full amino acid sequence
+        # create full amino acid sequence. A residue we cannot name is an error
+        # rather than a skipped position, because skipping it would misalign the
+        # sequence against the per-residue SASA array.
         s = ""
         for r in p.topology.residues:
-            three_letter = str(r)[0:3]
-
-            try:
-                s = s + THREE_TO_ONE[three_letter]
-            except KeyError:
-                if three_letter in residue_overide_mapping:
-                    s = s + residue_overide_mapping[three_letter]
-                else:
-                    print(
-                        f"Encountered residue name {three_letter} that is not a default AA nor in overide mapping"
-                    )
+            aa = one_letter_code(r)
+            if aa is None:
+                aa = residue_overide_mapping.get(r.name)
+            if aa is None:
+                raise ValueError(
+                    f"Residue {r} has no standard amino acid equivalent; pass "
+                    "residue_overide_mapping={'"
+                    + r.name
+                    + "': '<one-letter code>'} to define it."
+                )
+            s = s + aa
         self.sequence = s
 
         # bail here
@@ -260,39 +375,44 @@ class FoldedDomain:
             if len(atom_indices) == 0:
                 atom_indices = p.topology.select(f"resid {idx} and name CA")
 
-            # print(f"{idx} => {len(atom_indices)}")
             self.surface_positions[idx] = md.compute_center_of_mass(
                 p.atom_slice(atom_indices)
             )[0]
 
-        # initialize this as empty strings, which are populated in the
-        # calculate_surface_sequences() function when needed
-        self._surface_seq = {}
-        for idx in self.surface_indices:
-            self._surface_seq[idx] = ""
-
-        # initialize expensive things to None - these will be calculated
-        # at execution time via the property functions below
+        # expensive things are computed on first access via the properties below
         self._all_shortest_paths = None
         self._surface_neighbours = None
         self._surface_neighbour_sequences = None
         self._surface_graph = None
-        self._surface_neighbours = None
         self._surface_distance_surface = None
         self._surface_distance_straight_line = None
 
     # ....................................................................
     #
     def __len__(self):
+        """
+        Number of residues in the domain.
+
+        Returns
+        -------
+        int
+            ``len(self.sequence)``.
+        """
         return len(self.sequence)
 
     # ....................................................................
     #
     @property
     def all_shortest_paths(self):
+        """
+        Shortest paths through the surface neighbour graph.
 
-        # if not yet initialized (this will trigger self.surface_graph to be
-        # built as well
+        Returns
+        -------
+        dict
+            Nested mapping ``{i: {j: [i, ..., j]}}`` of residue-index paths between
+            every pair of connected surface residues (networkx Dijkstra paths).
+        """
         if self._all_shortest_paths is None:
             self._all_shortest_paths = dict(
                 nx.all_pairs_dijkstra_path(self.surface_graph, weight="weight")
@@ -303,6 +423,17 @@ class FoldedDomain:
     #
     @property
     def surface_graph(self):
+        """
+        Graph connecting surface residues that are within the neighbour distance.
+
+        Returns
+        -------
+        networkx.Graph
+            Nodes are surface residue indices; edges join residues whose side-chain
+            centres are within the neighbour distance (9 Angstrom unless
+            get_nearest_neighbour_res() was called with another value) and carry that
+            distance, in Angstrom, as their ``weight``.
+        """
         if self._surface_graph is None:
             self.get_nearest_neighbour_res()
         return self._surface_graph
@@ -311,6 +442,16 @@ class FoldedDomain:
     #
     @property
     def surface_neighbours(self):
+        """
+        Neighbours of each surface residue.
+
+        Returns
+        -------
+        dict
+            Maps each surface residue index to a list of ``[index, distance]`` pairs
+            (distance in Angstrom) for every surface residue within the neighbour
+            distance, including the residue itself at distance zero.
+        """
         if self._surface_neighbours is None:
             self.get_nearest_neighbour_res()
         return self._surface_neighbours
@@ -319,6 +460,15 @@ class FoldedDomain:
     #
     @property
     def surface_neighbour_sequences(self):
+        """
+        One-letter sequence of each surface residue's neighbours.
+
+        Returns
+        -------
+        dict
+            Maps each surface residue index to the concatenated one-letter codes of
+            its neighbours (itself included), in the order of surface_neighbours.
+        """
         if self._surface_neighbour_sequences is None:
             self.get_nearest_neighbour_res()
         return self._surface_neighbour_sequences
@@ -327,15 +477,33 @@ class FoldedDomain:
     #
     @property
     def surface_distance_surface(self):
+        """
+        Over-the-surface distances between surface residues.
+
+        Returns
+        -------
+        dict
+            Nested mapping ``{i: {j: distance}}`` of shortest-path lengths through
+            the surface graph, in Angstrom. Residues in different connected
+            components of the graph have no entry for each other.
+        """
         if self._surface_distance_surface is None:
             self.get_nearest_neighbour_res()
-
         return self._surface_distance_surface
 
     # ....................................................................
     #
     @property
     def surface_distance_straight_line(self):
+        """
+        Straight-line distances between surface residues.
+
+        Returns
+        -------
+        dict
+            Nested mapping ``{i: {j: distance}}`` of Euclidean distances between
+            side-chain centres, in Angstrom, for every pair of surface residues.
+        """
         if self._surface_distance_straight_line is None:
             self.get_nearest_neighbour_res()
         return self._surface_distance_straight_line
@@ -343,123 +511,120 @@ class FoldedDomain:
     # ....................................................................
     #
     def __str__(self):
+        """
+        Return a short description of the domain.
+
+        Returns
+        -------
+        str
+            ``"FoldedDomain object with <n> residues"``.
+        """
         return f"FoldedDomain object with {len(self.sequence)} residues"
 
     # ....................................................................
     #
     def __repr__(self):
+        """
+        Return the same short description as str().
+
+        Returns
+        -------
+        str
+            ``"FoldedDomain object with <n> residues"``.
+        """
         return str(self)
+
+    # ................................................................................
+    #
+    #
+    def _neighbour_data(self, distance_thresh):
+        """
+        Build the surface neighbour data for a given neighbour distance.
+
+        This computes everything get_nearest_neighbour_res() stores, but returns it
+        instead of caching it on the object, so a method that needs a different
+        neighbour distance can use it without changing what the properties report.
+
+        Parameters
+        ----------
+        distance_thresh : float
+            Neighbour distance in Angstrom: two surface residues are neighbours if
+            their side-chain centres are closer than this.
+
+        Returns
+        -------
+        dict
+            ``neighbours`` (index -> list of ``[index, distance]``, the residue
+            itself included), ``graph`` (networkx.Graph), ``surface_distance``
+            (over-the-surface shortest-path lengths), ``straight_line_distance``
+            (Euclidean distances) and ``neighbour_sequences`` (index -> neighbour
+            one-letter string). Distances are in Angstrom.
+        """
+        # positions are stored in nm; distances below are reported in Angstrom
+        positions = np.array([self.surface_positions[i] for i in self.surface_indices])
+        idx = list(self.surface_indices)
+        dist_matrix = distance.cdist(positions, positions, "euclidean") * 10.0
+
+        straight_line = {
+            r1: {r2: dist_matrix[a][b] for b, r2 in enumerate(idx)}
+            for a, r1 in enumerate(idx)
+        }
+
+        neighbours = {}
+        for a, r1 in enumerate(idx):
+            close = np.where(dist_matrix[a] < distance_thresh)[0]
+            neighbours[r1] = [[idx[b], dist_matrix[a][b]] for b in close]
+
+        graph = nx.Graph()
+        for r1, connections in neighbours.items():
+            for r2, d in connections:
+                graph.add_edge(r1, r2, weight=d)
+
+        return {
+            "neighbours": neighbours,
+            "graph": graph,
+            "surface_distance": dict(
+                nx.all_pairs_dijkstra_path_length(graph, weight="weight")
+            ),
+            "straight_line_distance": straight_line,
+            "neighbour_sequences": {
+                r1: "".join(self.sequence[r2] for r2, _ in conn)
+                for r1, conn in neighbours.items()
+            },
+        }
 
     # ................................................................................
     #
     #
     def get_nearest_neighbour_res(self, distance_thresh=9.0):
         """
+        Find the neighbours of every surface residue and rebuild the surface graph.
 
-        This function will find the nearest neighbours of each residue in
-        the protein. It will evaluate values for the following object variables
-        that can be accessed after the function is called:
-
-        * self.surface_neighbours: dictionary that reports on the indices of residues
-        that are within a certain distance of each residue (defined by the distance
-        threshold parameter)
-
-        * self.surface_distance_surface: dictionary that maps between each pair
-        of surface residues and the distance between them (in over-surface distance)
-
-        * self.surface_distances_straight_line: dictionary that maps between each pair
-        of surface residues and the distance between them (in straight-line euclidean
-        distance)
-
-        * self.surface_graph: a networkx graph connecting surface residues with edges.
+        Two surface residues are neighbours if their side-chain centres are within
+        ``distance_thresh`` of each other. This sets what the surface_neighbours,
+        surface_neighbour_sequences, surface_graph, surface_distance_surface,
+        surface_distance_straight_line and all_shortest_paths properties report; the
+        properties call it with the default distance on first access, and calling it
+        again with a different distance replaces all of them.
 
         Parameters
         ----------
-
-        distance_thresh: float
-            distance threshold for nearest neighbour search (default 9)
+        distance_thresh : float, optional
+            Neighbour distance in Angstrom. Default 9.0.
 
         Returns
         -------
         None
-
         """
+        data = self._neighbour_data(distance_thresh)
+        self._surface_graph = data["graph"]
+        self._surface_neighbours = data["neighbours"]
+        self._surface_distance_surface = data["surface_distance"]
+        self._surface_distance_straight_line = data["straight_line_distance"]
+        self._surface_neighbour_sequences = data["neighbour_sequences"]
 
-        # rescale distance threshold into nanometers
-        distance_thresh_A = distance_thresh / 10
-
-        # build positions array
-        position_array = np.array(list(self.surface_positions.values()))
-
-        # map position in the positions array back to residue index
-        dist_idx_to_res_idx = {}
-        for i in range(len(self.surface_indices)):
-            dist_idx_to_res_idx[i] = self.surface_indices[i]
-
-        # calculate distance matrix
-        dist_matrix = distance.cdist(position_array, position_array, "euclidean")
-
-        # build dictionary that maps in residue ID space euclidean distances
-        surface_distance = {}
-
-        # d1 = 1,2,3,... indice into the distance matrix
-        for d1 in range(len(dist_matrix)):
-            # residue index that maps to this distance index
-            r1 = dist_idx_to_res_idx[d1]
-
-            # if this is a new residue index...
-            if r1 not in surface_distance:
-                surface_distance[r1] = {}
-
-            # for each distance index (d2 = 1,2,3,  )
-            for d2 in range(len(dist_matrix)):
-                # residue index that maps to this distance index
-                r2 = dist_idx_to_res_idx[d2]
-
-                surface_distance[r1][r2] = dist_matrix[d1][d2] * 10
-
-        # build a dictionary of neighbours
-        neighbours = {}
-
-        # for each residue, find all residues within 0.9 nm
-        for dist_index in range(len(dist_matrix)):
-            all_idx = np.where(dist_matrix[dist_index] < distance_thresh_A)[0]
-
-            # get residue index for this distance index
-            res_idx = dist_idx_to_res_idx[dist_index]
-            neighbours[res_idx] = []
-
-            for dist_index2 in all_idx:
-                r = dist_idx_to_res_idx[dist_index2]
-
-                neighbours[res_idx].append(
-                    [r, dist_matrix[dist_index][dist_index2] * 10]
-                )
-
-        # build a graph
-        G = nx.Graph()
-
-        # Add edges to the graph, weighted by distances
-        for node, connections_dist in neighbours.items():
-            for connected_node in connections_dist:
-                connect_id = connected_node[0]
-                connect_dist = connected_node[1]
-
-                G.add_edge(node, connect_id, weight=connect_dist)
-
-        all_shortest_paths = dict(nx.all_pairs_dijkstra_path_length(G, weight="weight"))
-
-        self._surface_graph = G
-        self._surface_neighbours = neighbours
-        self._surface_distance_surface = all_shortest_paths
-        self._surface_distance_straight_line = surface_distance
-        self._surface_neighbour_sequences = {}
-
-        for i in self.surface_neighbours:
-            local_string = ""
-            for j in self.surface_neighbours[i]:
-                local_string = local_string + self.sequence[j[0]]
-            self._surface_neighbour_sequences[i] = local_string
+        # the shortest paths belong to the old graph
+        self._all_shortest_paths = None
 
     # ................................................................................
     #
@@ -472,20 +637,17 @@ class FoldedDomain:
 
         Parameters
         ----------
-        inseq: str
-            Input amino acid sequence
+        inseq : str or list of str
+            Input residues.
 
-        targets: list
-            List of residues to remove
+        targets : collection of str
+            Residues to remove.
 
         Returns
         -------
-        tuple
-
-            [0] Modified list with residues removed
-
-            [1] List of removed residues in reverse order they
-                appeared in the original sequence.
+        tuple of (list, list)
+            The residues that were kept, in their original order, and the residues
+            that were removed, in the reverse of the order they appeared.
 
         """
 
@@ -503,95 +665,65 @@ class FoldedDomain:
     #
     def calculate_surface_epsilon(self, input_sequence, IMCObject):
         """
-        This function calculates the surface epsilon values for each residue in the
-        protein. The function will calculate the surface epsilon for each residue in
-        the protein and return this in a surface_epsilon dictionary.
+        Calculate a surface epsilon for every surface residue against an input sequence.
 
-        Briefly, this function works by doing the following:
+        For each surface residue:
 
-        (1) Takeing each solvent accessible residue
+        1. Take the residue and its neighbours (the surface residues within the
+           neighbour distance, see get_nearest_neighbour_res(); the residue itself is
+           included).
+        2. Reorder that neighbour string so residues of the centre residue's chemical
+           class sit next to each other at its start: aliphatics (A, V, I, L, M) if the
+           centre is aliphatic, acidic residues if it is acidic, basic residues if it is
+           basic, and no reordering otherwise. This lets the sequence-based charge and
+           aliphatic weighting treat them as a local cluster.
+        3. Compute the FINCHES epsilon between the neighbour string and the whole input
+           sequence and divide by the length of the neighbour string. The result is the
+           mean, over the neighbour residues, of each residue's mean interaction with the
+           input sequence.
 
-        (2) Finding the neighbour residues near that residue. Note we can redefine
-            the distance threshold used to define neighbours by running
-            get_nearest_neighbour_res() function.
-
-        (3) Re-organizing the sequence order of the neighbor string depending on what
-            the center residue is. If the center residue is charged, re-order so all
-            charged residues of that type are next to it. If the center residue is a
-            hydrophobe, reorder so the hydrophobes are next to it. We do this so we
-            take the local chemical environment into account for the epsilon
-            calculation using the center residue to define what types(s) of local
-            chemistry we care about.
-
-        (4) Calculating the mean epsilon score between the "neighbor string" and
-            the passed input string.
-
-        (5) Divide that epsilon score by the number of residues in the neighbor string
-            to get the average mean-field epsilon value for that residue.
-
-        Note this approach is probably ok if the input sequence is either quite
-        short or a repetitive sequence, but effectively it calculates the mean-field
-        attraction/repulsion beteween each residue on the surface (using its local context
-        to define that interaction) and the ENTIRE input sequence.
+        Because the whole input sequence enters every value, this reports how each patch
+        of surface interacts with the input sequence on average; for a surface:IDR
+        intermap that resolves regions of the IDR, use
+        calculate_idr_surface_patch_interactions() or StructureSurface.
 
         Parameters
         ----------
-        input_sequence: str
-            Amino acid sequence of the input sequence
+        input_sequence : str
+            Amino acid sequence to score the surface against.
 
-        IMCObject: IMCObject
-            IMCObject that contains the epsilon calculate, this
-            can obtained as a object variable from an Mpipi_frontend
-            or CALAVDOS_frontend object.
-
+        IMCObject : finches.epsilon_calculation.InteractionMatrixConstructor
+            The interaction-matrix constructor that provides the energetics, e.g. the
+            IMC_object attribute of an Mpipi_frontend or CALVADOS_frontend.
 
         Returns
         -------
-        Dict
-            Dictionary that maps between residue index and surface epsilon value. The
-            return dictionry has index position as key and then a list as values, where
-            each list has three positions:
-            [0] - the residue associated with that position
-            [1] - the neibouring residues, where neighbours are those residues within
-                  some distance threshold of the surface residue of interest
-            [2] - the surface epsilon value for that residue.
-
+        dict
+            Maps each surface residue index (0-based) to a list of three elements: the
+            residue's one-letter code, the reordered neighbour string, and the surface
+            epsilon (negative is attractive).
         """
-
-        hydrophobes = ["I", "V", "L", "A", "M"]
-        negative = ["D", "E"]
-        positive = ["K", "R"]
 
         surface_eps = {}
 
         for idx in self.surface_indices:
-            if self._surface_seq[idx] == "":
-                center_resid = self.sequence[idx]
+            center_resid = self.sequence[idx]
 
-                # get indices of all residues neighbouring this residue, excluding itself
-                neighbor_resid = [i[0] for i in self.surface_neighbours[idx]]
+            # the residues neighbouring this one. This includes the residue itself,
+            # since it is within any distance threshold of itself, so the local
+            # environment string carries the centre residue's own chemistry too.
+            local_seq = [self.sequence[n] for n, _ in self.surface_neighbours[idx]]
 
-                # build a local sequence list
-                local_seq = [self.sequence[n] for n in neighbor_resid]
-                reordered_seq = ""
-
-                # if center res is hydrophobe
-                if center_resid in hydrophobes:
-                    local_seq, removed = self.__extract_residues(local_seq, hydrophobes)
+            # group residues of the centre's chemical class next to each other, so
+            # the sequence-based charge and aliphatic weighting sees them as a cluster
+            for group in (ALIPHATIC_RESIDUES, NEGATIVE_RESIDUES, POSITIVE_RESIDUES):
+                if center_resid in group:
+                    local_seq, removed = self.__extract_residues(local_seq, group)
                     reordered_seq = "".join(removed) + "".join(local_seq)
-                elif center_resid in negative:
-                    local_seq, removed = self.__extract_residues(local_seq, negative)
-                    reordered_seq = "".join(removed) + "".join(local_seq)
-                elif center_resid in positive:
-                    local_seq, removed = self.__extract_residues(local_seq, positive)
-                    reordered_seq = "".join(removed) + "".join(local_seq)
-                else:
-                    reordered_seq = "".join(local_seq)
-
+                    break
             else:
-                reordered_seq = self._surface_seq[idx]
+                reordered_seq = "".join(local_seq)
 
-            # initial value
             tmp = IMCObject.calculate_epsilon_value(
                 reordered_seq, input_sequence
             ) / len(reordered_seq)
@@ -605,23 +737,22 @@ class FoldedDomain:
     #
     def calculate_mean_surface_epsilon(self, input_sequence, IMCObject):
         """
-        This function calculates the mean surface epsilon for the protein. The mean
-        surface epsilon is a measure of the average chemical specificity for a given
-        guest sequence, averaged across the entire protein.
+        Mean surface epsilon over all surface residues.
 
         Parameters
         ----------
-        input_sequence: str
-            Amino acid sequence of the input sequence
+        input_sequence : str
+            Amino acid sequence to score the surface against.
 
-        IMCObject: IMCObject
-            IMCObject that contains the epsilon calculate. The IMCObject is
-            typically obtained from an Mpipi_frontend or CALAVDOS_frontend object.
+        IMCObject : finches.epsilon_calculation.InteractionMatrixConstructor
+            The interaction-matrix constructor that provides the energetics, e.g. the
+            IMC_object attribute of an Mpipi_frontend or CALVADOS_frontend.
 
         Returns
         -------
         float
-            Mean surface epsilon value for the protein.
+            The mean of the values returned by calculate_surface_epsilon(), a measure of
+            how the domain's surface as a whole interacts with the input sequence.
         """
 
         surface_eps = self.calculate_surface_epsilon(input_sequence, IMCObject)
@@ -635,36 +766,27 @@ class FoldedDomain:
         self, input_sequence, IMCObject, threshold=0
     ):
         """
-        This function calculates the attractive surface epsilon values for each surface residue,
-        a list of values that are the residues which find themselves in an attractive environment
-        given the input sequence. The function calculates the surface epsilon for each residue in
-        the protein, and then filters out those that are above the threshold value, leaving
-        only the attractive residues.
+        Surface epsilon values of the surface residues that are attractive.
 
-        NOTE if you want to relate these to residue position you should use the
-        calculate_surface_epsilon() function instead.
+        Computes calculate_surface_epsilon() and keeps the values below ``threshold``. To
+        relate the values to residue positions use calculate_surface_epsilon() directly.
 
         Parameters
         ----------
-        input_sequence: str
-            Amino acid sequence of the input sequence
+        input_sequence : str
+            Amino acid sequence to score the surface against.
 
-        IMCObject: IMCObject
-            IMCObject that contains the epsilon calculate. The IMCObject is an initialized
-            FINCHES-derived object that enables epsilon calculations. It can be found in
-            the Mpipi_frontend or CALAVDOS_frontend objects, as an IMC_object variable.
+        IMCObject : finches.epsilon_calculation.InteractionMatrixConstructor
+            The interaction-matrix constructor that provides the energetics, e.g. the
+            IMC_object attribute of an Mpipi_frontend or CALVADOS_frontend.
 
-        threshold: float
-            The threshold value for the attractive epsilon values. If the epsilon value is
-            below this threshold, it will be excluded from the calculation. By default
-            this is zero and in general can't imagine when you'd want to change this...
+        threshold : float, optional
+            Values strictly below this are kept. Default 0.
 
         Returns
         -------
-        list
-            List of attractive epsilon values for the protein, excluding those below
-            the threshold.
-
+        list of float
+            The attractive surface epsilon values, in surface-residue order.
         """
 
         surface_eps = self.calculate_surface_epsilon(input_sequence, IMCObject)
@@ -678,36 +800,29 @@ class FoldedDomain:
         self, input_sequence, IMCObject, threshold=0
     ):
         """
-        This function calculates the repulsive surface epsilon values for each surface residue,
-        a list of values that are the residues which find themselves in an repulsive environment
-        given the input sequence. The function calculates the surface epsilon for each residue in
-        the protein, and then filters out those that are below the threshold value, leaving
-        only the repulsive residues.
+        Surface epsilon values of the surface residues that are not attractive.
 
-        NOTE if you want to relate these to residue position you should use the
-        calculate_surface_epsilon() function instead.
+        Computes calculate_surface_epsilon() and keeps the values at or above
+        ``threshold``, the complement of calculate_attractive_surface_epsilon() for the
+        same threshold. To relate the values to residue positions use
+        calculate_surface_epsilon() directly.
 
         Parameters
         ----------
-        input_sequence: str
-            Amino acid sequence of the input sequence
+        input_sequence : str
+            Amino acid sequence to score the surface against.
 
-        IMCObject: IMCObject
-            IMCObject that contains the epsilon calculate. The IMCObject is an initialized
-            FINCHES-derived object that enables epsilon calculations. It can be found in
-            the Mpipi_frontend or CALAVDOS_frontend objects, as an IMC_object variable.
+        IMCObject : finches.epsilon_calculation.InteractionMatrixConstructor
+            The interaction-matrix constructor that provides the energetics, e.g. the
+            IMC_object attribute of an Mpipi_frontend or CALVADOS_frontend.
 
-        threshold: float
-            The threshold value for the repulsive epsilon values. If the epsilon value is
-            below this threshold, it will be excluded from the calculation. By default
-            this is zero and in general can't imagine when you'd want to change this...
+        threshold : float, optional
+            Values at or above this are kept. Default 0.
 
         Returns
         -------
-        list
-            List of repulsive epsilon values for the protein, excluding those below
-            the threshold.
-
+        list of float
+            The repulsive surface epsilon values, in surface-residue order.
         """
 
         surface_eps = self.calculate_surface_epsilon(input_sequence, IMCObject)
@@ -726,72 +841,64 @@ class FoldedDomain:
         number_null_iterations=100,
     ):
         """
-        This function will calculate the IWD between a set
-        of residues, where we define the residue groups based
-        on the residues list.
+        Inverse weighted distance (IWD) between a set of surface residues.
 
-        Distance mode can be set to surface, in which an approximation
-        for the distance between residues is calculated based on the
-        surface distance between residues. Alternatively, the distance
-        can be calculated as the straight line distance between residues
-        which ignores the protein surface.
-
-        Finally, it can often be hard to know if the IWD value that is
-        returned is significant. To help with this, we can calculate the
-        null distribution of IWD values for the same number of residues
-        over the same structure and compare the IWD value to this null.
-        This happens if calculate_null is set to True.
-
-        NB this has not be super well tested yet...
+        The IWD is the mean over all pairs of the selected surface residues of
+        1 / distance (equation 1 of Schueler-Furman & Baker, 2003), so it is larger when
+        the residues are clustered. Distances are either over the surface (shortest paths
+        through the surface graph) or straight-line. Pairs in different connected
+        components of the surface graph have no over-the-surface path and contribute
+        zero. To judge whether a value is unusual, a null distribution can be built from
+        the same number of randomly chosen surface residues. This has not been
+        extensively tested.
 
         Parameters
         ----------
+        residues : collection of str
+            One-letter codes of the residue types to include (e.g. ``['K', 'R']``).
+            Ignored if ``positions`` is given.
 
-        residues: list
-            list of residues to calculate IWD between
+        positions : list of int, optional
+            0-based residue indices to include instead of selecting by type; indices
+            that are not surface residues are skipped. Default None.
 
-        positions: list
-            list of residue positions to calculate IWD between.
-            Default is None, in which case the residues list is used.
+        distance_mode : str, optional
+            ``'surface'`` (default) or ``'straight line'``.
 
-        distance_mode: str
-            distance mode to use for IWD calculation. Can be either 'surface'
-            or 'straight line' Default is 'surface'.
+        calculate_null : bool, optional
+            If True, also compute a null distribution. Default False.
 
-        calculate_null: bool
-            if True, calculate the null distribution of IWD values. Default is False.
-
-        number_null_iterations: int
-            number of iterations to use for null distribution calculation.
-            Default is 100.
+        number_null_iterations : int, optional
+            Number of random draws for the null distribution. Default 100.
 
         Returns
         -------
+        list
+            ``[iwd, n_residues, null]``: the IWD (1/Angstrom), the number of surface
+            residues used, and either the list of null IWD values (if
+            ``calculate_null``) or -1. If fewer than two surface residues are selected,
+            ``[None, None, None]``.
 
-        [0] --> IWD: float
-                    The IWD value for the residues of interest
-
-        [1] --> number res of interest : int
-                    Number of residues
-
-        [2] --> iwd_null: list
-                Distribution of IWD values if the same number of
-                residues .
-
+        Raises
+        ------
+        ValueError
+            If ``distance_mode`` is not recognised.
         """
 
-        # define distance function based on distance mode
+        # define distance function based on distance mode. Two residues in different
+        # connected components of the surface graph have no over-the-surface path, so
+        # their distance is infinite and they contribute nothing to the IWD
         if distance_mode == "surface":
 
             def dist(i1, i2):
-                return self.surface_distance_surface[i1][i2]
+                return self.surface_distance_surface[i1].get(i2, np.inf)
         elif distance_mode == "straight line":
 
             def dist(i1, i2):
                 return self.surface_distance_straight_line[i1][i2]
         else:
             raise ValueError(
-                'distance mode must be either "surface" or "straight_line"'
+                'distance mode must be either "surface" or "straight line"'
             )
 
         relevant_indices = []
@@ -810,7 +917,7 @@ class FoldedDomain:
                         relevant_indices.append(idx)
 
         if len(relevant_indices) < 2:
-            return (None, None, None)
+            return [None, None, None]
 
         # calculate the inverse weighted distance as defined by
         # equation 1 in Schueler-Furman & Baker, 2003
@@ -852,19 +959,19 @@ class FoldedDomain:
     #
     def write_SASA_vis_file(self, filename="sasa_binary.txt"):
         """
-        This function will write a file that can be used to visualize the surface
-        residues in a protein. Specifically this assigns a "1" to solvent exposed
-        residues and a "0" to buried residues.
+        Write a text file flagging surface (1) and buried (0) residues.
+
+        Each line is ``<residue number> A <0 or 1>`` with 1-based residue numbers and a
+        fixed chain label A, a format that structure-colouring scripts can read.
 
         Parameters
         ----------
-        filename : str
-            The name of the file to write.
+        filename : str, optional
+            Output path. Default ``'sasa_binary.txt'``.
 
         Returns
         -------
         None
-
         """
 
         with open(filename, "w") as fh:
@@ -876,26 +983,30 @@ class FoldedDomain:
     #
     def write_epsilon_vis_file(self, surface_epsilon, filename="surface_epsilon.txt"):
         """
-        This function will write a file that can be used to visualize the surface
-        residues epislon values in a protein. Specifically this assigns the epsilon
-        value to each residue in the protein. The file is formatted as a list of
-        residue indices and their corresponding epsilon values. The file is
-        formatted as follows:
+        Write a text file of per-residue surface epsilon values.
 
-            <residue index> A <epsilon value>
-
-        where <residue index> is the index of the residue in the protein and
-        <epsilon value> is the epsilon value for that residue.
+        Each line is ``<residue number> A <epsilon>``, with 1-based residue numbers, a
+        fixed chain label A, and epsilon rounded to three decimals, a format that
+        structure-colouring scripts can read. Lines run from the first to the last
+        surface residue in surface_epsilon; residues in between that are not in it
+        (buried residues) are written with a value of 0.
 
         Parameters
         ----------
-        filename : str
-            The name of the file to write.
+        surface_epsilon : dict
+            The dictionary returned by calculate_surface_epsilon().
+
+        filename : str, optional
+            Output path. Default ``'surface_epsilon.txt'``.
 
         Returns
         -------
         None
 
+        Raises
+        ------
+        ValueError
+            If ``surface_epsilon`` is None.
         """
 
         if surface_epsilon is None:
@@ -917,15 +1028,21 @@ class FoldedDomain:
         self, interacting_sequence, IMCObject, idr_tile_size=31, patch_radius=12
     ):
         """
-        NOTE: You can either make an fdobj by feeding in a path to a PDB
-        or you can premake your fdobj and use that. Either fdobj or path_to_pdb
-        must be set to None or this function will rais an exception.
+        Calculate the interaction between an IDR and the surface patches of the
+        folded domain, giving a surface:IDR intermap.
 
-        function to calculate the interaction between some chemistry
-        and the surface patches of a sequence. Patches are defined
-        by residues within distance thresh of the central residue.
+        A patch is a surface residue together with every surface residue within
+        patch_radius of it (straight-line distance between side-chain centres of
+        mass, including the centre residue itself). Each patch is scored against
+        every sliding window of the IDR with the standard FINCHES epsilon, so the
+        rows of the returned matrix are on the same scale as an IDR:IDR intermap.
 
-        TO DO ; UPDATE THESE DOCS
+        The patches are built with patch_radius directly and do not change the
+        neighbour graph that the surface_neighbours and related properties report.
+
+        For a structure-aware version that decomposes the structure into IDRs and
+        folded domains and uses a contiguous-surface footprint, see
+        finches.utils.structure_surface.StructureSurface.surface_vs_idr_matrix().
 
         Parameters
         -----------
@@ -937,34 +1054,45 @@ class FoldedDomain:
             FINCHES-derived object that enables epsilon calculations. It can be found in
             the Mpipi_frontend or CALAVDOS_frontend objects, as an IMC_object variable.
 
+        idr_tile_size : int
+            Size of the sliding window over the IDR. Must be odd and no longer than
+            the IDR. Default is 31, for consistency with IDR:IDR intermaps.
+
         patch_radius : float
             the radius from the center of the patch to allow residues to contribute
             to the patch. Default is 12 Angstroms.
 
         Returns
         --------
-        tupe
-            [0] dict of the patch mean interactions
-            [1] matrix for visualizing IDR:FD surface
-            [2] mean vector for visualizing IDR:FD surface
+        list
+            [0] dict keyed by surface residue index (0-based). Each value is a dict
+                with 'mean_epsilon' (the FINCHES epsilon between the whole patch and
+                the whole IDR, i.e. summed over the patch residues and averaged over
+                the IDR), 'interacting_residues' (the patch sequence),
+                'residue_indices', 'resinds_with_dist' ([index, distance] pairs) and
+                'idr_epsilon_vector' (the patch's epsilon against each IDR window).
 
+            [1] numpy array of shape (n_residues, n_windows): the surface:IDR
+                intermap, one row per residue in the folded domain (rows for buried
+                residues are np.nan) and one column per IDR window.
+
+            [2] numpy array of length n_windows: the mean over all surface patches
+                of the epsilon against each IDR window.
 
         """
 
         if (idr_tile_size % 2) == 0:
-            raise Exception("IDR tile window size must be an odd integer.")
+            raise ValueError("IDR tile window size must be an odd integer.")
 
         if idr_tile_size > len(interacting_sequence):
-            raise Exception(
-                "IDR tile window size must be less than the length of the provided sequence."
+            raise ValueError(
+                "IDR tile window size must be no longer than the provided sequence."
             )
 
         half_window = int((idr_tile_size - 1) / 2)
 
-        # get nearest neighbors and surface neighbors
-        self.get_nearest_neighbour_res(distance_thresh=patch_radius)
-
-        neighbors = self.surface_neighbours
+        # patches at patch_radius, without touching the cached neighbour graph
+        neighbors = self._neighbour_data(patch_radius)["neighbours"]
 
         # get sequence
         seq = self.sequence
@@ -1054,10 +1182,12 @@ def extract_and_write_domains(
         The path to the output file.
 
     start : int
-        The start residue of the domain.
+        The start residue of the domain, as a 0-based mdtraj residue index
+        (inclusive).
 
     end : int
-        The end residue of the domain.
+        The end residue of the domain, as a 0-based mdtraj residue index
+        (inclusive).
 
     reset_indices : bool
         If True, the function will reset the

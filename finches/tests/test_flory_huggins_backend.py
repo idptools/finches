@@ -15,7 +15,7 @@ Functions tested:
 
 import pytest
 import numpy as np
-from numpy.testing import assert_allclose, assert_array_less
+from numpy.testing import assert_allclose
 
 from finches.analytical_fh.backend import (
     critical,
@@ -341,8 +341,8 @@ class TestBinodal:
         assert_allclose(result_binodal[1], result_gl[1], rtol=1e-10)
 
     def test_binodal_negative_iteration_raises(self):
-        """Negative iteration count should raise AssertionError."""
-        with pytest.raises(AssertionError):
+        """Negative iteration count should raise ValueError."""
+        with pytest.raises(ValueError, match="iteration"):
             binodal(4.0, n=1, iteration=-1)
 
     def test_binodal_n_greater_than_1(self):
@@ -766,3 +766,36 @@ class TestBoundaryConsistency:
     def test_binodal_rejects_n_below_one(self):
         with pytest.raises(ValueError):
             binodal(3.0, n=0.5)
+
+
+class TestScalarArrayAgreement:
+    """A scalar chi and the same chi inside an array must give the same answer."""
+
+    @pytest.mark.parametrize("fx", [spinodal, GL_binodal, binodal, analytic_binodal])
+    @pytest.mark.parametrize("n", [1, 10, 200])
+    def test_scalar_matches_array_element(self, fx, n):
+        chi_c = critical(n)[1]
+        chis = np.array([chi_c * 1.05, chi_c * 1.4, chi_c * 2.0])
+        array_result = fx(chis, n=n)
+        for i, chi in enumerate(chis):
+            scalar_result = fx(chi, n=n)
+            assert_allclose(scalar_result[:2], array_result[:2, i], rtol=1e-9)
+
+    def test_empty_array_raises(self):
+        for fx in (spinodal, GL_binodal, binodal, analytic_binodal):
+            with pytest.raises(ValueError):
+                fx([], n=10)
+
+    def test_help_prints_every_function(self, capsys):
+        from finches.analytical_fh import backend
+
+        backend.help()
+        text = capsys.readouterr().out
+        for name in (
+            "critical",
+            "spinodal",
+            "GL_binodal",
+            "binodal",
+            "analytic_binodal",
+        ):
+            assert name + "(" in text

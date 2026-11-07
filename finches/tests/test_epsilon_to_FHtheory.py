@@ -9,10 +9,9 @@ Tests the functions that convert epsilon values to Flory-Huggins phase diagrams:
     - build_DIELECTRIC_dependent_phase_diagrams: Dielectric-dependent phase diagram generation
 """
 
-import os
 import pytest
 import numpy as np
-from numpy.testing import assert_allclose, assert_array_less
+from numpy.testing import assert_allclose
 
 from finches.epsilon_to_FHtheory import (
     epsilon_to_phase_diagram,
@@ -24,10 +23,6 @@ from finches.epsilon_to_FHtheory import (
 from finches.epsilon_calculation import InteractionMatrixConstructor
 from finches.forcefields.mpipi import Mpipi_model
 from finches.forcefields.calvados import calvados_model
-
-
-# Change to test directory for data files
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 
 # =============================================================================
@@ -49,17 +44,18 @@ TEST_SEQUENCES = {
 # Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def mpipi_imc():
     """Fixture for Mpipi InteractionMatrixConstructor."""
-    params = Mpipi_model(version='Mpipi_GGv1')
+    params = Mpipi_model(version="Mpipi_GGv1")
     return InteractionMatrixConstructor(parameters=params)
 
 
 @pytest.fixture
 def calvados_imc():
     """Fixture for CALVADOS InteractionMatrixConstructor."""
-    params = calvados_model(version='CALVADOS2')
+    params = calvados_model(version="CALVADOS2")
     return InteractionMatrixConstructor(parameters=params)
 
 
@@ -70,11 +66,11 @@ def model_fixture(request):
     Returns tuple of (model_name, IMC_instance)
     """
     if request.param == "mpipi":
-        params = Mpipi_model(version='Mpipi_GGv1')
+        params = Mpipi_model(version="Mpipi_GGv1")
         imc = InteractionMatrixConstructor(parameters=params)
         return ("mpipi", imc)
     else:
-        params = calvados_model(version='CALVADOS2')
+        params = calvados_model(version="CALVADOS2")
         imc = InteractionMatrixConstructor(parameters=params)
         return ("calvados", imc)
 
@@ -83,6 +79,7 @@ def model_fixture(request):
 # Tests for epsilon_to_phase_diagram()
 # =============================================================================
 
+
 class TestEpsilonToPhaseDiagram:
     """Tests for the epsilon_to_phase_diagram function."""
 
@@ -90,9 +87,9 @@ class TestEpsilonToPhaseDiagram:
         """Test that output has correct structure with 8 elements."""
         seq = "AEKLSQPGWY"
         epsilon = -1.0  # Attractive epsilon
-        
+
         result = epsilon_to_phase_diagram(seq, epsilon)
-        
+
         assert len(result) == 8, "Should return list with 8 elements"
         # Elements 0-3: binodal data
         # Elements 4-7: spinodal data
@@ -101,12 +98,12 @@ class TestEpsilonToPhaseDiagram:
         """Test that dilute and dense concentrations are numpy arrays."""
         seq = "AEKLSQPGWY"
         epsilon = -1.0
-        
+
         result = epsilon_to_phase_diagram(seq, epsilon)
-        
+
         dilute = result[0]
         dense = result[1]
-        
+
         assert isinstance(dilute, (list, np.ndarray))
         assert isinstance(dense, (list, np.ndarray))
         assert len(dilute) == len(dense), "Dilute and dense should have same length"
@@ -115,25 +112,27 @@ class TestEpsilonToPhaseDiagram:
         """Test that concentrations are between 0 and 1 (valid volume fractions)."""
         seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
         epsilon = -2.0
-        
+
         result = epsilon_to_phase_diagram(seq, epsilon)
-        
+
         dilute = np.array(result[0])
         dense = np.array(result[1])
-        
-        assert np.all(dilute >= 0) and np.all(dilute <= 1), "Dilute conc should be [0,1]"
+
+        assert np.all(dilute >= 0) and np.all(dilute <= 1), (
+            "Dilute conc should be [0,1]"
+        )
         assert np.all(dense >= 0) and np.all(dense <= 1), "Dense conc should be [0,1]"
 
     def test_dense_greater_than_dilute(self):
         """Test that dense phase concentration > dilute phase concentration."""
         seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
         epsilon = -2.0
-        
+
         result = epsilon_to_phase_diagram(seq, epsilon)
-        
+
         dilute = np.array(result[0])
         dense = np.array(result[1])
-        
+
         # For most of the coexistence curve, dense should be > dilute
         assert np.all(dense >= dilute), "Dense phase should be >= dilute phase"
 
@@ -141,12 +140,12 @@ class TestEpsilonToPhaseDiagram:
         """Test critical point is a list with [crit_phi, crit_T]."""
         seq = "AEKLSQPGWY"
         epsilon = -1.0
-        
+
         result = epsilon_to_phase_diagram(seq, epsilon)
-        
+
         crit_point = result[2]
         assert len(crit_point) == 2, "Critical point should have [phi, T]"
-        
+
         crit_phi, crit_T = crit_point
         assert 0 < crit_phi < 1, "Critical phi should be between 0 and 1"
         assert crit_T > 0, "Critical temperature should be positive"
@@ -155,9 +154,9 @@ class TestEpsilonToPhaseDiagram:
         """Test that temperature array contains positive values."""
         seq = "AEKLSQPGWY"
         epsilon = -1.0
-        
+
         result = epsilon_to_phase_diagram(seq, epsilon)
-        
+
         temps = result[3]
         assert np.all(np.array(temps) > 0), "Temperatures should be positive"
 
@@ -165,17 +164,21 @@ class TestEpsilonToPhaseDiagram:
         """Test that spinodal data is present in output."""
         seq = "FYWFYWFYWFYWFYWFYWFY"  # Longer aromatic sequence for better coverage
         epsilon = -5.0  # Strongly attractive to ensure spinodal data is generated
-        
+
         result = epsilon_to_phase_diagram(seq, epsilon)
-        
+
         s_dilute = result[4]
         s_dense = result[5]
         s_crit = result[6]
         s_temps = result[7]
-        
+
         # Spinodal data should be lists/arrays (may be empty for some parameter ranges)
-        assert isinstance(s_dilute, (list, np.ndarray)), "Spinodal dilute should be list/array"
-        assert isinstance(s_dense, (list, np.ndarray)), "Spinodal dense should be list/array"
+        assert isinstance(s_dilute, (list, np.ndarray)), (
+            "Spinodal dilute should be list/array"
+        )
+        assert isinstance(s_dense, (list, np.ndarray)), (
+            "Spinodal dense should be list/array"
+        )
         assert len(s_crit) == 2, "Spinodal critical point should have 2 elements"
         assert isinstance(s_temps, np.ndarray), "Spinodal temps should be array"
 
@@ -183,10 +186,10 @@ class TestEpsilonToPhaseDiagram:
         """Test that positive (repulsive) epsilon is handled gracefully."""
         seq = "KKKKKKKKKKKKKKKKKKKK"
         epsilon = 1.0  # Repulsive
-        
+
         # Should not raise an exception
         result = epsilon_to_phase_diagram(seq, epsilon)
-        
+
         # Should still return valid structure
         assert len(result) == 8
 
@@ -194,7 +197,7 @@ class TestEpsilonToPhaseDiagram:
         """Test epsilon = 0 edge case."""
         seq = "AEKLSQPGWY"
         epsilon = 0.0
-        
+
         # Should not raise an exception (gets converted to -0.01 internally)
         result = epsilon_to_phase_diagram(seq, epsilon)
         assert len(result) == 8
@@ -203,9 +206,9 @@ class TestEpsilonToPhaseDiagram:
         """Test with strongly attractive (very negative) epsilon."""
         seq = "FYWFYWFYWFYWFYWFYWFY"  # Aromatic, likely attractive
         epsilon = -10.0
-        
+
         result = epsilon_to_phase_diagram(seq, epsilon)
-        
+
         crit_T = result[2][1]
         # Strong attraction should give higher critical temperature
         assert crit_T > 0
@@ -215,28 +218,28 @@ class TestEpsilonToPhaseDiagram:
         short_seq = "AEKLS"  # 5 residues
         long_seq = "AEKLSQPGWYFVMNHAEKLSQPGWYFVMNH"  # 30 residues
         epsilon = -2.0
-        
+
         result_short = epsilon_to_phase_diagram(short_seq, epsilon)
         result_long = epsilon_to_phase_diagram(long_seq, epsilon)
-        
+
         # Different lengths should give different critical points
         crit_phi_short = result_short[2][0]
         crit_phi_long = result_long[2][0]
-        
+
         # Longer chains typically have lower critical concentration
         assert crit_phi_long < crit_phi_short
 
     def test_different_epsilon_values(self):
         """Test that different epsilon values give different phase diagrams."""
         seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
-        
+
         result_weak = epsilon_to_phase_diagram(seq, -0.5)
         result_strong = epsilon_to_phase_diagram(seq, -5.0)
-        
+
         # Stronger attraction should have higher critical temperature
         crit_T_weak = result_weak[2][1]
         crit_T_strong = result_strong[2][1]
-        
+
         assert crit_T_strong > crit_T_weak
 
 
@@ -244,23 +247,26 @@ class TestEpsilonToPhaseDiagram:
 # Tests for return_phase_diagram()
 # =============================================================================
 
+
 class TestReturnPhaseDiagram:
     """Tests for the return_phase_diagram wrapper function."""
 
     def test_returns_same_structure_as_epsilon_function(self, mpipi_imc):
         """Test that output structure matches epsilon_to_phase_diagram."""
         seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
-        
+
         result = return_phase_diagram(seq, mpipi_imc)
-        
+
         assert len(result) == 8, "Should return 8-element list"
 
     def test_works_with_mpipi(self, mpipi_imc):
         """Test that function works with Mpipi model."""
-        seq = "FYWFYWFYWFYWFYWFYWFY"  # Aromatic-rich, more likely to have attractive eps
-        
+        seq = (
+            "FYWFYWFYWFYWFYWFYWFY"  # Aromatic-rich, more likely to have attractive eps
+        )
+
         result = return_phase_diagram(seq, mpipi_imc)
-        
+
         assert len(result) == 8
         # Check we get valid structure (may or may not have phase separation data)
         assert isinstance(result[0], (list, np.ndarray))
@@ -269,9 +275,9 @@ class TestReturnPhaseDiagram:
     def test_works_with_calvados(self, calvados_imc):
         """Test that function works with CALVADOS model."""
         seq = "FYWFYWFYWFYWFYWFYWFY"  # Aromatic-rich sequence
-        
+
         result = return_phase_diagram(seq, calvados_imc)
-        
+
         assert len(result) == 8
         # Check we get valid structure
         assert isinstance(result[0], (list, np.ndarray))
@@ -280,14 +286,14 @@ class TestReturnPhaseDiagram:
     def test_different_sequences_different_diagrams(self, model_fixture):
         """Test that different sequences produce different phase diagrams."""
         model_name, imc = model_fixture
-        
+
         result_charged = return_phase_diagram("EEEEEEEEEEEEEEEEEEEE", imc)
         result_aromatic = return_phase_diagram("FYWFYWFYWFYWFYWFYWFY", imc)
-        
+
         # Critical temperatures should differ for different sequences
         crit_T_charged = result_charged[2][1]
         crit_T_aromatic = result_aromatic[2][1]
-        
+
         assert crit_T_charged != crit_T_aromatic, (
             f"{model_name}: Different sequences should have different critical T"
         )
@@ -296,13 +302,13 @@ class TestReturnPhaseDiagram:
     def test_various_sequences(self, seq_name, seq, mpipi_imc):
         """Test that various sequence types produce valid output."""
         result = return_phase_diagram(seq, mpipi_imc)
-        
+
         assert len(result) == 8, f"Sequence {seq_name} should return 8-element list"
-        
+
         # Check concentrations are valid
         dilute = np.array(result[0])
         dense = np.array(result[1])
-        
+
         if len(dilute) > 0:
             assert np.all(dilute >= 0) and np.all(dilute <= 1), (
                 f"{seq_name}: dilute concentrations should be in [0,1]"
@@ -317,6 +323,7 @@ class TestReturnPhaseDiagram:
 # Tests for build_SALT_dependent_phase_diagrams()
 # =============================================================================
 
+
 class TestSaltDependentPhaseDiagrams:
     """Tests for salt-dependent phase diagram generation."""
 
@@ -324,9 +331,9 @@ class TestSaltDependentPhaseDiagrams:
         """Test that output has correct structure."""
         seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
         salt_conditions = [0.05, 0.15, 0.25]
-        
+
         result = build_SALT_dependent_phase_diagrams(seq, mpipi_imc, salt_conditions)
-        
+
         assert len(result) == 3, "Should return list with 3 elements"
         assert result[0] == salt_conditions, "First element should be condition list"
         assert isinstance(result[1], dict), "Second element should be diagrams dict"
@@ -336,27 +343,29 @@ class TestSaltDependentPhaseDiagrams:
         """Test that a diagram is generated for each salt condition."""
         seq = "AEKLSQPGWY"
         salt_conditions = [0.05, 0.15, 0.30]
-        
+
         result = build_SALT_dependent_phase_diagrams(seq, mpipi_imc, salt_conditions)
-        
+
         diagrams = result[1]
         epsilons = result[2]
-        
+
         for salt in salt_conditions:
             assert salt in diagrams, f"Should have diagram for salt={salt}"
             assert salt in epsilons, f"Should have epsilon for salt={salt}"
-            assert len(diagrams[salt]) == 8, f"Diagram at salt={salt} should have 8 elements"
+            assert len(diagrams[salt]) == 8, (
+                f"Diagram at salt={salt} should have 8 elements"
+            )
 
     def test_salt_affects_results(self, mpipi_imc):
         """Test that different salt concentrations give different results."""
         seq = "EKEKEKEKEKEKEKEKEKEK"  # Charged sequence, salt should matter
         salt_conditions = [0.01, 0.50]
-        
+
         result = build_SALT_dependent_phase_diagrams(seq, mpipi_imc, salt_conditions)
-        
+
         eps_low_salt = result[2][0.01]
         eps_high_salt = result[2][0.50]
-        
+
         # Epsilon values should differ with salt
         assert eps_low_salt != eps_high_salt, "Salt should affect epsilon values"
 
@@ -365,9 +374,9 @@ class TestSaltDependentPhaseDiagrams:
         seq = "AEKLSQPGWY"
         original_salt = mpipi_imc.parameters.salt
         salt_conditions = [0.10, 0.20]
-        
+
         build_SALT_dependent_phase_diagrams(seq, mpipi_imc, salt_conditions)
-        
+
         # Salt should be restored
         assert mpipi_imc.parameters.salt == original_salt, "Salt should be restored"
 
@@ -375,9 +384,9 @@ class TestSaltDependentPhaseDiagrams:
         """Test with a single salt condition."""
         seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
         salt_conditions = [0.15]
-        
+
         result = build_SALT_dependent_phase_diagrams(seq, mpipi_imc, salt_conditions)
-        
+
         assert len(result[1]) == 1
         assert 0.15 in result[1]
 
@@ -385,9 +394,9 @@ class TestSaltDependentPhaseDiagrams:
         """Test that function works with CALVADOS model."""
         seq = "AEKLSQPGWY"
         salt_conditions = [0.10, 0.20]
-        
+
         result = build_SALT_dependent_phase_diagrams(seq, calvados_imc, salt_conditions)
-        
+
         assert len(result) == 3
         assert len(result[1]) == 2
 
@@ -396,6 +405,7 @@ class TestSaltDependentPhaseDiagrams:
 # Tests for build_PH_dependent_phase_diagrams()
 # =============================================================================
 
+
 class TestPHDependentPhaseDiagrams:
     """Tests for pH-dependent phase diagram generation."""
 
@@ -403,9 +413,9 @@ class TestPHDependentPhaseDiagrams:
         """Test that output has correct structure."""
         seq = "HHHHHHHHHHHHHHHHHHHH"  # Histidine, pH-sensitive
         ph_conditions = [5.0, 7.0, 9.0]
-        
+
         result = build_PH_dependent_phase_diagrams(seq, calvados_imc, ph_conditions)
-        
+
         assert len(result) == 3, "Should return list with 3 elements"
         assert result[0] == ph_conditions, "First element should be condition list"
         assert isinstance(result[1], dict), "Second element should be diagrams dict"
@@ -415,11 +425,11 @@ class TestPHDependentPhaseDiagrams:
         """Test that a diagram is generated for each pH condition."""
         seq = "HEHEHEHEHEHEHEHEHEHE"
         ph_conditions = [5.0, 7.0]
-        
+
         result = build_PH_dependent_phase_diagrams(seq, calvados_imc, ph_conditions)
-        
+
         diagrams = result[1]
-        
+
         for ph in ph_conditions:
             assert ph in diagrams, f"Should have diagram for pH={ph}"
             assert len(diagrams[ph]) == 8, f"Diagram at pH={ph} should have 8 elements"
@@ -428,7 +438,7 @@ class TestPHDependentPhaseDiagrams:
         """Test that pH-dependent function also works with Mpipi model if it supports pH."""
         seq = "HEHEHEHEHEHEHEHEHEHE"
         ph_conditions = [5.0, 7.0]
-        
+
         # Try to run - if Mpipi supports pH it should work
         try:
             result = build_PH_dependent_phase_diagrams(seq, mpipi_imc, ph_conditions)
@@ -444,6 +454,7 @@ class TestPHDependentPhaseDiagrams:
 # Tests for build_DIELECTRIC_dependent_phase_diagrams()
 # =============================================================================
 
+
 class TestDielectricDependentPhaseDiagrams:
     """Tests for dielectric-dependent phase diagram generation."""
 
@@ -451,11 +462,11 @@ class TestDielectricDependentPhaseDiagrams:
         """Test that output has correct structure."""
         seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
         dielectric_conditions = [40.0, 60.0, 80.0]
-        
+
         result = build_DIELECTRIC_dependent_phase_diagrams(
             seq, mpipi_imc, dielectric_conditions
         )
-        
+
         assert len(result) == 3, "Should return list with 3 elements"
         assert result[0] == dielectric_conditions
         assert isinstance(result[1], dict)
@@ -465,13 +476,13 @@ class TestDielectricDependentPhaseDiagrams:
         """Test that a diagram is generated for each dielectric condition."""
         seq = "EKEKEKEKEKEKEKEKEKEK"
         dielectric_conditions = [60.0, 80.0]
-        
+
         result = build_DIELECTRIC_dependent_phase_diagrams(
             seq, mpipi_imc, dielectric_conditions
         )
-        
+
         diagrams = result[1]
-        
+
         for d in dielectric_conditions:
             assert d in diagrams, f"Should have diagram for dielectric={d}"
 
@@ -479,14 +490,14 @@ class TestDielectricDependentPhaseDiagrams:
         """Test that dielectric affects charged sequence results."""
         seq = "EKEKEKEKEKEKEKEKEKEK"
         dielectric_conditions = [40.0, 80.0]
-        
+
         result = build_DIELECTRIC_dependent_phase_diagrams(
             seq, mpipi_imc, dielectric_conditions
         )
-        
+
         eps_low_dielectric = result[2][40.0]
         eps_high_dielectric = result[2][80.0]
-        
+
         # Different dielectric should give different epsilon
         # (though exact behavior depends on implementation)
         assert isinstance(eps_low_dielectric, (int, float))
@@ -497,6 +508,7 @@ class TestDielectricDependentPhaseDiagrams:
 # Integration tests
 # =============================================================================
 
+
 class TestIntegration:
     """Integration tests combining multiple functions."""
 
@@ -506,24 +518,26 @@ class TestIntegration:
         when using a manually computed epsilon vs return_phase_diagram.
         """
         from finches.epsilon_stateless import get_sequence_epsilon_value
-        
+
         seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
-        
+
         # Get epsilon manually
         epsilon = get_sequence_epsilon_value(
-            seq, seq, mpipi_imc,
+            seq,
+            seq,
+            mpipi_imc,
             charge_prefactor=mpipi_imc.charge_prefactor,
             null_interaction_baseline=mpipi_imc.null_interaction_baseline,
             use_charge_weighting=True,
-            use_aliphatic_weighting=True
+            use_aliphatic_weighting=True,
         )
-        
+
         # Use epsilon_to_phase_diagram directly
         result_direct = epsilon_to_phase_diagram(seq, epsilon)
-        
+
         # Use return_phase_diagram wrapper
         result_wrapper = return_phase_diagram(seq, mpipi_imc)
-        
+
         # Results should be identical
         assert_allclose(result_direct[0], result_wrapper[0], rtol=1e-10)
         assert_allclose(result_direct[1], result_wrapper[1], rtol=1e-10)
@@ -532,20 +546,20 @@ class TestIntegration:
     def test_phase_diagram_consistency_across_models(self):
         """Test that both models produce valid (if different) phase diagrams."""
         seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
-        
-        params_mpipi = Mpipi_model(version='Mpipi_GGv1')
+
+        params_mpipi = Mpipi_model(version="Mpipi_GGv1")
         imc_mpipi = InteractionMatrixConstructor(parameters=params_mpipi)
-        
-        params_calvados = calvados_model(version='CALVADOS2')
+
+        params_calvados = calvados_model(version="CALVADOS2")
         imc_calvados = InteractionMatrixConstructor(parameters=params_calvados)
-        
+
         result_mpipi = return_phase_diagram(seq, imc_mpipi)
         result_calvados = return_phase_diagram(seq, imc_calvados)
-        
+
         # Both should return valid structure
         assert len(result_mpipi) == 8
         assert len(result_calvados) == 8
-        
+
         # Both should have positive critical temperatures
         assert result_mpipi[2][1] > 0
         assert result_calvados[2][1] > 0
@@ -555,23 +569,24 @@ class TestIntegration:
 # Edge case tests
 # =============================================================================
 
+
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""
 
     def test_very_short_sequence(self, mpipi_imc):
         """Test with very short sequence."""
         seq = "AEK"  # 3 residues
-        
+
         result = return_phase_diagram(seq, mpipi_imc)
-        
+
         assert len(result) == 8
 
     def test_single_residue_repeated(self, mpipi_imc):
         """Test with sequence of single repeated residue."""
         seq = "AAAAAAAAAA"  # All alanine
-        
+
         result = return_phase_diagram(seq, mpipi_imc)
-        
+
         assert len(result) == 8
         # Should still produce valid concentrations
         dilute = np.array(result[0])
@@ -582,10 +597,10 @@ class TestEdgeCases:
         """Test sequences with extreme charge."""
         seq_positive = "KKKKKKKKKKKKKKKKKKKK"
         seq_negative = "EEEEEEEEEEEEEEEEEEEE"
-        
+
         result_pos = return_phase_diagram(seq_positive, mpipi_imc)
         result_neg = return_phase_diagram(seq_negative, mpipi_imc)
-        
+
         # Both should return valid results
         assert len(result_pos) == 8
         assert len(result_neg) == 8
@@ -593,9 +608,9 @@ class TestEdgeCases:
     def test_empty_salt_conditions(self, mpipi_imc):
         """Test with empty condition list."""
         seq = "AEKLSQPGWY"
-        
+
         result = build_SALT_dependent_phase_diagrams(seq, mpipi_imc, [])
-        
+
         assert result[0] == []
         assert result[1] == {}
         assert result[2] == {}
@@ -605,16 +620,17 @@ class TestEdgeCases:
 # Numerical stability tests
 # =============================================================================
 
+
 class TestNumericalStability:
     """Tests for numerical stability of calculations."""
 
     def test_consistent_results_multiple_calls(self, mpipi_imc):
         """Test that multiple calls give identical results."""
         seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
-        
+
         result1 = return_phase_diagram(seq, mpipi_imc)
         result2 = return_phase_diagram(seq, mpipi_imc)
-        
+
         assert_allclose(result1[0], result2[0])
         assert_allclose(result1[1], result2[1])
         assert_allclose(result1[2], result2[2])
@@ -622,29 +638,39 @@ class TestNumericalStability:
     def test_binodal_above_spinodal(self, mpipi_imc):
         """Test that binodal lies outside spinodal (physically correct)."""
         seq = "FYWFYWFYWFYWFYWFYWFY"
-        
+
         result = return_phase_diagram(seq, mpipi_imc)
-        
-        # At similar temperatures, binodal should be outside spinodal
-        # This is a fundamental thermodynamic requirement
+
+        # At the same temperature the binodal must lie outside the spinodal:
+        # a lower dilute concentration and a higher dense concentration. This
+        # is a fundamental thermodynamic requirement.
         binodal_dilute = np.array(result[0])
         binodal_dense = np.array(result[1])
+        binodal_T = np.array(result[3])
         spinodal_dilute = np.array(result[4])
         spinodal_dense = np.array(result[5])
-        
-        # Check that arrays are non-empty
-        if len(binodal_dilute) > 0 and len(spinodal_dilute) > 0:
-            # The critical points should be the same
-            assert_allclose(result[2][0], result[6][0], rtol=0.1)
+        spinodal_T = np.array(result[7])
+
+        assert len(binodal_dilute) > 0 and len(spinodal_dilute) > 0
+
+        # both scans share one critical point
+        assert_allclose(result[2], result[6])
+
+        # interpolate the binodal onto the spinodal temperatures
+        order = np.argsort(binodal_T)
+        b_dilute = np.interp(spinodal_T, binodal_T[order], binodal_dilute[order])
+        b_dense = np.interp(spinodal_T, binodal_T[order], binodal_dense[order])
+        assert np.all(b_dilute <= spinodal_dilute + 1e-12)
+        assert np.all(b_dense >= spinodal_dense - 1e-12)
 
     def test_temperature_monotonicity(self, mpipi_imc):
         """Test that temperature changes monotonically along binodal."""
         seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
-        
+
         result = return_phase_diagram(seq, mpipi_imc)
-        
+
         temps = np.array(result[3])
-        
+
         # Temperature array should be monotonic (either increasing or decreasing)
         if len(temps) > 1:
             diffs = np.diff(temps)
@@ -652,3 +678,96 @@ class TestNumericalStability:
             assert np.all(diffs >= 0) or np.all(diffs <= 0), (
                 "Temperature should change monotonically"
             )
+
+
+# =============================================================================
+# Condition scans build each phase diagram from the epsilon they report
+# =============================================================================
+
+
+class TestConditionScanConsistency:
+    """The diagram and the epsilon returned for a condition must agree."""
+
+    def test_diagram_uses_the_reported_epsilon(self, mpipi_imc):
+        # an explicit prefactor changes epsilon; the diagram must follow it
+        seq = "EEEEEKKKKKEEEEEKKKKKEEEEEKKKKKEEEEEKKKKK"
+        result = build_SALT_dependent_phase_diagrams(
+            seq, mpipi_imc, [0.05], prefactor=0.0
+        )
+        eps = result[2][0.05]
+        expected = epsilon_to_phase_diagram(seq, eps)
+        assert_allclose(result[1][0.05][2], expected[2])
+        assert_allclose(result[1][0.05][3], expected[3])
+
+    def test_default_scan_matches_return_phase_diagram(self, mpipi_imc):
+        # with no overrides a scan at the current condition reproduces
+        # return_phase_diagram()
+        seq = "MSKGEELFTGVVPILVELDGDVNGHKFSVS"
+        salt = mpipi_imc.parameters.salt
+        result = build_SALT_dependent_phase_diagrams(seq, mpipi_imc, [salt])
+        direct = return_phase_diagram(seq, mpipi_imc)
+        assert_allclose(result[1][salt][2], direct[2])
+        assert_allclose(result[1][salt][3], direct[3])
+
+    def test_unsupported_condition_raises_value_error(self, mpipi_imc):
+        with pytest.raises(ValueError, match="pH"):
+            build_PH_dependent_phase_diagrams("HEHEHEHEHEHEHEHEHEHE", mpipi_imc, [5.0])
+
+
+# =============================================================================
+# The chi scans used to build phase diagrams
+# =============================================================================
+
+
+class TestChiScans:
+    """floryhuggins.calculate_binodal / calculate_spinodal."""
+
+    @pytest.mark.parametrize("mode", ["analytic_binodal", "binodal", "GL_binodal"])
+    def test_binodal_scan_matches_backend(self, mode):
+        from finches.analytical_fh import backend as FH
+        from finches.analytical_fh.floryhuggins import calculate_binodal
+
+        L = 50
+        chis, dilute, dense, phi_c, chi_c = calculate_binodal(
+            L, mode, chi_min=0.5, chi_max=1.0, n_points=200
+        )
+        assert len(chis) == len(dilute) == len(dense) > 0
+        assert min(chis) > chi_c
+        assert (phi_c, chi_c) == tuple(FH.critical(L))
+
+        # every point agrees with a scalar call to the same solver
+        fx = getattr(FH, mode)
+        for i in (0, len(chis) // 2, len(chis) - 1):
+            point = fx(chis[i], L)
+            assert_allclose([dense[i], dilute[i]], point[:2], rtol=1e-9)
+
+    def test_spinodal_scan_matches_backend(self):
+        from finches.analytical_fh import backend as FH
+        from finches.analytical_fh.floryhuggins import calculate_spinodal
+
+        chis, low, high, phi_c, chi_c = calculate_spinodal(
+            50, chi_min=0.5, chi_max=1.0, n_points=200
+        )
+        assert len(chis) > 0
+        point = FH.spinodal(chis[3], 50)
+        assert_allclose([high[3], low[3]], point, rtol=1e-12)
+
+    def test_scan_below_critical_is_empty(self):
+        from finches.analytical_fh.floryhuggins import (
+            calculate_binodal,
+            calculate_spinodal,
+        )
+
+        # chi_c for a 10-mer is ~0.83, above the whole grid
+        for out in (
+            calculate_binodal(10, chi_max=0.8),
+            calculate_spinodal(10, chi_max=0.8),
+        ):
+            assert out[0] == [] and out[1] == [] and out[2] == []
+            assert out[4] > 0.8
+
+    def test_bad_mode_raises_value_error(self):
+        from finches.analytical_fh.floryhuggins import calculate_binodal
+
+        with pytest.raises(ValueError, match="mode"):
+            calculate_binodal(50, mode="exact")

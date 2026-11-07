@@ -470,7 +470,7 @@ def test_matrix_units_match_finches_epsilon(ss):
 def test_footprint_grows_with_window(ss):
     # the footprint radius is R(window//2), so a longer window reaches further
     key = ss.surface_residues[0].key
-    order, dists = ss._footprint_order(key)
+    order, dists = ss.footprint_order(key)
 
     assert dists[0] == pytest.approx(0.0)  # the centre is its own nearest
     assert np.all(np.diff(dists) >= 0)  # sorted by distance
@@ -582,7 +582,7 @@ def test_cis_gating_decays_smoothly_with_anchor_distance(ss):
         seq, window_size=11, anchor=anchor, tether=tether, reach_b=1.0
     )
 
-    apos = ss._anchor_position(anchor)
+    apos = ss.anchor_position(anchor)
     dist = np.array([np.linalg.norm(apos - r.position) for r in ss.surface_residues])
 
     # retained signal, as a fraction of trans, must fall off as you move away
@@ -594,3 +594,363 @@ def test_cis_gating_decays_smoothly_with_anchor_distance(ss):
     # and it fades rather than switching off: with a partly-covered domain there are
     # residues sitting at intermediate attenuation, which a hard cutoff cannot produce
     assert np.sum((keep > 0.01) & (keep < 0.9)) > 3
+
+
+# ----------------------------------------------------------------------
+# residue bookkeeping: numbering gaps, non-standard residue names
+# ----------------------------------------------------------------------
+def _renumbered_pdb(path, offset, drop):
+    """Copy the example PDB with resSeq shifted by ``offset`` and residues in ``drop`` removed."""
+    out = []
+    with open(_PDB) as fh:
+        for line in fh:
+            if line.startswith(("ATOM", "HETATM", "TER")):
+                try:
+                    rs = int(line[22:26]) + offset
+                except ValueError:
+                    out.append(line)
+                    continue
+                if rs in drop:
+                    continue
+                line = line[:22] + f"{rs:4d}" + line[26:]
+            out.append(line)
+    with open(path, "w") as fh:
+        fh.writelines(out)
+    return str(path)
+
+
+def test_missing_residues_keep_author_numbering(frontend, tmp_path):
+    # a chain numbered 10.. with a gap at 60-62: the gap residues must carry the
+    # author numbers they fill, not synthetic 1-based numbers that collide with
+    # modeled residues (which used to overwrite residues 51-53 in the lookup)
+    pdb = _renumbered_pdb(tmp_path / "gap.pdb", offset=9, drop={60, 61, 62})
+    ss = StructureSurface(pdb, frontend)
+
+    keys = [r.key for r in ss.residues]
+    assert len(keys) == len(set(keys))
+    missing = [r for r in ss.residues if not r.modeled]
+    assert sorted(r.res_seq for r in missing) == [60, 61, 62]
+    assert all(r.domain == "idr" for r in missing)
+    # the modeled residue 51 is still residue 51
+    assert ss.get_residue(0, 51).modeled
+    assert ss.get_residue(0, 51).seq_index == 51 - 10
+
+
+def _renamed_pdb(path, renames):
+    """Copy the example PDB with residue names swapped per ``{resSeq: new_name}``."""
+    out = []
+    with open(_PDB) as fh:
+        for line in fh:
+            if line.startswith(("ATOM", "HETATM")):
+                rs = int(line[22:26])
+                if rs in renames:
+                    line = line[:17] + f"{renames[rs]:>3s}" + line[20:]
+            out.append(line)
+    with open(path, "w") as fh:
+        fh.writelines(out)
+    return str(path)
+
+
+def test_nonstandard_residue_names(frontend, tmp_path):
+    import warnings
+
+    base = StructureSurface(_PDB, frontend)
+    first = next(r for r in base.residues if r.modeled)
+
+    # a protonation variant maps to the right letter, with no warning
+    pdb = _renamed_pdb(tmp_path / "glh.pdb", {first.res_seq: "GLH"})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ss = StructureSurface(pdb, frontend)
+    assert ss.get_residue(0, first.res_seq).one_letter == "E"
+
+    # a residue with no standard equivalent is kept as a glycine placeholder and
+    # the user is told about it
+    pdb = _renamed_pdb(tmp_path / "unk.pdb", {first.res_seq: "UNK"})
+    with pytest.warns(UserWarning, match="UNK"):
+        ss = StructureSurface(pdb, frontend)
+    assert ss.get_residue(0, first.res_seq).one_letter == "G"
+    assert len(ss.residues) == len(base.residues)
+
+
+def test_folded_domain_ignores_waters(tmp_path):
+    # waters and ligands used to be counted in the SASA array but skipped in the
+    # sequence, misaligning every per-residue index after the first one
+    from finches.utils.folded_domain_utils import FoldedDomain
+
+    lines = open(_PDB).read().splitlines()
+    end = max(
+        i for i, ln in enumerate(lines) if ln.startswith(("ATOM", "HETATM", "TER"))
+    )
+    waters = [
+        "HETATM%5d  O   HOH A%4d    %8.3f%8.3f%8.3f  1.00  0.00           O"
+        % (90000 + n, 900 + n, 60.0 + 3 * n, 60.0, 60.0)
+        for n in range(3)
+    ]
+    path = tmp_path / "waters.pdb"
+    path.write_text("\n".join(lines[: end + 1] + waters + lines[end + 1 :]) + "\n")
+
+    clean = FoldedDomain(_PDB)
+    wet = FoldedDomain(str(path))
+    assert wet.sequence == clean.sequence
+    assert len(wet.sasa) == len(wet.sequence)
+    assert wet.surface_indices == clean.surface_indices
+
+
+# ----------------------------------------------------------------------
+# epsilon scale: every scoring method must share the FINCHES convention
+# ----------------------------------------------------------------------
+def test_surface_vs_idr_is_on_the_epsilon_scale(ss):
+    # the per-residue score must be the FINCHES epsilon per IDR residue, i.e. the
+    # mean of value - 2 * baseline, exactly as the intermap and calculate_epsilon_value
+    seq = "GSGSGRGRGSSEEDSGSGSGRGRGSSEEDS"
+    imc = ss.IMC_object
+    b = imc.null_interaction_baseline
+    res = ss.surface_vs_idr(seq)
+
+    idr_ctx = ss._idr_context(seq)
+    for rec in ss.surface_residues[:5]:
+        row = ss._weighted_row(rec, idr_ctx)
+        assert res[rec.key]["score"] == pytest.approx(np.mean(row - 2.0 * b))
+
+    # a single residue against a poly(GS) IDR reproduces calculate_epsilon_value
+    # (a sum over the one residue of a mean over the IDR) when the 3D context
+    # cannot bite (weighting off)
+    gs = "GS" * 10
+    res = ss.surface_vs_idr(
+        gs, use_charge_weighting=False, use_aliphatic_weighting=False
+    )
+    for rec in ss.surface_residues[:5]:
+        ref = imc.calculate_epsilon_value(
+            rec.one_letter,
+            gs,
+            use_charge_weighting=False,
+            use_aliphatic_weighting=False,
+        )
+        assert res[rec.key]["score"] == pytest.approx(ref)
+
+
+def test_surface_vs_surface_is_on_the_epsilon_scale(ss):
+    imc = ss.IMC_object
+    b = imc.null_interaction_baseline
+    res = ss.surface_vs_surface(
+        use_charge_weighting=False, use_aliphatic_weighting=False
+    )
+    surf = ss.surface_residues
+    for i in range(3):
+        for j in range(i + 1, 4):
+            ref = imc.lookup[surf[i].one_letter][surf[j].one_letter] - 2.0 * b
+            assert res[(surf[i].key, surf[j].key)] == pytest.approx(ref)
+
+
+# ----------------------------------------------------------------------
+# IDR rows of a rows='all' map
+# ----------------------------------------------------------------------
+def test_idr_rows_share_the_scale_of_surface_rows(ss):
+    # an IDR residue of the structure is aggregated over its own disordered segment
+    # on the same footprint model, so its rows must not swamp the colour scale
+    X, keys, _ = ss.surface_vs_idr_matrix(_SMOOTH_SEQ, window_size=31, rows="all")
+    surf = {r.key for r in ss.surface_residues}
+    idr = {r.key for r in ss.idr_residues}
+    si = [i for i, k in enumerate(keys) if k in surf]
+    ii = [i for i, k in enumerate(keys) if k in idr]
+    assert ii and np.all(np.isfinite(X[ii]))
+
+    def spread(a):
+        p = np.percentile(a, [1, 99])
+        return p[1] - p[0]
+
+    assert spread(X[ii]) < 2.0 * spread(X[si])
+
+
+def test_idr_row_patch_only_is_an_intermap_cell(ss):
+    # with the footprint off an IDR row reduces to the FINCHES IDR:IDR intermap cell
+    # for the window of its own segment centred on the residue
+    seq = "GSGSGRGRGSSEEDSGSGSGRGRGSSEEDSGSGS"
+    W = 11
+    half = W // 2
+    imc = ss.IMC_object
+    X, keys, _ = ss.surface_vs_idr_matrix(
+        seq,
+        window_size=W,
+        rows="all",
+        use_footprint=False,
+        use_charge_weighting=False,
+        use_aliphatic_weighting=False,
+    )
+    seg = ss.idr_segments[0]["residues"]
+    segseq = "".join(r.one_letter for r in seg)
+    m = len(seg) // 2
+    row = keys.index(seg[m].key)
+    for c in (0, len(seq) - W):
+        ref = imc.calculate_epsilon_value(
+            seq[c : c + W],
+            segseq[m - half : m + half + 1],
+            use_charge_weighting=False,
+            use_aliphatic_weighting=False,
+        )
+        assert X[row, c] == pytest.approx(ref, abs=1e-10)
+
+
+def test_idr_rows_are_nan_in_cis(ss):
+    anchor, tether = ss.idr_tether(0)
+    X, keys, _ = ss.surface_vs_idr_matrix(
+        "GSGSGRGRGSSEEDSGSGSG", window_size=5, rows="all", anchor=anchor, tether=tether
+    )
+    idr = {r.key for r in ss.idr_residues}
+    ii = [i for i, k in enumerate(keys) if k in idr]
+    assert np.all(np.isnan(X[ii]))
+
+
+# ----------------------------------------------------------------------
+# plotting
+# ----------------------------------------------------------------------
+def test_plot_surface_vs_idr_matrix(ss, tmp_path):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from finches.utils.structure_surface import plot_surface_intermap
+
+    fname = tmp_path / "map.png"
+    fig, ax, (X, keys, centres) = ss.plot_surface_vs_idr_matrix(
+        _SMOOTH_SEQ, window_size=31, structure_offset=158, fname=str(fname)
+    )
+    assert fname.exists()
+    assert X.shape == (len(ss.residues), len(_SMOOTH_SEQ) - 31 + 1)
+    # symmetric colour scale, set from the data rather than the most extreme cell
+    lo, hi = ax.images[0].get_clim()
+    assert lo == -hi
+    assert hi <= np.nanmax(np.abs(X))
+    assert hi == pytest.approx(np.percentile(np.abs(X[np.isfinite(X)]), 99))
+    plt.close(fig)
+
+    # an explicit limit and a precomputed matrix
+    fig, ax = plot_surface_intermap(X, keys, centres, vmax=2.0)
+    assert ax.images[0].get_clim() == (-2.0, 2.0)
+    plt.close(fig)
+
+    with pytest.raises(ValueError):
+        plot_surface_intermap(np.full((3, 4), np.nan), keys[:3], centres[:4])
+    plt.close("all")
+
+
+def test_repr(ss):
+    text = repr(ss)
+    assert "ADBD1.pdb" in text and "surface" in text and "IDR" in text
+
+
+def test_weighting_matches_finches_on_a_linear_context(ss):
+    # an IDR residue of the structure takes its context from the linear sequence, so
+    # its weighted row against an IDR must equal the corresponding row of the FINCHES
+    # weighted matrix between its own chain and that IDR
+    imc = ss.IMC_object
+    seq = "KKRGSEEDAVILMGSKRDEAVVLGSG"
+    chain_seq = ss._chain_sequences[0]
+    M = imc.calculate_weighted_pairwise_matrix(chain_seq, seq)
+    idr_ctx = ss._idr_context(seq)
+    for rec in [r for r in ss.idr_residues if r.modeled][:10]:
+        row = ss._weighted_row(rec, idr_ctx)
+        assert np.allclose(row, M[rec.seq_index])
+
+
+def test_write_pdb_idr_interaction_alias(ss):
+    # the original capitalisation still works and is the same method
+    assert type(ss).write_pdb_IDR_interaction is type(ss).write_pdb_idr_interaction
+
+
+# ----------------------------------------------------------------------
+# rescuing predicted-IDR stretches that pack against a folded domain
+# ----------------------------------------------------------------------
+_NCOA_COMPLEX = os.path.normpath(
+    os.path.join(
+        _HERE,
+        "..",
+        "..",
+        "examples",
+        "folded_domains",
+        "fold_ncoa_680_760_vs_1023_1093_model_0.cif",
+    )
+)
+
+
+def test_windowed_mean_truncates_at_the_ends():
+    from finches.utils.structure_surface import _windowed_mean
+
+    values = np.array([3.0, 0.0, 0.0, 0.0, 0.0, 6.0])
+    means = _windowed_mean(values, 3)
+    assert np.allclose(means, [1.5, 1.0, 0.0, 0.0, 2.0, 3.0])
+
+
+def test_fill_short_gaps_between_packed_and_to_folded_flanks():
+    from finches.utils.structure_surface import _fill_short_gaps
+
+    packed = np.array([False, False, True, False, False, True, False, False, False])
+    modeled = np.ones(9, dtype=bool)
+    # interior gap of 2 is filled; the 2-residue gap to the N flank only when folded
+    filled = _fill_short_gaps(packed, modeled, False, False, max_gap=3)
+    assert filled.tolist() == [False, False, True, True, True, True, False, False, False]
+    filled = _fill_short_gaps(packed, modeled, True, False, max_gap=3)
+    assert filled.tolist() == [True, True, True, True, True, True, False, False, False]
+    # a missing residue in the gap blocks the fill
+    modeled[3] = False
+    filled = _fill_short_gaps(packed, modeled, False, False, max_gap=3)
+    assert filled.tolist() == packed.tolist()
+    # folded flanks alone never fill a run with no packed residue
+    nothing = np.zeros(4, dtype=bool)
+    assert not _fill_short_gaps(nothing, np.ones(4, dtype=bool), True, True, 9).any()
+
+
+def test_drop_short_isolated_runs_keeps_runs_touching_folded():
+    from finches.utils.structure_surface import _drop_short_isolated_runs
+
+    packed = np.array([True, True, False, False, True, True, False, True, True, True])
+    kept = _drop_short_isolated_runs(packed, False, False, min_run=3)
+    assert kept.tolist() == [False] * 7 + [True] * 3
+    kept = _drop_short_isolated_runs(packed, True, False, min_run=3)
+    assert kept.tolist() == [True, True] + [False] * 5 + [True] * 3
+
+
+def test_rescued_residues_are_modeled_and_folded(ss):
+    rescued = [r for r in ss.residues if r.packed_rescue]
+    assert all(r.modeled and r.domain == "folded" for r in rescued)
+    # rescued residues take part in the surface classification like any folded residue
+    assert {r.key for r in rescued} <= {r.key for r in ss.folded_residues}
+
+
+def test_rescue_can_be_switched_off(frontend):
+    plain = StructureSurface(_PDB, frontend, rescue_packed_idrs=False)
+    assert not any(r.packed_rescue for r in plain.residues)
+    rescued = StructureSurface(_PDB, frontend)
+    # the rescue only ever turns IDR into folded, never the reverse
+    for before, after in zip(plain.residues, rescued.residues):
+        assert before.key == after.key
+        if before.domain == "folded":
+            assert after.domain == "folded" and not after.packed_rescue
+        elif after.domain == "folded":
+            assert after.packed_rescue
+
+
+@pytest.mark.skipif(not os.path.exists(_NCOA_COMPLEX), reason="example not available")
+def test_chain_that_folds_on_binding_is_rescued(frontend):
+    # In this AlphaFold3 model the N-terminal helix of chain B packs against chain A,
+    # but metapredict, which sees only chain B's sequence, calls all of chain B
+    # disordered. The helix should be rescued and the floppy remainder left as IDR.
+    plain = StructureSurface(_NCOA_COMPLEX, frontend, rescue_packed_idrs=False)
+    rescued = StructureSurface(_NCOA_COMPLEX, frontend)
+
+    chain_b = 1
+    assert all(r.domain == "idr" for r in plain._chain_residues(chain_b))
+
+    rescued_b = [r.res_seq for r in rescued._chain_residues(chain_b) if r.packed_rescue]
+    assert len(rescued_b) >= 20
+    assert max(rescued_b) <= 40
+    assert rescued_b == list(range(rescued_b[0], rescued_b[-1] + 1))
+    assert any(r.surface for r in rescued._chain_residues(chain_b))
+
+    # with chain B's helix present in the SASA calculation, some of chain A's
+    # interface stops looking exposed
+    chain_a = 0
+    surface_a_plain = {r.key for r in plain._chain_residues(chain_a) if r.surface}
+    surface_a_rescued = {r.key for r in rescued._chain_residues(chain_a) if r.surface}
+    assert surface_a_rescued < surface_a_plain

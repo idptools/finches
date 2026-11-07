@@ -1,38 +1,45 @@
+"""
+Compiled helpers for building interaction matrices and sliding-window epsilon.
+
+matrix_scan() is the implementation behind
+InteractionMatrixConstructor.calculate_sliding_epsilon(); matrix_scan_legacy() is
+the original explicit-loop version, kept as a reference implementation and for
+benchmarking (see finches/benchmarking/benchmark_matrix_scan.py). dict2matrix()
+builds a raw interaction matrix from the nested lookup dictionary when the
+faster NumPy table cannot be used.
+"""
+
 import numpy as np
 cimport numpy as cnp
-cimport cython 
+cimport cython
 
-from cpython cimport array
-import array
-
-from libc.stdlib cimport rand, srand, RAND_MAX
-
+from libc.stdlib cimport rand, RAND_MAX
 
 
 @cython.boundscheck(False)
-@cython.cdivision(True)
 def dict2matrix(str seq1, str seq2, dict lookup):
     """
-    Convert two sequences into a numeric matrix using a nested lookup.
-    
+    Build a matrix from two sequences and a nested lookup dictionary.
+
     Parameters
     ----------
     seq1 : str
-        First sequence of characters; defines rows of output matrix.
+        First sequence; defines the rows of the matrix.
     seq2 : str
-        Second sequence of characters; defines columns of output matrix.
+        Second sequence; defines the columns of the matrix.
     lookup : dict
-        Nested dictionary mapping seq1 char to dict mapping seq2 char to float value.
-    
+        Nested dictionary, lookup[a][b] = value for residues a and b.
+
     Returns
     -------
-    numpy.ndarray of shape (len(seq1), len(seq2))
-        Matrix where entry [i,j] = lookup[seq1[i]][seq2[j]].
-    
-    Algorithm
-    ---------
-    1. Preallocate an empty float matrix of shape (len(seq1), len(seq2)).
-    2. Iterate over all index pairs (i,j), assign matrix[i,j] = lookup[seq1[i]][seq2[j]].
+    numpy.ndarray
+        Float matrix of shape (len(seq1), len(seq2)) with element [i, j] equal
+        to lookup[seq1[i]][seq2[j]].
+
+    Raises
+    ------
+    KeyError
+        If a residue is missing from the lookup.
     """
     cdef int r1, r2, l1, l2
 
@@ -40,7 +47,7 @@ def dict2matrix(str seq1, str seq2, dict lookup):
     l2 = len(seq2)
 
     # preallocate the matrix
-    cdef cnp.ndarray[cnp.float_t, ndim=2] matrix = np.empty((l1, l2), dtype=float)
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] matrix = np.empty((l1, l2), dtype=np.float64)
 
     for r1 in range(l1):
         for r2 in range(l2):
@@ -53,28 +60,42 @@ def dict2matrix(str seq1, str seq2, dict lookup):
 @cython.cdivision(True)
 cpdef matrix_scan_legacy(double[:,:] w_matrix, int window_size, double null_interaction_baseline):
     """
-    Compute sliding window epsilon using explicit nested loops.
-    
-    This legacy implementation performs the following for each window of size w:
-      1. Copy the w*w submatrix from w_matrix.
-      2. Build 'attractive' deviations: values < baseline → (val-baseline), else -baseline.
-      3. Build 'repulsive' deviations: values > baseline → (val-baseline), else -baseline.
-      4. Sum each row of both matrices, normalize by window_size, accumulate total mean.
-      5. Store combined mean deviation as epsilon in `everything[i,j]`.
-    
-    Notes
+    Compute the sliding-window epsilon matrix with explicit nested loops.
+
+    The original implementation, kept as a reference for matrix_scan() and for
+    benchmarking. For each window of size w it:
+
+    1. copies the w x w sub-matrix;
+    2. builds the attractive deviations: val - baseline where val <= baseline,
+       otherwise -baseline;
+    3. builds the repulsive deviations: val - baseline where val > baseline,
+       otherwise -baseline (an element exactly equal to the baseline is counted
+       once, as attractive, so every element contributes val - 2 * baseline and
+       the result matches matrix_scan());
+    4. sums the row means of both matrices to give the window's epsilon.
+
+    This is O((l1 - w + 1) * (l2 - w + 1) * w^2).
+
+    Parameters
     ----------
-    Algorithmic Complexity
-        - O((l1-w+1)*(l2-w+1)*w^2), since each window requires O(w^2) copying and computation.
-    
+    w_matrix : 2D memoryview of double
+        Weighted interaction matrix, shape (l1, l2).
+    window_size : int
+        Size of the square window.
+    null_interaction_baseline : double
+        The forcefield's null interaction baseline.
+
     Returns
     -------
-    everything : 2D numpy.ndarray
-        Sliding window epsilon values for all positions.
-    seq1_indices : 1D numpy.ndarray
-        1-based indices for sequence1 in protein-space.
-    seq2_indices : 1D numpy.ndarray
-        1-based indices for sequence2 in protein-space.
+    tuple
+        (everything, seq1_indices, seq2_indices): the epsilon matrix of shape
+        (l1 - window_size + 1, l2 - window_size + 1), and the 1-based residue
+        positions of the window centres along each axis.
+
+    Raises
+    ------
+    ValueError
+        If window_size is larger than either dimension of w_matrix.
     """
     # define the variables
     cdef int l1, l2, i, j, start, end, r1, r2;
@@ -86,7 +107,7 @@ cpdef matrix_scan_legacy(double[:,:] w_matrix, int window_size, double null_inte
 
     # check for window size larger than matrix size
     if l1 < window_size or l2 < window_size:
-        raise Exception('Window size is larger than matrix size, cannot calculate sliding epsilon')
+        raise ValueError('Window size larger than matrix size')
 
 
     # preallocate the various matrices being used
@@ -113,7 +134,7 @@ cpdef matrix_scan_legacy(double[:,:] w_matrix, int window_size, double null_inte
             for r1 in range(window_size):
                 for r2 in range(window_size):
 
-                    if sub[r1,r2] < null_interaction_baseline:
+                    if sub[r1,r2] <= null_interaction_baseline:
                         attractive_matrix[r1,r2] = sub[r1,r2] - null_interaction_baseline
                     else:
                         attractive_matrix[r1,r2] = - null_interaction_baseline
@@ -173,14 +194,9 @@ cdef double window_sum(cnp.ndarray[double, ndim=2] sat, int top, int left, int b
     Returns
     -------
     double
-        Sum of original elements in rectangle [top:bottom+1, left:right+1].
-    
-    Calculation
-    -----------
-    total = sat[bottom,right]
-            - sat[top-1,right]   if top>0
-            - sat[bottom,left-1] if left>0
-            + sat[top-1,left-1]  if top>0 and left>0
+        Sum of the original elements in [top:bottom+1, left:right+1], computed
+        as sat[bottom, right] - sat[top-1, right] (if top > 0)
+        - sat[bottom, left-1] (if left > 0) + sat[top-1, left-1] (if both > 0).
     """
     cdef double total = sat[bottom, right]
     if top > 0:
@@ -197,42 +213,40 @@ cpdef matrix_scan(double[:,:] w_matrix,
                             int window_size,
                             double null_interaction_baseline):
     """
-    Compute sliding window epsilon efficiently via summed-area table (SAT).
-    Summed-area tables are extensions of prefix sums to 2D matrices. 
-    They are used to quickly compute sums over rectangular regions in O(1) time after an O(l1*l2) preprocessing step.
-    
-    See: https://en.wikipedia.org/wiki/Summed-area_table
-    
-    This optimized algorithm reduces per-window cost from O(w^2) to O(1).
-    Since we use a large window size w=31, this is a significant speedup.
-    
-    Algorithm Overview
-    -------------------
-    The algorithm works as follows:
-        1. Build SAT of w_matrix in O(l1*l2) time:
-            sat[i,j] = w_matrix[i,j] + sat[i,j-1] + sat[i-1,j] - sat[i-1,j-1].
-        2. For each window top-left (i,j):
-            a. Retrieve raw sum via window_sum(sat, i, j, i+w-1, j+w-1) in O(1).
-            b. Compute epsilon = raw/ws - 2 * ws * null_interaction_baseline.
-        3. As before, assemble 1-based protein-space indices.
+    Compute the sliding-window epsilon matrix with a summed-area table.
+
+    A summed-area table (SAT) is the 2D extension of a prefix sum: after an
+    O(l1 * l2) pass, the sum over any rectangle takes O(1) (see
+    https://en.wikipedia.org/wiki/Summed-area_table). The epsilon of a window
+    only needs that sum. Every element of a window contributes val - 2 * baseline
+    (see finches.epsilon_stateless.get_attractive_repulsive_matrices()), so for
+    a w x w window with element sum S the sum over rows of the row means is
+
+        epsilon = S / w - 2 * w * baseline
+
+    which removes the need to build attractive and repulsive matrices at all and
+    cuts the per-window cost from O(w^2) to O(1).
 
     Parameters
     ----------
     w_matrix : 2D memoryview of double
-        Original interaction matrix.
+        Weighted interaction matrix, shape (l1, l2).
     window_size : int
-        Size of the square sliding window.
+        Size of the square window.
     null_interaction_baseline : double
-        Baseline value to normalize interactions.
-    
+        The forcefield's null interaction baseline.
+
     Returns
     -------
-    everything : 2D numpy.ndarray
-        Matrix of sliding window epsilon values.
-    seq1_indices : 1D numpy.ndarray
-        1-based indices for sequence1.
-    seq2_indices : 1D numpy.ndarray
-        1-based indices for sequence2.
+    tuple
+        (everything, seq1_indices, seq2_indices): the epsilon matrix of shape
+        (l1 - window_size + 1, l2 - window_size + 1), and the 1-based residue
+        positions of the window centres along each axis.
+
+    Raises
+    ------
+    ValueError
+        If window_size is larger than either dimension of w_matrix.
     """
     cdef int l1 = w_matrix.shape[0]
     cdef int l2 = w_matrix.shape[1]
@@ -242,7 +256,7 @@ cpdef matrix_scan(double[:,:] w_matrix,
     cdef double raw       
 
     if l1 < ws or l2 < ws:
-        raise Exception('Window size is larger than matrix size')
+        raise ValueError('Window size larger than matrix size')
 
     # 1) build one SAT over raw matrix
     cdef cnp.ndarray[double, ndim=2] w_sat = np.empty((l1, l2), dtype=np.double)
@@ -269,12 +283,8 @@ cpdef matrix_scan(double[:,:] w_matrix,
                             i, j,
                             i + ws - 1,
                             j + ws - 1)
-            # I believe this is the same as the original algorithm, 
-            # but avoids the need to build separate attractive and repulsive matrices. 
-            # I think when garret first presented this algorithm, many of us were confused by the need to have these two matrices. 
-            # as it really felt like there should've been a way to do this with a single matrix.
-            # I can show the algebra why this is equivalent to explicitly constructing separate matrices and catches
-            # an incredibly unlikely edge case in the original implementation where something is equal to the baseline.
+            # every element contributes val - 2*baseline to the sum of row means,
+            # so the window's epsilon follows from its raw sum alone (see docstring)
             everything[i, j] = raw/ws - 2.0*ws*null_interaction_baseline
 
     cdef int start = int((window_size - 1) / 2) + 1
@@ -292,43 +302,23 @@ cpdef matrix_scan(double[:,:] w_matrix,
 
 def return_random_array(int n):
     """
-    Generate a random array of length n using C's rand().
-    
+    Generate a random array of length n using the C library's rand().
+
+    Nothing in FINCHES uses this function. The C generator is not seeded from
+    Python, so the output is not reproducible; use numpy.random.default_rng()
+    for anything that matters.
+
     Parameters
     ----------
     n : int
-        Desired length of the output array.
-    
+        Length of the output array.
+
     Returns
     -------
     numpy.ndarray
-        1D array of floats in [0,1), each entry = rand()/RAND_MAX.
-    
-    Notes
-    -----
-    Uses the C standard library rand(); not reproducible without seeding via seed_C_rand.
+        1D float array of length n with entries in [0, 1], each rand() / RAND_MAX.
     """
     arr = np.zeros(n)
     for i in range(n):
         arr[i] = rand()/RAND_MAX
     return arr
-
-
-# ....................................................................................................
-#
-cdef seed_C_rand(int seedval):
-    """
-    Seed the C standard library RNG (rand()) for reproducibility.
-    
-    Parameters
-    ----------
-    seedval : int
-        Non-negative integer seed.
-    
-    Notes
-    -----
-    Calls srand(seedval) from libc.stdlib. Affects subsequent rand() calls.
-    """
-    if seedval < 0:
-        raise ValueError("Seed value must be non-negative")
-    srand(seedval)

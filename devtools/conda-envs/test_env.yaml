@@ -1,20 +1,22 @@
 name: test
 channels:
-
   - conda-forge
-
-  - defaults
 dependencies:
     # Base depends
   - python
   - pip
 
+    # Build and runtime dependencies available from conda-forge; the rest
+    # (metapredict and its PyTorch stack) are installed by pip from pyproject.toml
+  - cython
+  - numpy
+  - scipy
+  - matplotlib
+  - tqdm
+  - ipython
+  - mdtraj
+  - networkx
+
     # Testing
   - pytest
   - pytest-cov
-  - codecov
-
-    # Pip-only installs
-  #- pip:
-  #  - codecov
-

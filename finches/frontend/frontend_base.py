@@ -1,65 +1,93 @@
-import metapredict as meta
+"""
+Shared frontend for FINCHES.
 
-from finches import epsilon_to_FHtheory
-from finches import epsilon_stateless
-from tqdm import tqdm
-import matplotlib.pyplot as plt
+FinchesFrontend implements every user-facing analysis (epsilon, intermaps,
+per-residue profiles, phase diagrams, deep mutational scans and the associated
+figures) once, on top of an InteractionMatrixConstructor. The forcefield-specific
+frontends, Mpipi_frontend and CALVADOS_frontend, only build the forcefield and set
+a small number of class attributes (whether the forcefield has RNA parameters and
+the default colour range for intermaps), so the two expose an identical interface.
+"""
 
-import numpy as np
-from scipy.signal import savgol_filter
-import matplotlib
 import functools
 
+import matplotlib
+import matplotlib.pyplot as plt
+import metapredict as meta
+import numpy as np
+from matplotlib.patches import Rectangle
+from scipy.signal import savgol_filter
+from tqdm import tqdm
 
-# ensure text is editable in illustrator
-# matplotlib.rcParams['pdf.fonttype'] = 42
-# matplotlib.rcParams['ps.fonttype'] = 42
-
-# set to define axes linewidths
-# matplotlib.rcParams['axes.linewidth'] = 0.5
-
-# Decorator to apply consistent plot styles (matplotlib and functools are
-# already imported above).
+from finches import epsilon_stateless
+from finches import epsilon_to_FHtheory
 
 
-def _check_smoothing_window(smoothing_window, n_points, seq_len, fragsize):
-    """Validate that a Savitzky-Golay smoothing window fits the binding vector.
-
-    The per-residue binding vector has length ``len(seq) - fragsize + 1``, and
-    ``scipy.signal.savgol_filter`` requires ``smoothing_window <= len(vector)``.
-    When that is violated scipy raises an opaque error; this raises a clear,
-    actionable one instead.
+def _smooth(values, smoothing_window, poly_order, length_note):
+    """
+    Apply Savitzky-Golay smoothing to a per-residue profile, or return it unchanged.
 
     Parameters
     ----------
-    smoothing_window : int
-        Requested Savitzky-Golay window length.
+    values : np.ndarray
+        The profile to smooth.
 
-    n_points : int
-        Number of points in the binding vector to be smoothed.
+    smoothing_window : int, False or None
+        Savitzky-Golay window length. False or None disables smoothing.
 
-    seq_len : int
-        Length of the input sequence (used only for the error message).
+    poly_order : int, False or None
+        Savitzky-Golay polynomial order. False or None disables smoothing.
 
-    fragsize : int
-        Sliding-window fragment size (used only for the error message).
+    length_note : str
+        Short explanation of how the length of the profile is set, used in the
+        error message (for example "len(seq) - fragsize + 1 = 120 - 21 + 1").
+
+    Returns
+    -------
+    np.ndarray
+        The smoothed profile, or ``values`` unchanged if smoothing is disabled.
 
     Raises
     ------
     ValueError
-        If ``smoothing_window`` is larger than ``n_points``.
+        If smoothing_window is longer than the profile. scipy raises an opaque
+        error in this case, so we raise a clear one instead.
     """
+    if smoothing_window in (False, None) or poly_order in (False, None):
+        return values
+
+    n_points = len(values)
     if smoothing_window > n_points:
         raise ValueError(
-            f"smoothing_window ({smoothing_window}) is larger than the binding "
-            f"vector ({n_points} points). The vector length is "
-            f"len(seq) - fragsize + 1 = {seq_len} - {fragsize} + 1 = {n_points}. "
-            f"Reduce smoothing_window to <= {n_points}, reduce fragsize, use a "
-            f"longer sequence, or disable smoothing with smoothing_window=False."
+            f"smoothing_window ({smoothing_window}) is larger than the profile, "
+            f"which has {n_points} points ({length_note}). Reduce smoothing_window "
+            f"to <= {n_points}, use a longer sequence or a smaller window, or "
+            "disable smoothing with smoothing_window=False."
         )
+
+    return savgol_filter(values, smoothing_window, poly_order)
 
 
 def apply_publication_styles(func):
+    """
+    Decorator that sets FINCHES' publication plot style before a plotting method runs.
+
+    Sets Arial (falling back to Liberation Sans and DejaVu Sans), TrueType fonts in
+    PDF/PS output so text stays editable in Illustrator, 0.5 pt axes, and short
+    outward ticks. Note these are written to the global matplotlib rcParams, so
+    they persist for figures made after the call.
+
+    Parameters
+    ----------
+    func : callable
+        The plotting function to wrap.
+
+    Returns
+    -------
+    callable
+        The wrapped function, with its name and docstring preserved.
+    """
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         # Font settings
@@ -101,11 +129,11 @@ class FinchesFrontend:
     Base class for FINCHES frontend interfaces.
 
     This class provides a unified interface for calculating protein-protein
-    and protein-RNA interactions using coarse-grained forcefields. It should
-    not be instantiated directly; instead, use one of the derived classes:
+    interactions using coarse-grained forcefields. It should not be instantiated
+    directly; instead, use one of the derived classes:
 
-    - **Mpipi_frontend**: Uses the Mpipi forcefield (supports protein-RNA)
-    - **CALVADOS_frontend**: Uses the CALVADOS forcefield (protein only)
+    - **Mpipi_frontend**: Uses the Mpipi-GG forcefield
+    - **CALVADOS_frontend**: Uses the CALVADOS2 forcefield
 
     The frontend classes provide high-level methods for:
 
@@ -113,7 +141,7 @@ class FinchesFrontend:
     - Generating interaction matrices (spatially resolved)
     - Building phase diagrams
     - Identifying sticker/spacer regions
-    - Analyzing RNA-binding propensity
+    - Profiling binding propensity along a protein against a chosen peptide
     - Deep mutational scanning (DMS)
 
     All methods handle the underlying forcefield calculations and provide
@@ -121,20 +149,30 @@ class FinchesFrontend:
 
     Attributes
     ----------
+    model : ForcefieldModel
+        The forcefield model. Set by derived classes.
+
     IMC_object : InteractionMatrixConstructor
         The underlying interaction matrix constructor that performs
         the actual calculations. Set by derived classes.
 
+    default_intermap_limit : float
+        Class attribute. The colour scale interaction_figure() uses when vmin
+        and vmax are not given runs from -default_intermap_limit to
+        +default_intermap_limit. Each forcefield sets a value that suits its
+        numerical range (3 for Mpipi, 7.5 for CALVADOS).
+
     Examples
     --------
-    Use via a derived class::\n
+    Use via a derived class::
+
         from finches.frontend.mpipi_frontend import Mpipi_frontend
         from finches.frontend.calvados_frontend import CALVADOS_frontend
 
-        # For protein-protein and protein-RNA analysis
+        # the Mpipi-GG forcefield
         mf = Mpipi_frontend()
 
-        # For protein-protein analysis only
+        # the CALVADOS2 forcefield
         cf = CALVADOS_frontend()
 
         # Calculate homotypic epsilon
@@ -159,15 +197,116 @@ class FinchesFrontend:
 
     """
 
-    def __init__(self):
+    # whether the forcefield has RNA ('U') parameters; derived classes override
+    supports_rna = False
 
+    # half-range of the default intermap colour scale; derived classes override
+    default_intermap_limit = 3.0
+
+    def __init__(self):
+        """
+        Set up the attributes a derived class must fill in.
+
+        Raises
+        ------
+        TypeError
+            If FinchesFrontend itself is instantiated rather than a derived class.
+        """
         # ensure we don't accidentally instantiate this class!
         if type(self) is FinchesFrontend:
             raise TypeError(
                 "FinchesFrontend class should not be instantiated directly, but instead derived classes should be used."
             )
-        # this must be defined in the subclass
+
+        # these must be defined in the derived class
+        self.model = None
         self.IMC_object = None
+
+    # ....................................................................................
+    #
+    #
+    def _check_sequences(self, *sequences):
+        """
+        Reject RNA in any sequence when the forcefield has no RNA parameters.
+
+        The interaction matrix constructor rejects 'U' anyway, as an unknown residue;
+        this check says why, and does so before any expensive work starts.
+
+        Parameters
+        ----------
+        *sequences : str
+            The sequences to check.
+
+        Raises
+        ------
+        ValueError
+            If supports_rna is False and any sequence contains 'U'.
+        """
+        if self.supports_rna:
+            return
+
+        for seq in sequences:
+            if "U" in seq:
+                name = getattr(self.model, "version", type(self).__name__)
+                raise ValueError(
+                    f"{name} has no parameters for RNA, so sequences cannot contain "
+                    "'U'. Use Mpipi_frontend for protein-RNA calculations."
+                )
+
+    # ....................................................................................
+    #
+    #
+    @staticmethod
+    def _disorder_flag(seq, flag):
+        """
+        Resolve a disorder_1 / disorder_2 argument for one sequence.
+
+        None means "predict disorder if possible". metapredict cannot analyse RNA, so
+        a sequence containing 'U' never gets a predicted profile, whatever was asked.
+
+        Parameters
+        ----------
+        seq : str
+            The sequence the flag applies to.
+
+        flag : bool or None
+            The value passed by the caller.
+
+        Returns
+        -------
+        bool
+            True if the disorder profile should be predicted with metapredict.
+        """
+        if "U" in seq:
+            return False
+        return True if flag is None else bool(flag)
+
+    # ....................................................................................
+    #
+    #
+    @staticmethod
+    def _folded_domains(seq):
+        """
+        Folded-domain boundaries predicted by metapredict for one sequence.
+
+        Parameters
+        ----------
+        seq : str
+            The sequence.
+
+        Returns
+        -------
+        list
+            metapredict's folded-domain boundaries as 0-based, half-open
+            [start, end) pairs. Empty for an RNA sequence (containing 'U'), which
+            metapredict cannot analyse, or if the prediction fails.
+        """
+        if "U" in seq:
+            return []
+        try:
+            return meta.predict_disorder_domains(seq).folded_domain_boundaries
+        except Exception:
+            return []
 
     # ....................................................................................
     #
@@ -180,8 +319,8 @@ class FinchesFrontend:
         use_cython=True,
         use_aliphatic_weighting=True,
         use_charge_weighting=True,
-        disorder_1=True,
-        disorder_2=True,
+        disorder_1=None,
+        disorder_2=None,
         null_shuffle=False,
     ):
         """
@@ -193,6 +332,7 @@ class FinchesFrontend:
         identifying interaction hotspots or analyzing domain-domain interactions.
 
         The matrix dimensions depend on the sequence lengths and window size:
+
         - Matrix rows correspond to positions in seq1
         - Matrix columns correspond to positions in seq2
         - Edge positions are trimmed based on window_size (half-window on each side)
@@ -215,29 +355,28 @@ class FinchesFrontend:
             Default is True.
 
         use_aliphatic_weighting : bool, optional
-            If True, apply weighting to aliphatic residues based on local
-            aliphatic context (adjacent aliphatic residues enhance contribution).
+            If True, up-weight contacts between clusters of aliphatic residues.
             Default is True.
 
         use_charge_weighting : bool, optional
-            If True, apply weighting to charged residues based on local
-            charge context (adjacent same-sign charges enhance contribution).
-            Default is True.
+            If True, reduce like-charge repulsion according to the local charge
+            context. Default is True.
 
-        disorder_1 : bool, optional
-            If True, compute disorder profile for seq1 using metapredict.
-            If False, use uniform values (all 1s). Default is True.
+        disorder_1 : bool or None, optional
+            If True, compute the disorder profile for seq1 using metapredict.
+            If False, use uniform values (all 1s). None (default) predicts the
+            profile.
 
-        disorder_2 : bool, optional
-            If True, compute disorder profile for seq2 using metapredict.
-            If False, use uniform values (all 1s). Default is True.
+        disorder_2 : bool or None, optional
+            As disorder_1, for seq2.
 
         null_shuffle : bool or int, optional
-            If False, return raw interaction matrix.
-            If an integer, perform that many shuffled controls and subtract
-            the mean shuffled matrix from the raw matrix to get a
-            sequence-specific signal. Recommended value: 100.
-            Default is False.
+            If False (default), return the raw interaction matrix. If a positive
+            integer, perform that many shuffled controls and subtract the mean
+            shuffled matrix from the raw matrix, leaving the signal due to the
+            arrangement of residues rather than composition alone. For a
+            homotypic pair the mean shuffled matrix is symmetrized. Recommended
+            value: 100.
 
         Returns
         -------
@@ -302,12 +441,40 @@ class FinchesFrontend:
             # Resulting matrix shows sequence-specific interactions
             # relative to composition-matched random sequences
 
+        Raises
+        ------
+        ValueError
+            If null_shuffle is not False or a positive number, or if a sequence
+            contains a residue the forcefield has no parameters for.
+
         See Also
         --------
         interaction_figure : Visualize the interaction matrix as a heatmap.
         epsilon : Get a single epsilon value for two full sequences.
 
         """
+        self._check_sequences(seq1, seq2)
+
+        # validate null_shuffle before doing any work; note we explicitly exclude
+        # bool because bool is a subclass of int and we don't want to allow that to
+        # avoid any potential confusion
+        if null_shuffle is not False:
+            if (
+                not isinstance(null_shuffle, (int, float, np.integer, np.floating))
+                or isinstance(null_shuffle, bool)
+                or null_shuffle < 1
+            ):
+                raise ValueError(
+                    "null_shuffle must be False or a positive number of shuffles, "
+                    f"got {null_shuffle!r}"
+                )
+
+            # range() below needs an int; a float such as 100.0 passes the check above
+            null_shuffle = int(null_shuffle)
+
+        # resolve the disorder flags (None -> predict unless the sequence is RNA)
+        disorder_1 = self._disorder_flag(seq1, disorder_1)
+        disorder_2 = self._disorder_flag(seq2, disorder_2)
 
         # compute the matrix
         B = self.IMC_object.calculate_sliding_epsilon(
@@ -321,14 +488,6 @@ class FinchesFrontend:
 
         # if we're shuffling the sequence
         if null_shuffle is not False:
-            # sanity check if input is provided for null_shuffle; note we explicitly include
-            # bool because bool is a subclass of int and we don't want to allow that to avoid
-            # any potential confusion.
-            if not isinstance(null_shuffle, (int, float)) or isinstance(
-                null_shuffle, bool
-            ):
-                raise ValueError("null_shuffle must be an integer or float")
-
             # initialize for storing
             shuffle_matrices = []
 
@@ -339,7 +498,7 @@ class FinchesFrontend:
                 local_iterator = range(null_shuffle)
 
             # cycle through the number of shuffles
-            for i in local_iterator:
+            for _ in local_iterator:
                 # nb for homotypic we ensure the shuffles remain homotypic
                 seq_1_shuffled = "".join(np.random.permutation(list(seq1)))
                 seq_2_shuffled = "".join(np.random.permutation(list(seq2)))
@@ -366,10 +525,8 @@ class FinchesFrontend:
             else:
                 # overwrite the original matrix with the shuffle-normalized matrix
                 new_B_0 = B[0] - mean_shuffle
-            # new_B_0 = np.mean(shuffle_matrices, axis=0)
-            new_B_1 = B[1]
-            new_B_2 = B[2]
-            B = (new_B_0, new_B_1, new_B_2)
+
+            B = (new_B_0, B[1], B[2])
 
         # compute disorder profile for sequence 1 assuming disorder_1 is set to True
         if disorder_1:
@@ -381,7 +538,7 @@ class FinchesFrontend:
         else:
             disorder_1 = np.array([1] * B[0].shape[0])
 
-        # compute disorder profile for sequence 1 assuming disorder_2 is set to True
+        # compute disorder profile for sequence 2 assuming disorder_2 is set to True
         if disorder_2:
             start_python_slice = B[2][0] - 1  # -1 to move into python indexing
             end_python_slice = B[2][-1]  # no -1 because python slices are not inclusive
@@ -408,9 +565,12 @@ class FinchesFrontend:
         """
         Calculate the mean-field interaction parameter (epsilon) between two sequences.
 
-        Epsilon quantifies the overall interaction strength between two protein sequences.
-        It is computed as the sum of all pairwise residue-residue interactions, weighted
-        by local sequence context (charge and aliphatic patterns).
+        Epsilon quantifies the overall interaction strength between two sequences. For
+        every residue in seq1 we take the mean, over the residues of seq2, of the
+        residue-residue interaction (weighted by local charge and aliphatic context)
+        relative to the null baseline, and sum those means over seq1. Epsilon is
+        therefore extensive in seq1 and intensive in seq2, and a poly(GS) sequence
+        scores zero against itself.
 
         Interpretation of epsilon values:
 
@@ -428,18 +588,24 @@ class FinchesFrontend:
             Second amino acid sequence. Use seq1=seq2 for homotypic epsilon.
 
         use_aliphatic_weighting : bool, optional
-            If True, weight aliphatic residues by their local aliphatic context.
-            Adjacent aliphatic residues enhance the contribution. Default is True.
+            If True, up-weight contacts between clusters of aliphatic residues.
+            Default is True.
 
         use_charge_weighting : bool, optional
-            If True, weight charged residues by their local charge context.
-            Adjacent like-charges enhance the contribution. Default is True.
+            If True, reduce like-charge repulsion according to the local charge
+            context. Default is True.
 
         Returns
         -------
         float
-            The epsilon value. Negative = attractive, Positive = repulsive.
-            Typical range is approximately -10 to +5 for most sequences.
+            The epsilon value. Negative = attractive, Positive = repulsive. Because
+            it is extensive in seq1, its magnitude grows with the length of seq1;
+            divide by len(seq1) for a per-residue value.
+
+        Raises
+        ------
+        ValueError
+            If a sequence contains a residue the forcefield has no parameters for.
 
         Examples
         --------
@@ -488,6 +654,7 @@ class FinchesFrontend:
         build_phase_diagram : Use epsilon to construct a phase diagram.
 
         """
+        self._check_sequences(seq1, seq2)
         return self.IMC_object.calculate_epsilon_value(
             seq1,
             seq2,
@@ -504,14 +671,22 @@ class FinchesFrontend:
         """
         Calculate the per-residue attractive and repulsive interaction vectors.
 
-        This function decomposes the epsilon calculation into two components:
+        This function decomposes the epsilon calculation into two components. The
+        weighted interaction matrix is split at the null baseline into an attractive
+        matrix (elements at or below the baseline, zero elsewhere) and a repulsive
+        matrix (elements above it, zero elsewhere); the baseline is subtracted from
+        every element of both, and each vector is the mean over seq2 for each residue
+        of seq1:
 
-        1. **Attractive vector**: Per-residue sum of attractive (negative) interactions
-        2. **Repulsive vector**: Per-residue sum of repulsive (positive) interactions
+        1. **Attractive vector**: the attractive contribution of each residue of seq1
+        2. **Repulsive vector**: the repulsive contribution of each residue of seq1
 
         These vectors show how each residue in seq1 contributes to attraction or
-        repulsion when interacting with seq2. This is useful for identifying which
+        repulsion when interacting with seq2, which is useful for identifying which
         residues are "stickers" (drive attraction) vs. "spacers" (neutral or repulsive).
+        Because the baseline is subtracted from every element of both matrices, an
+        element contributes to both vectors, so neither vector is purely negative or
+        purely positive; their sum is what carries the meaning.
 
         Parameters
         ----------
@@ -523,12 +698,12 @@ class FinchesFrontend:
             Second amino acid sequence.
 
         use_aliphatic_weighting : bool, optional
-            If True, weight aliphatic residues by local aliphatic context.
+            If True, up-weight contacts between clusters of aliphatic residues.
             Default is True.
 
         use_charge_weighting : bool, optional
-            If True, weight charged residues by local charge context.
-            Default is True.
+            If True, reduce like-charge repulsion according to the local charge
+            context. Default is True.
 
         Returns
         -------
@@ -536,14 +711,12 @@ class FinchesFrontend:
             Two arrays, each of length len(seq1):
 
             [0] : np.ndarray
-                Attractive vector. Each element is the sum of attractive (negative)
-                interactions for that residue position. More negative = stronger
-                attraction contributed by that residue.
+                Attractive vector. More negative = stronger attraction
+                contributed by that residue.
 
             [1] : np.ndarray
-                Repulsive vector. Each element is the sum of repulsive (positive)
-                interactions for that residue position. More positive = stronger
-                repulsion contributed by that residue.
+                Repulsive vector. More positive = stronger repulsion contributed
+                by that residue.
 
         Examples
         --------
@@ -577,8 +750,8 @@ class FinchesFrontend:
             positions = np.arange(1, len(seq) + 1)
 
             plt.figure(figsize=(10, 4))
-            plt.bar(positions, attractive, alpha=0.7, label='Attractive', color='green')
-            plt.bar(positions, repulsive, alpha=0.7, label='Repulsive', color='purple')
+            plt.bar(positions, attractive, alpha=0.7, label='Attractive', color='purple')
+            plt.bar(positions, repulsive, alpha=0.7, label='Repulsive', color='green')
             plt.xlabel('Residue Position')
             plt.ylabel('Interaction Strength')
             plt.legend()
@@ -595,6 +768,7 @@ class FinchesFrontend:
         per_residue_attractive_vector : Get smoothed per-residue attractive profile.
 
         """
+        self._check_sequences(seq1, seq2)
         return self.IMC_object.calculate_epsilon_vectors(
             seq1,
             seq2,
@@ -615,18 +789,18 @@ class FinchesFrontend:
         use_aliphatic_weighting=True,
         use_charge_weighting=True,
         tic_frequency=100,
-        seq1_domains=[],
-        seq2_domains=[],
-        seq1_lines=[],
-        seq2_lines=[],
+        seq1_domains=None,
+        seq2_domains=None,
+        seq1_lines=None,
+        seq2_lines=None,
         linewidth=1,
-        vmin=-3,
-        vmax=3,
+        vmin=None,
+        vmax=None,
         cmap="PRGn",
         fname=None,
         zero_folded=True,
-        disorder_1=True,
-        disorder_2=True,
+        disorder_1=None,
+        disorder_2=None,
         no_disorder=False,
         null_shuffle=False,
         plot_rectangles=None,
@@ -641,7 +815,7 @@ class FinchesFrontend:
         3. **Right panel**: Disorder profile for sequence 2
         4. **Colorbar**: Scale for interpreting epsilon values
 
-        Green/negative values indicate attractive interactions, while purple/positive
+        Purple/negative values indicate attractive interactions, while green/positive
         values indicate repulsive interactions (with default PRGn colormap).
 
         Parameters
@@ -670,28 +844,32 @@ class FinchesFrontend:
 
         seq1_domains : list, optional
             List of [start, end] pairs marking domains in seq1 to highlight
-            on the disorder track. Default is [].
+            on the seq1 disorder track. Default is None (none).
 
         seq2_domains : list, optional
             List of [start, end] pairs marking domains in seq2 to highlight
-            on the disorder track. Default is [].
+            on the seq2 disorder track. Default is None (none).
 
         seq1_lines : list, optional
-            List of positions to draw vertical lines on the matrix.
-            Useful for marking domain boundaries. Default is [].
+            List of seq1 positions at which to draw vertical lines on the matrix.
+            Useful for marking domain boundaries. Default is None (none).
 
         seq2_lines : list, optional
-            List of positions to draw horizontal lines on the matrix.
-            Default is [].
+            List of seq2 positions at which to draw horizontal lines on the
+            matrix. Default is None (none).
 
         linewidth : float, optional
-            Width of domain boundary lines. Default is 1.
+            Width of the seq1_lines / seq2_lines. Default is 1.
 
         vmin : float, optional
-            Minimum value for color scale. Default is -3.
+            Minimum value for the colour scale. Default is None, which uses
+            -default_intermap_limit for the frontend (-3 for Mpipi, -7.5 for
+            CALVADOS).
 
         vmax : float, optional
-            Maximum value for color scale. Default is 3.
+            Maximum value for the colour scale. Default is None, which uses
+            +default_intermap_limit for the frontend (+3 for Mpipi, +7.5 for
+            CALVADOS).
 
         cmap : str, optional
             Matplotlib colormap name. Default is 'PRGn' (purple-green diverging).
@@ -700,27 +878,32 @@ class FinchesFrontend:
             If provided, save figure to this filepath. Default is None (display only).
 
         zero_folded : bool, optional
-            If True, set epsilon=0 for regions predicted to be folded.
-            Helps focus on IDR-IDR interactions. Default is True.
+            If True, set epsilon=0 for the rows and columns of residues that
+            metapredict predicts to be in a folded domain, which focuses the map
+            on IDR-IDR interactions. Default is True.
 
-        disorder_1 : bool, optional
-            Show disorder profile for seq1. Default is True.
+        disorder_1 : bool or None, optional
+            If True, the seq1 track shows the metapredict disorder profile; if
+            False it shows a flat profile of 1s. None (default) predicts the
+            profile.
 
-        disorder_2 : bool, optional
-            Show disorder profile for seq2. Default is True.
+        disorder_2 : bool or None, optional
+            As disorder_1, for seq2.
 
         no_disorder : bool, optional
             If True, omit disorder panels entirely. Default is False.
 
         null_shuffle : bool or int, optional
-            If an integer, subtract shuffled background (that many shuffles).
-            Default is False.
+            If a positive integer, subtract the mean of that many shuffled
+            controls (see intermolecular_idr_matrix()). Default is False.
 
         plot_rectangles : list, optional
-            List of rectangle specifications to highlight regions:
-            [[x1_start, x1_end, x2_start, x2_end, kwargs_dict], ...]
-            where kwargs_dict contains matplotlib Rectangle parameters.
-            Default is None.
+            List of rectangles to draw on the matrix, each given as
+            [x_start, x_end, y_start, y_end, kwargs], where x is seq1, y is seq2
+            and kwargs is an optional dict of matplotlib Rectangle properties
+            (for example {'edgecolor': 'r'}). Rectangles default to an unfilled
+            outline 2 points wide; any key in kwargs overrides that. Default is
+            None.
 
         Returns
         -------
@@ -747,8 +930,7 @@ class FinchesFrontend:
             seq1 = "MSKGEELFTGVVPILVELDGDVNGHKFSVS" * 3  # ~90 residues
             seq2 = "EKEKEKEKEKEKEKEKEKEK" * 3
 
-            mf.interaction_figure(seq1, seq2
-
+            mf.interaction_figure(seq1, seq2)
 
         Homotypic analysis with domain annotations::
 
@@ -788,11 +970,13 @@ class FinchesFrontend:
 
         """
 
-        # note - when this is called from a derived class it's the DERIVED CLASS
-        # version of the intermolecular_idr_matrix function that's called, so RNA
-        # is handled in this correctly. The disorder_1/disorder_2 flags are passed
-        # through so they actually take effect (a derived class may still override
-        # them internally, e.g. forcing them off for poly-U RNA).
+        # colour scale defaults are forcefield-specific
+        if vmin is None:
+            vmin = -self.default_intermap_limit
+        if vmax is None:
+            vmax = self.default_intermap_limit
+
+        # RNA checks and the disorder defaults are handled in here
         B, disorder_1, disorder_2 = self.intermolecular_idr_matrix(
             seq1,
             seq2,
@@ -805,15 +989,11 @@ class FinchesFrontend:
             null_shuffle=null_shuffle,
         )
 
+        # predicted folded domains, one sequence at a time so that a sequence
+        # metapredict cannot analyse (e.g. RNA) does not cost the other its domains
         if zero_folded:
-            try:
-                folded_1 = meta.predict_disorder_domains(seq1).folded_domain_boundaries
-                folded_2 = meta.predict_disorder_domains(seq2).folded_domain_boundaries
-
-            except Exception:
-                folded_1 = []
-                folded_2 = []
-
+            folded_1 = self._folded_domains(seq1)
+            folded_2 = folded_1 if seq2 == seq1 else self._folded_domains(seq2)
         else:
             folded_1 = []
             folded_2 = []
@@ -821,29 +1001,27 @@ class FinchesFrontend:
         # zero out any matrix row/column whose protein position falls inside a
         # folded domain. B[1] and B[2] are the 1-based protein positions for the
         # matrix rows (seq1) and columns (seq2) respectively, so we mask directly
-        # against those position arrays. This is both correct (the previous
-        # index-arithmetic loop started at B[1][0]-1, wrapping to row -1, and
-        # stopped one short of the final row) and far faster than per-cell loops.
+        # against those position arrays.
         seq1_positions = np.asarray(B[1])
         seq2_positions = np.asarray(B[2])
 
+        # metapredict boundaries are 0-based and half-open ([start, end)), so in
+        # the 1-based inclusive positions used here a domain spans start+1..end
         for fd in folded_1:
-            row_mask = (seq1_positions >= fd[0]) & (seq1_positions <= fd[1])
+            row_mask = (seq1_positions >= fd[0] + 1) & (seq1_positions <= fd[1])
             B[0][row_mask, :] = 0
 
         for fd in folded_2:
-            col_mask = (seq2_positions >= fd[0]) & (seq2_positions <= fd[1])
+            col_mask = (seq2_positions >= fd[0] + 1) & (seq2_positions <= fd[1])
             B[0][:, col_mask] = 0
 
         # extract out the interaction matrix
         matrix = B[0]
 
-        # Create a figure and a grid of subplots; note we can tweak the figure size params to
-        # make the figure look good depending on how long the two sequences are, here 5.5 and 5
-        # works but this is adjustable ofc.
+        # Create a figure and a grid of subplots
         fig = plt.figure(figsize=(8.5, 8.5), dpi=350)
 
-        # Main matrix plot; create axis and then plot using seismic so 0=white
+        # Main matrix plot; a diverging colormap centred on 0 so 0 = white
         ax_main = plt.subplot2grid((4, 4), (1, 0), colspan=3, rowspan=3)
 
         # note we need that +1
@@ -866,10 +1044,10 @@ class FinchesFrontend:
         )  # Rotates the x-tick labels by 45 degrees
 
         # add any lines onto the main axis as vertical (seq1) or horizontal (seq2) lines
-        for line in seq1_lines:
+        for line in seq1_lines or []:
             ax_main.axvline(line, color="k", linewidth=linewidth)
 
-        for line in seq2_lines:
+        for line in seq2_lines or []:
             ax_main.axhline(line, color="k", linewidth=linewidth)
 
         if no_disorder:
@@ -881,15 +1059,13 @@ class FinchesFrontend:
 
             # plot disorder profile
             ax_top.bar(B[1], disorder_1, width=1, color="k", alpha=0.3)
-
-            # if we wanted to plot mean per-residue inteaction value, uncomment
             ax_top.set_xlim(B[1][0], B[1][-1])
 
             # disorder goes 0 to 1
             ax_top.set_ylim(0, 1.05)
 
             # highlight some specific regions manually
-            for r in seq1_domains:
+            for r in seq1_domains or []:
                 region_start = r[0]
                 region_end = r[1]
                 ax_top.axvspan(
@@ -910,8 +1086,7 @@ class FinchesFrontend:
             ax_right.set_xlim(0, 1.05)
 
             # highlight some specific regions manually
-
-            for r in seq2_domains:
+            for r in seq2_domains or []:
                 region_start = r[0]
                 region_end = r[1]
                 ax_right.axhspan(
@@ -925,19 +1100,19 @@ class FinchesFrontend:
 
         if plot_rectangles is not None:
             for r in plot_rectangles:
-                region_start_1 = r[0]
-                region_end_1 = r[1]
-                region_start_2 = r[2]
-                region_end_2 = r[3]
-                kwargs = r[4]
+                region_start_1, region_end_1, region_start_2, region_end_2 = r[:4]
+
+                # an unfilled 2-point outline unless the caller says otherwise
+                style = {"linewidth": 2, "facecolor": "none"}
+                if len(r) > 4 and r[4]:
+                    style.update(r[4])
+
                 ax_main.add_patch(
-                    matplotlib.patches.Rectangle(
+                    Rectangle(
                         (region_start_1, region_start_2),
                         region_end_1 - region_start_1,
                         region_end_2 - region_start_2,
-                        linewidth=2,
-                        facecolor="none",
-                        **kwargs,
+                        **style,
                     )
                 )
 
@@ -1011,26 +1186,36 @@ class FinchesFrontend:
             Default is False.
 
         attractive_threshold : float, optional
-            Values below this threshold are considered attractive.
+            Intermap values below this threshold are considered attractive.
             Default is 0 (only negative values).
 
-        smoothing_window : int or False, optional
-            Window size for Savitzky-Golay smoothing filter.
-            Set to False to disable smoothing. Default is 20.
+        smoothing_window : int, False or None, optional
+            Window size for the Savitzky-Golay smoothing filter; must be no
+            longer than the profile (len(seq1) - window_size + 1 points). False
+            or None disables smoothing. Default is 20.
 
-        poly_order : int or False, optional
-            Polynomial order for Savitzky-Golay filter.
-            Set to False to disable smoothing. Default is 3.
+        poly_order : int, False or None, optional
+            Polynomial order for the Savitzky-Golay filter. False or None
+            disables smoothing. Default is 3.
 
         Returns
         -------
         tuple of np.ndarray
             [0] : np.ndarray
-                1-indexed position indices for seq1.
+                1-indexed positions in seq1 of the window centres, one per row
+                of the intermap.
 
             [1] : np.ndarray
-                Per-residue attractive values (smoothed by default).
-                More negative = stronger average attraction at that position.
+                Per-residue attractive values (smoothed by default): the mean
+                over the windows of seq2 of the intermap values below
+                attractive_threshold (0 where there are none). More negative =
+                stronger average attraction at that position.
+
+        Raises
+        ------
+        ValueError
+            If smoothing_window is longer than the profile, or a sequence
+            contains a residue the forcefield has no parameters for.
 
         Examples
         --------
@@ -1047,9 +1232,9 @@ class FinchesFrontend:
 
             # Plot the sticker profile
             plt.figure(figsize=(10, 3))
-            plt.plot(positions, attractive, 'g-', lw=1)
+            plt.plot(positions, attractive, color='purple', lw=1)
             plt.fill_between(positions, attractive, 0,
-                            where=(attractive < 0), alpha=0.3, color='green')
+                            where=(attractive < 0), alpha=0.3, color='purple')
             plt.xlabel('Residue Position')
             plt.ylabel('Average Attractive Interaction')
             plt.axhline(0, color='black', lw=0.5)
@@ -1086,59 +1271,19 @@ class FinchesFrontend:
 
         """
 
-        # do the thing; note this class from the derived class so model-specific
-        # sanity checking is handled implicitly here
-        B = self.intermolecular_idr_matrix(
+        return self._per_residue_profile(
             seq1,
             seq2,
-            window_size=window_size,
-            use_cython=use_cython,
-            use_aliphatic_weighting=use_aliphatic_weighting,
-            use_charge_weighting=use_charge_weighting,
-        )[0]
-
-        # extract the raw matrix
-        raw_matrix = B[0]
-
-        # get dem indices
-        idx = np.arange(B[1][0], B[1][-1] + 1)
-
-        # create a mask for attractive values
-        attractive_mask = raw_matrix < attractive_threshold
-
-        # sum attractive values along seq2 (axis=1), giving one value per seq1 position
-        attractive_sums = np.sum(raw_matrix * attractive_mask, axis=1)
-
-        if len(attractive_sums) != len(idx):
-            print(len(attractive_sums), len(idx))
-            raise ValueError(
-                "Length of attractive sums does not match length of indices; this is a bug."
-            )
-
-        # count attractive values along seq2 (axis=1) for each seq1 position
-        attractive_counts = np.sum(attractive_mask, axis=1)
-
-        # Avoid division by zero for columns with no attractive values
-        attractive_counts[attractive_counts == 0] = 1
-
-        # calculate the average of attractive values in each column
-        if return_total:
-            vals = attractive_sums
-        else:
-            vals = attractive_sums / attractive_counts
-
-        # if no smoothing is requested
-        if smoothing_window is False or poly_order is False:
-            pass
-        else:
-            try:
-                vals = savgol_filter(vals, smoothing_window, poly_order)
-            except Exception as e:
-                print("")
-                print("Error when trying to apply savgol filter; error message below")
-                raise (e)
-
-        return idx, vals
+            window_size,
+            use_cython,
+            use_aliphatic_weighting,
+            use_charge_weighting,
+            return_total,
+            True,
+            attractive_threshold,
+            smoothing_window,
+            poly_order,
+        )
 
     # ....................................................................................
     #
@@ -1193,26 +1338,36 @@ class FinchesFrontend:
             Default is False.
 
         repulsive_threshold : float, optional
-            Values above this threshold are considered repulsive.
+            Intermap values above this threshold are considered repulsive.
             Default is 0 (only positive values).
 
-        smoothing_window : int or False, optional
-            Window size for Savitzky-Golay smoothing filter.
-            Set to False to disable smoothing. Default is 20.
+        smoothing_window : int, False or None, optional
+            Window size for the Savitzky-Golay smoothing filter; must be no
+            longer than the profile (len(seq1) - window_size + 1 points). False
+            or None disables smoothing. Default is 20.
 
-        poly_order : int or False, optional
-            Polynomial order for Savitzky-Golay filter.
-            Set to False to disable smoothing. Default is 3.
+        poly_order : int, False or None, optional
+            Polynomial order for the Savitzky-Golay filter. False or None
+            disables smoothing. Default is 3.
 
         Returns
         -------
         tuple of np.ndarray
             [0] : np.ndarray
-                1-indexed position indices for seq1.
+                1-indexed positions in seq1 of the window centres, one per row
+                of the intermap.
 
             [1] : np.ndarray
-                Per-residue repulsive values (smoothed by default).
-                More positive = stronger average repulsion at that position.
+                Per-residue repulsive values (smoothed by default): the mean
+                over the windows of seq2 of the intermap values above
+                repulsive_threshold (0 where there are none). More positive =
+                stronger average repulsion at that position.
+
+        Raises
+        ------
+        ValueError
+            If smoothing_window is longer than the profile, or a sequence
+            contains a residue the forcefield has no parameters for.
 
         Examples
         --------
@@ -1229,9 +1384,9 @@ class FinchesFrontend:
 
             # Plot the spacer profile
             plt.figure(figsize=(10, 3))
-            plt.plot(positions, repulsive, 'purple', lw=1)
+            plt.plot(positions, repulsive, color='green', lw=1)
             plt.fill_between(positions, 0, repulsive,
-                            where=(repulsive > 0), alpha=0.3, color='purple')
+                            where=(repulsive > 0), alpha=0.3, color='green')
             plt.xlabel('Residue Position')
             plt.ylabel('Average Repulsive Interaction')
             plt.axhline(0, color='black', lw=0.5)
@@ -1245,13 +1400,13 @@ class FinchesFrontend:
 
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 5), sharex=True)
 
-            ax1.plot(pos, attractive, 'g-')
-            ax1.fill_between(pos, attractive, 0, alpha=0.3, color='green')
+            ax1.plot(pos, attractive, color='purple')
+            ax1.fill_between(pos, attractive, 0, alpha=0.3, color='purple')
             ax1.set_ylabel('Attractive')
             ax1.set_title('Sticker Profile')
 
-            ax2.plot(pos, repulsive, 'purple')
-            ax2.fill_between(pos, 0, repulsive, alpha=0.3, color='purple')
+            ax2.plot(pos, repulsive, color='green')
+            ax2.fill_between(pos, 0, repulsive, alpha=0.3, color='green')
             ax2.set_ylabel('Repulsive')
             ax2.set_xlabel('Residue Position')
             ax2.set_title('Spacer Profile')
@@ -1265,8 +1420,55 @@ class FinchesFrontend:
 
         """
 
-        # do the thing; note this class from the derived class so model-specific
-        # sanity checking is handled implicitly here
+        return self._per_residue_profile(
+            seq1,
+            seq2,
+            window_size,
+            use_cython,
+            use_aliphatic_weighting,
+            use_charge_weighting,
+            return_total,
+            False,
+            repulsive_threshold,
+            smoothing_window,
+            poly_order,
+        )
+
+    # ....................................................................................
+    #
+    #
+    def _per_residue_profile(
+        self,
+        seq1,
+        seq2,
+        window_size,
+        use_cython,
+        use_aliphatic_weighting,
+        use_charge_weighting,
+        return_total,
+        attractive,
+        threshold,
+        smoothing_window,
+        poly_order,
+    ):
+        """
+        Shared implementation of per_residue_attractive_vector() and
+        per_residue_repulsive_vector().
+
+        Parameters
+        ----------
+        attractive : bool
+            If True, select intermap values below ``threshold``; if False, values
+            above it.
+
+        All other parameters are as documented in the two public methods.
+
+        Returns
+        -------
+        tuple of np.ndarray
+            (positions, values) as documented in the public methods.
+        """
+        # only the matrix is needed, so skip the (slow) disorder prediction
         B = self.intermolecular_idr_matrix(
             seq1,
             seq2,
@@ -1274,48 +1476,38 @@ class FinchesFrontend:
             use_cython=use_cython,
             use_aliphatic_weighting=use_aliphatic_weighting,
             use_charge_weighting=use_charge_weighting,
+            disorder_1=False,
+            disorder_2=False,
         )[0]
 
-        # extract the raw matrix
         raw_matrix = B[0]
 
-        # get dem indices
+        # 1-based positions in seq1 of the window centre for each matrix row
         idx = np.arange(B[1][0], B[1][-1] + 1)
 
-        # create a mask for repulsive values
-        repulsive_mask = raw_matrix > repulsive_threshold
+        # select the attractive (or repulsive) cells in each row
+        if attractive:
+            mask = raw_matrix < threshold
+        else:
+            mask = raw_matrix > threshold
 
-        # sum repulsive values along seq2 (axis=1), giving one value per seq1 position
-        repulsive_sums = np.sum(raw_matrix * repulsive_mask, axis=1)
+        # sum the selected values along seq2 (axis=1), one value per seq1 position
+        sums = np.sum(raw_matrix * mask, axis=1)
 
-        if len(repulsive_sums) != len(idx):
-            print(len(repulsive_sums), len(idx))
-            raise ValueError(
-                "Length of repulsive sums does not match length of indices; this is a bug."
-            )
-
-        # count repulsive values along seq2 (axis=1) for each seq1 position
-        repulsive_counts = np.sum(repulsive_mask, axis=1)
-
-        # Avoid division by zero for columns with no repulsive values
-        repulsive_counts[repulsive_counts == 0] = 1
-
-        # calculate the average of repulsive values in each column
         if return_total:
-            vals = repulsive_sums
+            vals = sums
         else:
-            vals = repulsive_sums / repulsive_counts
+            # mean of the selected values; a row with none selected gives 0
+            counts = np.sum(mask, axis=1)
+            counts[counts == 0] = 1
+            vals = sums / counts
 
-        # if no smoothing is requested
-        if smoothing_window is False or poly_order is False:
-            pass
-        else:
-            try:
-                vals = savgol_filter(vals, smoothing_window, poly_order)
-            except Exception as e:
-                print("")
-                print("Error when trying to apply savgol filter; error message below")
-                raise (e)
+        vals = _smooth(
+            vals,
+            smoothing_window,
+            poly_order,
+            f"one per window of seq1, len(seq1) - window_size + 1 = {len(vals)}",
+        )
 
         return idx, vals
 
@@ -1349,25 +1541,36 @@ class FinchesFrontend:
         fragsize : int, optional
             Size of the sliding window. Must be odd. Default is 21.
 
-        smoothing_window : int or False, optional
-            Window size for Savitzky-Golay smoothing filter.
-            Set to False to disable smoothing. Default is 30.
+        smoothing_window : int, False or None, optional
+            Window size for the Savitzky-Golay smoothing filter; must be no longer
+            than the profile (len(seq) - fragsize + 1 points). False or None
+            disables smoothing. Default is 30.
 
-        poly_order : int or False, optional
-            Polynomial order for Savitzky-Golay filter.
-            Set to False to disable smoothing. Default is 3.
+        poly_order : int, False or None, optional
+            Polynomial order for the Savitzky-Golay filter. False or None
+            disables smoothing. Default is 3.
 
         Returns
         -------
-        list of np.ndarray
+        tuple of np.ndarray
             [0] : np.ndarray
-                Residue positions (centered on each window).
-                Positions start at (fragsize-1)/2 and end at len(seq)-(fragsize+1)/2.
+                1-indexed residue positions (the centre of each window), matching
+                the convention used by every other frontend function. Positions
+                run from (fragsize+1)/2 to len(seq)-(fragsize-1)/2. A sequence no
+                longer than fragsize is scored as one fragment centred at
+                (len(seq)+1)/2.
 
             [1] : np.ndarray
                 Per-residue RNA interaction values.
                 Negative = favorable RNA binding.
                 Positive = unfavorable RNA binding.
+
+        Raises
+        ------
+        ValueError
+            If the forcefield has no RNA parameters (CALVADOS_frontend), if
+            fragsize is not a positive odd integer, or if smoothing_window is
+            longer than the profile.
 
         Examples
         --------
@@ -1375,13 +1578,15 @@ class FinchesFrontend:
 
             from finches.frontend.mpipi_frontend import Mpipi_frontend
             import matplotlib.pyplot as plt
+            import numpy as np
 
             mf = Mpipi_frontend()
 
             # Example: FUS protein (known RNA-binding protein)
             fus_seq = "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQ"
 
-            positions, rna_binding = mf.protein_nucleic_vector(fus_seq)
+            # a short sequence gives a short profile, so we skip the smoothing
+            positions, rna_binding = mf.protein_nucleic_vector(fus_seq, smoothing_window=False)
 
             plt.figure(figsize=(10, 3))
             plt.plot(positions, rna_binding, 'b-')
@@ -1398,16 +1603,16 @@ class FinchesFrontend:
             seq_rbd  = "ARGARGARGARGARGARG"  # Arg-rich (RNA-binding)
             seq_ctrl = "AAAAAAAAAAAAAAAAAA"  # Control
 
-            pos1, bind1 = mf.protein_nucleic_vector(seq_rbd, fragsize=11)
-            pos2, bind2 = mf.protein_nucleic_vector(seq_ctrl, fragsize=11)
+            pos1, bind1 = mf.protein_nucleic_vector(seq_rbd, fragsize=11, smoothing_window=False)
+            pos2, bind2 = mf.protein_nucleic_vector(seq_ctrl, fragsize=11, smoothing_window=False)
 
             print(f"RBD mean binding: {np.mean(bind1):.3f}")
             print(f"Control mean binding: {np.mean(bind2):.3f}")
 
         Note
         ----
-        This method is designed for the Mpipi forcefield which has explicit
-        RNA parameters. For CALVADOS, RNA interactions may not be available.
+        This method needs a forcefield with RNA parameters. It works with
+        Mpipi_frontend and raises a ValueError with CALVADOS_frontend.
 
         See Also
         --------
@@ -1415,44 +1620,21 @@ class FinchesFrontend:
 
         """
 
-        if fragsize % 2 == 0:
-            raise Exception("fragsize must be odd")
-
-        # define the function to calculate the epsilon value for a given sequence; the closure
-        # used with the fragsize and IMC_object variables is to avoid having to pass these
-        # as arguments to the function
-        def RNA_bind(seq):
-            return epsilon_stateless.get_sequence_epsilon_value(
-                seq, len(seq) * "U", self.IMC_object
-            ) / len(seq)
-
-        # initialize the return vector
-        return_vector = []
-        idx = []
-
-        # if the sequence is longer than the fragment size, calculate the per-residue
-        # attractive vector for each fragment
-        if len(seq) > fragsize:
-            for i in range(0, 1 + (len(seq) - fragsize)):
-                return_vector.append(RNA_bind(seq[i : i + fragsize]))
-                idx.append(i + (fragsize - 1) / 2)
-
-        # if the sequence is shorter than the fragment size, calculate the per-residue
-        # attractive vector for the whole sequence, which is all we can really do here
-        else:
-            return_vector.append(RNA_bind(seq))
-            idx = [int(len(seq) / 2)]
-
-        return_vector = np.array(return_vector)
-        idx = np.array(idx)
-
-        if smoothing_window is False or poly_order is False:
-            return [idx, return_vector]
-        else:
-            _check_smoothing_window(
-                smoothing_window, len(return_vector), len(seq), fragsize
+        if not self.supports_rna:
+            name = getattr(self.model, "version", type(self).__name__)
+            raise ValueError(
+                f"{name} has no parameters for RNA, so protein_nucleic_vector() is not "
+                "available. Use Mpipi_frontend for protein-RNA calculations."
             )
-            return [idx, savgol_filter(return_vector, smoothing_window, poly_order)]
+        self._check_sequences(seq)
+
+        return self._binding_profile(
+            seq,
+            lambda fragment: "U" * len(fragment),
+            fragsize,
+            smoothing_window,
+            poly_order,
+        )
 
     # ....................................................................................
     #
@@ -1472,7 +1654,8 @@ class FinchesFrontend:
 
         1. Extract a fragment of `fragsize` residues from the protein
         2. Calculate epsilon between that fragment and the peptide
-        3. Normalize by peptide length
+        3. Normalize by fragment length, giving a per-residue value that does not
+           depend on the length of the peptide
         4. Slide the window and repeat
         5. Optionally smooth the resulting profile
 
@@ -1485,28 +1668,38 @@ class FinchesFrontend:
             The peptide sequence to calculate binding propensity against.
 
         fragsize : int, optional
-            Size of the sliding window. Must be odd. Default value is
-            21,.
+            Size of the sliding window. Must be odd. Default is 21.
 
-        smoothing_window : int or False, optional
-            Window size for Savitzky-Golay smoothing filter.
-            Set to False to disable smoothing. Default is 30.
+        smoothing_window : int, False or None, optional
+            Window size for the Savitzky-Golay smoothing filter; must be no longer
+            than the profile (len(seq) - fragsize + 1 points). False or None
+            disables smoothing. Default is 30.
 
-        poly_order : int or False, optional
-            Polynomial order for Savitzky-Golay filter.
-            Set to False to disable smoothing. Default is 3.
+        poly_order : int, False or None, optional
+            Polynomial order for the Savitzky-Golay filter. False or None
+            disables smoothing. Default is 3.
 
         Returns
         -------
-        list of np.ndarray
+        tuple of np.ndarray
             [0] : np.ndarray
-                Residue positions (centered on each window).
-                Positions start at (fragsize-1)/2 and end at len(seq)-(fragsize+1)/2.
+                1-indexed residue positions (the centre of each window), matching
+                the convention used by every other frontend function. Positions
+                run from (fragsize+1)/2 to len(seq)-(fragsize-1)/2. A sequence no
+                longer than fragsize is scored as one fragment centred at
+                (len(seq)+1)/2.
 
             [1] : np.ndarray
                 Per-residue peptide interaction values.
                 Negative = favorable peptide binding.
                 Positive = unfavorable peptide binding.
+
+        Raises
+        ------
+        ValueError
+            If fragsize is not a positive odd integer, if smoothing_window is
+            longer than the profile, or if either sequence contains a residue the
+            forcefield has no parameters for.
 
         Examples
         --------
@@ -1514,13 +1707,15 @@ class FinchesFrontend:
 
             from finches.frontend.mpipi_frontend import Mpipi_frontend
             import matplotlib.pyplot as plt
+            import numpy as np
 
             mf = Mpipi_frontend()
 
             protein_seq = "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQ"
             peptide = "FYWFYW"
 
-            positions, binding = mf.protein_peptide_vector(protein_seq, peptide)
+            # a short sequence gives a short profile, so we skip the smoothing
+            positions, binding = mf.protein_peptide_vector(protein_seq, peptide, smoothing_window=False)
 
             plt.figure(figsize=(10, 3))
             plt.plot(positions, binding, 'b-')
@@ -1546,48 +1741,88 @@ class FinchesFrontend:
 
         See Also
         --------
-        protein_nucleic_vector : Similar function for RNA binding.
         epsilon : Get epsilon for two full sequences.
 
         """
 
-        if fragsize % 2 == 0:
-            raise Exception("fragsize must be odd")
+        self._check_sequences(seq, peptide)
 
-        # define the function to calculate the epsilon value for a given sequence; the closure
-        # uses the peptide and IMC_object variables to avoid passing them as arguments
-        def peptide_bind(seq):
-            return epsilon_stateless.get_sequence_epsilon_value(
-                seq, peptide, self.IMC_object
-            ) / len(peptide)
+        return self._binding_profile(
+            seq, lambda fragment: peptide, fragsize, smoothing_window, poly_order
+        )
 
-        # initialize the return vector
-        return_vector = []
-        idx = []
+    # ....................................................................................
+    #
+    #
+    def _binding_profile(self, seq, partner, fragsize, smoothing_window, poly_order):
+        """
+        Shared implementation of protein_nucleic_vector() and protein_peptide_vector().
 
-        # if the sequence is longer than the fragment size, calculate the per-residue
-        # interaction for each fragment
-        if len(seq) > fragsize:
-            for i in range(0, 1 + (len(seq) - fragsize)):
-                return_vector.append(peptide_bind(seq[i : i + fragsize]))
-                idx.append(i + (fragsize - 1) / 2)
+        Slides a window of ``fragsize`` residues along ``seq`` and, for each window,
+        computes the epsilon between the fragment and its partner sequence divided by
+        the fragment length.
 
-        # if the sequence is shorter than the fragment size, calculate the per-residue
-        # interaction for the whole sequence, which is all we can really do here
-        else:
-            return_vector.append(peptide_bind(seq))
-            idx = [int(len(seq) / 2)]
+        Parameters
+        ----------
+        seq : str
+            The protein sequence.
 
-        return_vector = np.array(return_vector)
-        idx = np.array(idx)
+        partner : callable
+            Function taking a fragment of ``seq`` and returning the sequence it is
+            challenged with (poly-U of the same length, or a fixed peptide).
 
-        if smoothing_window is False or poly_order is False:
-            return [idx, return_vector]
-        else:
-            _check_smoothing_window(
-                smoothing_window, len(return_vector), len(seq), fragsize
+        fragsize, smoothing_window, poly_order
+            As documented in the public methods.
+
+        Returns
+        -------
+        tuple of np.ndarray
+            (positions, values) as documented in the public methods.
+
+        Raises
+        ------
+        ValueError
+            If fragsize is not a positive odd integer, or smoothing_window is
+            longer than the profile.
+        """
+        if (
+            isinstance(fragsize, bool)
+            or not isinstance(fragsize, (int, np.integer))
+            or fragsize < 1
+            or fragsize % 2 == 0
+        ):
+            raise ValueError(
+                f"fragsize must be a positive odd integer, got {fragsize!r}"
             )
-            return [idx, savgol_filter(return_vector, smoothing_window, poly_order)]
+
+        def bind(fragment):
+            # epsilon is a sum over the fragment residues and a mean over the partner
+            # residues, so dividing by the fragment length gives a per-residue value
+            # that does not depend on the length of the partner
+            return epsilon_stateless.get_sequence_epsilon_value(
+                fragment, partner(fragment), self.IMC_object
+            ) / len(fragment)
+
+        # a sequence no longer than the fragment is scored as a single fragment,
+        # which is all we can really do here
+        if len(seq) > fragsize:
+            starts = range(0, len(seq) - fragsize + 1)
+            values = np.array([bind(seq[i : i + fragsize]) for i in starts])
+
+            # 1-based centre of the window starting at 0-based index i
+            idx = np.array([i + (fragsize + 1) / 2 for i in starts])
+        else:
+            values = np.array([bind(seq)])
+            idx = np.array([(len(seq) + 1) / 2])
+
+        values = _smooth(
+            values,
+            smoothing_window,
+            poly_order,
+            f"len(seq) - fragsize + 1 = {len(seq)} - {fragsize} + 1",
+        )
+
+        return idx, values
 
     # ....................................................................................
     #
@@ -1599,7 +1834,7 @@ class FinchesFrontend:
         fragsize=21,
         smoothing_window=30,
         poly_order=3,
-        domains=[],
+        domains=None,
         domain_color="yellow",
         domain_alpha=0.3,
         trace_width=3,
@@ -1611,7 +1846,7 @@ class FinchesFrontend:
         zero_folded=True,
         show_grid=False,
         figsize=(4, 1.5),
-        ylim=[-1.2, 1.2],
+        ylim=(-1.2, 1.2),
     ):
         """
         Generate a publication-ready plot of the RNA-binding profile for a protein.
@@ -1637,8 +1872,8 @@ class FinchesFrontend:
             Polynomial order for smoothing. Default is 3.
 
         domains : list, optional
-            List of [start, end] pairs for domains to highlight.
-            These are shaded with domain_color. Default is [].
+            List of [start, end] pairs (1-based residue positions) for domains to
+            highlight. These are shaded with domain_color. Default is None (none).
 
         domain_color : str, optional
             Color for highlighting domains. Default is 'yellow'.
@@ -1662,7 +1897,9 @@ class FinchesFrontend:
             If provided, save figure to this path. Default is None.
 
         zero_folded : bool, optional
-            If True, shade predicted folded domains in gray. Default is True.
+            If True, shade the folded domains predicted by metapredict in grey.
+            (Unlike interaction_figure(), nothing is zeroed here; the name is kept
+            for consistency.) Default is True.
 
         show_grid : bool, optional
             If True, show vertical grid lines. Default is False.
@@ -1670,8 +1907,8 @@ class FinchesFrontend:
         figsize : tuple, optional
             Figure dimensions (width, height) in inches. Default is (4, 1.5).
 
-        ylim : list, optional
-            Y-axis limits [ymin, ymax]. Default is [-1.2, 1.2].
+        ylim : tuple, optional
+            Y-axis limits (ymin, ymax). Default is (-1.2, 1.2).
 
         tic_frequency : int, optional
             Spacing between x-axis tick labels. Default is 100.
@@ -1686,9 +1923,10 @@ class FinchesFrontend:
         Basic RNA-binding profile plot::
 
             from finches.frontend.mpipi_frontend import Mpipi_frontend
+            import matplotlib.pyplot as plt
 
             mf = Mpipi_frontend()
-            seq = "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQ"
+            seq = "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQ" * 2
 
             fig, ax = mf.plot_protein_nucleic_vector(seq)
             plt.show()
@@ -1718,7 +1956,6 @@ class FinchesFrontend:
 
         """
 
-        # get the per-residue attractive vector
         X = self.protein_nucleic_vector(
             seq,
             fragsize=fragsize,
@@ -1726,55 +1963,24 @@ class FinchesFrontend:
             poly_order=poly_order,
         )
 
-        fig = plt.figure(figsize=figsize, dpi=450)
-        ax = plt.gca()
-
-        plt.scatter(X[0], X[1], c=X[1], s=trace_width, vmin=vmin, vmax=vmax, cmap=cmap)
-        plt.plot(X[0], X[1], "k-", lw=0.3)
-
-        if zero_folded:
-            for d in meta.predict_disorder_domains(seq).folded_domain_boundaries:
-                # ax.axvspan(d[0],d[1],linewidth=0, zorder=-10, color='w', alpha=0.5)
-                ax.axvspan(d[0], d[1], linewidth=0, zorder=-12, color="grey", alpha=0.6)
-
-        for d in domains:
-            ax.axvspan(
-                d[0],
-                d[1],
-                linewidth=0,
-                zorder=-20,
-                color=domain_color,
-                alpha=domain_alpha,
-            )
-
-        plt.xlim([1, len(seq) + 1])
-        ax.axhline(0, color="k", lw=0.5, ls="--")
-
-        # ensure axis are on top
-        for spine in ax.spines.values():
-            # zorder = order in which objects in a plot appear in "z" (axis coming out of the screen)
-            spine.set_zorder(30)
-
-        plt.ylabel("NA\ninteraction", fontsize=6)
-        plt.yticks(fontsize=6)
-        plt.ylim(ylim)
-
-        xticks = [1]
-        xticks.extend(list(np.arange(tic_frequency, len(seq) + 1, tic_frequency)))
-
-        plt.xticks(xticks, fontsize=6)
-        plt.xlabel("Residue", fontsize=6)
-
-        if show_grid:
-            ax.xaxis.grid(True, which="both", linewidth=0.2)
-
-        plt.tight_layout()
-
-        # finally save the figure
-        if fname is not None:
-            plt.savefig(fname, dpi=350)
-
-        return fig, ax
+        return self._plot_binding_profile(
+            seq,
+            X,
+            "NA\ninteraction",
+            domains,
+            domain_color,
+            domain_alpha,
+            trace_width,
+            vmin,
+            vmax,
+            tic_frequency,
+            cmap,
+            fname,
+            zero_folded,
+            show_grid,
+            figsize,
+            ylim,
+        )
 
     # ....................................................................................
     #
@@ -1787,7 +1993,7 @@ class FinchesFrontend:
         fragsize=21,
         smoothing_window=30,
         poly_order=3,
-        domains=[],
+        domains=None,
         domain_color="yellow",
         domain_alpha=0.3,
         trace_width=3,
@@ -1799,7 +2005,7 @@ class FinchesFrontend:
         zero_folded=True,
         show_grid=False,
         figsize=(4, 1.5),
-        ylim=[-1.2, 1.2],
+        ylim=(-1.2, 1.2),
     ):
         """
         Generate a publication-ready plot of the peptide-binding profile for a protein.
@@ -1828,8 +2034,8 @@ class FinchesFrontend:
             Polynomial order for smoothing. Default is 3.
 
         domains : list, optional
-            List of [start, end] pairs for domains to highlight.
-            These are shaded with domain_color. Default is [].
+            List of [start, end] pairs (1-based residue positions) for domains to
+            highlight. These are shaded with domain_color. Default is None (none).
 
         domain_color : str, optional
             Color for highlighting domains. Default is 'yellow'.
@@ -1853,7 +2059,9 @@ class FinchesFrontend:
             If provided, save figure to this path. Default is None.
 
         zero_folded : bool, optional
-            If True, shade predicted folded domains in gray. Default is True.
+            If True, shade the folded domains predicted by metapredict in grey.
+            (Unlike interaction_figure(), nothing is zeroed here; the name is kept
+            for consistency.) Default is True.
 
         show_grid : bool, optional
             If True, show vertical grid lines. Default is False.
@@ -1861,8 +2069,8 @@ class FinchesFrontend:
         figsize : tuple, optional
             Figure dimensions (width, height) in inches. Default is (4, 1.5).
 
-        ylim : list, optional
-            Y-axis limits [ymin, ymax]. Default is [-1.2, 1.2].
+        ylim : tuple, optional
+            Y-axis limits (ymin, ymax). Default is (-1.2, 1.2).
 
         tic_frequency : int, optional
             Spacing between x-axis tick labels. Default is 100.
@@ -1877,9 +2085,10 @@ class FinchesFrontend:
         Basic peptide-binding profile plot::
 
             from finches.frontend.mpipi_frontend import Mpipi_frontend
+            import matplotlib.pyplot as plt
 
             mf = Mpipi_frontend()
-            seq = "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQ"
+            seq = "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQ" * 2
             peptide = "FYWFYW"
 
             fig, ax = mf.plot_protein_peptide_vector(seq, peptide)
@@ -1909,11 +2118,9 @@ class FinchesFrontend:
         See Also
         --------
         protein_peptide_vector : Get the raw data without plotting.
-        plot_protein_nucleic_vector : Similar function for RNA binding.
 
         """
 
-        # get the per-residue peptide interaction vector
         X = self.protein_peptide_vector(
             seq,
             peptide,
@@ -1922,18 +2129,94 @@ class FinchesFrontend:
             poly_order=poly_order,
         )
 
+        return self._plot_binding_profile(
+            seq,
+            X,
+            "Peptide\ninteraction",
+            domains,
+            domain_color,
+            domain_alpha,
+            trace_width,
+            vmin,
+            vmax,
+            tic_frequency,
+            cmap,
+            fname,
+            zero_folded,
+            show_grid,
+            figsize,
+            ylim,
+        )
+
+    # ....................................................................................
+    #
+    #
+    def _plot_binding_profile(
+        self,
+        seq,
+        profile,
+        ylabel,
+        domains,
+        domain_color,
+        domain_alpha,
+        trace_width,
+        vmin,
+        vmax,
+        tic_frequency,
+        cmap,
+        fname,
+        zero_folded,
+        show_grid,
+        figsize,
+        ylim,
+    ):
+        """
+        Shared implementation of plot_protein_nucleic_vector() and
+        plot_protein_peptide_vector().
+
+        Parameters
+        ----------
+        seq : str
+            The protein sequence the profile was computed for.
+
+        profile : tuple
+            (positions, values) as returned by protein_nucleic_vector() or
+            protein_peptide_vector().
+
+        ylabel : str
+            Y-axis label.
+
+        All other parameters are as documented in the public methods.
+
+        Returns
+        -------
+        tuple
+            (fig, ax).
+        """
+        positions, values = profile
+
         fig = plt.figure(figsize=figsize, dpi=450)
         ax = plt.gca()
 
-        plt.scatter(X[0], X[1], c=X[1], s=trace_width, vmin=vmin, vmax=vmax, cmap=cmap)
-        plt.plot(X[0], X[1], "k-", lw=0.3)
+        plt.scatter(
+            positions, values, c=values, s=trace_width, vmin=vmin, vmax=vmax, cmap=cmap
+        )
+        plt.plot(positions, values, "k-", lw=0.3)
 
         if zero_folded:
-            for d in meta.predict_disorder_domains(seq).folded_domain_boundaries:
-                # ax.axvspan(d[0],d[1],linewidth=0, zorder=-10, color='w', alpha=0.5)
-                ax.axvspan(d[0], d[1], linewidth=0, zorder=-12, color="grey", alpha=0.6)
+            for d in self._folded_domains(seq):
+                # boundaries are 0-based half-open; +0.5 maps them onto the edges
+                # of the 1-based residue cells the trace is drawn on
+                ax.axvspan(
+                    d[0] + 0.5,
+                    d[1] + 0.5,
+                    linewidth=0,
+                    zorder=-12,
+                    color="grey",
+                    alpha=0.6,
+                )
 
-        for d in domains:
+        for d in domains or []:
             ax.axvspan(
                 d[0],
                 d[1],
@@ -1951,7 +2234,7 @@ class FinchesFrontend:
             # zorder = order in which objects in a plot appear in "z" (axis coming out of the screen)
             spine.set_zorder(30)
 
-        plt.ylabel("Peptide\ninteraction", fontsize=6)
+        plt.ylabel(ylabel, fontsize=6)
         plt.yticks(fontsize=6)
         plt.ylim(ylim)
 
@@ -1986,9 +2269,10 @@ class FinchesFrontend:
         It uses the sequence's epsilon value to parameterize the Flory-Huggins
         free energy and computes the phase boundaries analytically.
 
-        The temperature is in arbitrary units (AU) related to the interaction
-        strength. Higher critical temperature indicates stronger phase separation
-        propensity.
+        The temperature is in arbitrary units (AU): it is set by the per-residue
+        epsilon (epsilon / len(seq)) and the Flory-Huggins chi, and only its
+        relative value between sequences is meaningful. Higher critical
+        temperature indicates stronger phase separation propensity.
 
         Parameters
         ----------
@@ -2079,9 +2363,12 @@ class FinchesFrontend:
 
         Note
         ----
-        If the sequence has positive (repulsive) epsilon, it cannot phase
-        separate. In this case, the function returns a minimal phase diagram
-        with very low critical temperature.
+        If the sequence has a non-negative (repulsive or zero) epsilon it cannot
+        phase separate. In this case epsilon is replaced by a very weakly
+        attractive -0.01, so the function returns a phase diagram with a very
+        low critical temperature. The chi range scanned is fixed, so a sequence
+        shorter than 15 residues returns empty binodal and spinodal arrays (see
+        finches.epsilon_to_FHtheory.epsilon_to_phase_diagram).
 
         See Also
         --------
@@ -2170,7 +2457,7 @@ class FinchesFrontend:
         Returns
         -------
         list
-            [0] : tuple
+            [0] : list
                 Phase diagram data from build_phase_diagram().
                 See build_phase_diagram for detailed structure.
 
@@ -2183,6 +2470,7 @@ class FinchesFrontend:
         Basic phase diagram::
 
             from finches.frontend.mpipi_frontend import Mpipi_frontend
+            import matplotlib.pyplot as plt
 
             mf = Mpipi_frontend()
             seq = "FYWFYWFYWFYWFYWFYWFY"  # Aromatic-rich, phase-separating
@@ -2300,8 +2588,10 @@ class FinchesFrontend:
 
         tc_ref : str, optional
             Key in seq_dict for the reference sequence. If provided, all
-            temperatures are normalized by this sequence's T_c, so the
-            y-axis becomes T/T_c. Default is None (no normalization).
+            temperatures are divided by the reference's T_c, taken as the highest
+            temperature on its binodal (the critical temperature to within the
+            resolution of the chi grid), so the reference peaks at exactly 1 and
+            the y-axis becomes T/T_c. Default is None (no normalization).
 
         line_style : str, optional
             Line style for all curves. Default is '-'.
@@ -2331,7 +2621,8 @@ class FinchesFrontend:
         -------
         list
             [0] : list
-                List of phase diagram data tuples, one per sequence.
+                List of phase diagram data lists (as returned by
+                build_phase_diagram()), one per sequence, in seq_dict order.
 
             [1] : matplotlib.figure.Figure
 
@@ -2342,6 +2633,7 @@ class FinchesFrontend:
         Compare wild-type and mutants::
 
             from finches.frontend.mpipi_frontend import Mpipi_frontend
+            import matplotlib.pyplot as plt
 
             mf = Mpipi_frontend()
 
@@ -2394,9 +2686,9 @@ class FinchesFrontend:
                 use_aliphatic_weighting=use_aliphatic_weighting,
                 use_charge_weighting=use_charge_weighting,
             )
-            tc_ref = max(B_ref[3])
+            tc_scale = max(B_ref[3])
         else:
-            tc_ref = 1
+            tc_scale = 1
 
         # for each sequence in the dictionary
         all_phase_diagrams = []
@@ -2409,19 +2701,23 @@ class FinchesFrontend:
 
             plt.plot(
                 B[0],
-                B[3] / tc_ref,
+                B[3] / tc_scale,
                 color=seq_dict[k][1],
                 ls=line_style,
                 lw=line_width,
                 label=k,
             )
             plt.plot(
-                B[1], B[3] / tc_ref, color=seq_dict[k][1], ls=line_style, lw=line_width
+                B[1],
+                B[3] / tc_scale,
+                color=seq_dict[k][1],
+                ls=line_style,
+                lw=line_width,
             )
 
             all_phase_diagrams.append(B)
 
-        if np.isclose(tc_ref, 1):
+        if tc_ref is None:
             plt.ylabel(r"$T (AU)$", fontsize=7)
         else:
             plt.ylabel(r"$T/T_c$", fontsize=7)
@@ -2463,8 +2759,9 @@ class FinchesFrontend:
         epsilon values for all possible single-point mutants.
 
         This function systematically mutates each position in the sequence to every
-        one of the 20 standard amino acids and calculates the homotypic epsilon
-        value for each mutant sequence.
+        one of the 20 standard amino acids (or the ones given in amino_acids) and
+        calculates the homotypic epsilon value for each mutant sequence. The
+        "mutation" of a residue to itself is the wild type.
 
         Parameters
         ----------
@@ -2499,7 +2796,8 @@ class FinchesFrontend:
             A tuple containing:
 
             [0] : np.ndarray
-                A 20 x n matrix where element ``[i, j]`` contains either the
+                A (number of amino acids) x n matrix, 20 x n by default, where
+                element ``[i, j]`` contains either the
                 homotypic epsilon value for the sequence with position j mutated
                 to amino acid i (if ``return_delta=False``), or the change in
                 epsilon (mutant - WT) where negative values indicate increased
@@ -2522,8 +2820,12 @@ class FinchesFrontend:
         --------
         Basic usage::
 
+            import numpy as np
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+
             mf = Mpipi_frontend()
-            matrix, amino_acids, positions = mf.dms("MSKGEELFT")
+            seq = "MSKGEELFT"
+            matrix, amino_acids, positions = mf.dms(seq)
 
             # Get epsilon for mutating position 3 (K) to Alanine (A).
             # Look up A's row index rather than hard-coding it, since the row
@@ -2534,17 +2836,17 @@ class FinchesFrontend:
             # Get all epsilon values for position 5 (E)
             all_pos5_mutants = matrix[:, 4]
 
-        To find the most stabilizing mutation::
+        To find the mutation that most increases self-attraction::
 
             matrix, aas, pos = mf.dms(seq, return_delta=True)
             min_idx = np.unravel_index(np.argmin(matrix), matrix.shape)
             best_aa = aas[min_idx[0]]
             best_pos = pos[min_idx[1]]
-            print(f"Most stabilizing: {seq[min_idx[1]-1]}{best_pos}{best_aa}")
+            print(f"Most attractive: {seq[min_idx[1]-1]}{best_pos}{best_aa}")
 
         """
 
-        # Standard amino acids in alphabetical order
+        # Standard amino acids, grouped by chemistry; this is the row order of the output
         VALID_AMINO_ACIDS = [
             "W",
             "Y",
@@ -2584,8 +2886,19 @@ class FinchesFrontend:
 
             AMINO_ACIDS = amino_acids
 
+        self._check_sequences(seq)
+
         seq_len = len(seq)
         n_amino_acids = len(AMINO_ACIDS)
+
+        # the wild-type epsilon is both the "mutation to itself" and the reference
+        # for return_delta, so compute it once
+        wt_epsilon = self.epsilon(
+            seq,
+            seq,
+            use_aliphatic_weighting=use_aliphatic_weighting,
+            use_charge_weighting=use_charge_weighting,
+        )
 
         # Initialize the output matrix (20 amino acids x n positions)
         dms_matrix = np.zeros((n_amino_acids, seq_len))
@@ -2598,8 +2911,6 @@ class FinchesFrontend:
 
         # Set up iterator with optional progress bar
         if show_progress:
-            from tqdm import tqdm
-
             pbar = tqdm(total=total_iterations, desc="DMS scan")
 
         # Convert sequence to list for easier mutation
@@ -2611,23 +2922,21 @@ class FinchesFrontend:
 
             # Iterate over each possible amino acid substitution
             for aa_idx, new_aa in enumerate(AMINO_ACIDS):
-                # Create mutant sequence
                 if new_aa == original_aa:
-                    # No mutation - use original sequence
-                    mutant_seq = seq
+                    # no mutation - this is the wild type
+                    eps = wt_epsilon
                 else:
-                    # Make the substitution
+                    # make the substitution and compute the mutant's homotypic epsilon
                     mutant_list = seq_list.copy()
                     mutant_list[pos_idx] = new_aa
                     mutant_seq = "".join(mutant_list)
 
-                # Calculate homotypic epsilon for the mutant
-                eps = self.epsilon(
-                    mutant_seq,
-                    mutant_seq,
-                    use_aliphatic_weighting=use_aliphatic_weighting,
-                    use_charge_weighting=use_charge_weighting,
-                )
+                    eps = self.epsilon(
+                        mutant_seq,
+                        mutant_seq,
+                        use_aliphatic_weighting=use_aliphatic_weighting,
+                        use_charge_weighting=use_charge_weighting,
+                    )
 
                 # Store in matrix
                 dms_matrix[aa_idx, pos_idx] = eps
@@ -2640,13 +2949,6 @@ class FinchesFrontend:
 
         # If return_delta is True, convert to delta values (mutant - WT)
         if return_delta:
-            # Calculate wild-type epsilon
-            wt_epsilon = self.epsilon(
-                seq,
-                seq,
-                use_aliphatic_weighting=use_aliphatic_weighting,
-                use_charge_weighting=use_charge_weighting,
-            )
             dms_matrix = dms_matrix - wt_epsilon
 
         return (dms_matrix, AMINO_ACIDS, positions)
@@ -2680,9 +2982,9 @@ class FinchesFrontend:
         """
         Generate a heatmap visualization of a deep mutational scan (DMS).
 
-        This function performs a DMS scan and visualizes the results as an
-        n x 20 heatmap where rows correspond to sequence positions and columns
-        correspond to amino acid substitutions.
+        This function performs a DMS scan and visualizes the results as a
+        heatmap where rows correspond to amino acid substitutions (20 by default)
+        and columns correspond to sequence positions.
 
         Parameters
         ----------
@@ -2703,7 +3005,7 @@ class FinchesFrontend:
 
         return_delta : bool
             If True, plot the difference (delta) between mutant and wild-type
-            epsilon values (mutant - WT). Negative values (green in default cmap)
+            epsilon values (mutant - WT). Negative values (purple in default cmap)
             indicate the mutation makes the sequence more self-attractive.
             If False, plot absolute epsilon values. Default is True.
 
@@ -2711,15 +3013,17 @@ class FinchesFrontend:
             Whether to show a progress bar during DMS calculation. Default is True.
 
         vmin : float, optional
-            Minimum value for the color scale. Default is None (auto-determined).
-            For delta values, consider using symmetric limits like -2 to 2.
+            Minimum value for the color scale. Default is None. If both vmin and
+            vmax are None and return_delta is True, the scale is symmetric about
+            zero, set by the largest absolute delta; otherwise matplotlib's
+            automatic limits are used for whichever is None.
 
         vmax : float, optional
-            Maximum value for the color scale. Default is None (auto-determined).
+            Maximum value for the color scale. Default is None (see vmin).
 
         cmap : str
             Colormap to use for the heatmap. Default is 'PRGn' (purple-green
-            diverging colormap where green = negative/attractive).
+            diverging colormap where purple = negative/attractive).
 
         figsize : tuple, optional
             Figure size as (width, height) in inches. Default is None, which
@@ -2776,8 +3080,12 @@ class FinchesFrontend:
         --------
         Basic usage::
 
+            import matplotlib.pyplot as plt
+            from finches.frontend.mpipi_frontend import Mpipi_frontend
+
             mf = Mpipi_frontend()
-            fig, ax, im, dms_data = mf.plot_dms("MSKGEELFTGVVPILVELD")
+            seq = "MSKGEELFTGVVPILVELD"
+            fig, ax, im, dms_data = mf.plot_dms(seq)
             plt.show()
 
         With custom color scale::

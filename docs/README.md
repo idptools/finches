@@ -1,24 +1,19 @@
-# Compiling finches's Documentation
+# Building the finches documentation
 
-The docs for this project are built with [Sphinx](http://www.sphinx-doc.org/en/master/).
-To compile the docs, first ensure that Sphinx and the ReadTheDocs theme are installed.
-
+The docs are built with [Sphinx](http://www.sphinx-doc.org/en/master/) using the Read the Docs theme. To build them locally, make sure Sphinx and the theme are installed in the same environment as finches (the API page uses autodoc, so finches itself has to be importable):
 
 ```bash
-conda install sphinx sphinx_rtd_theme 
+pip install sphinx sphinx_rtd_theme
 ```
 
+or create the conda environment described in `docs/requirements.yaml`.
 
-Once installed, you can use the `Makefile` in this directory to compile static HTML pages by
+Then, from this directory, build the static HTML with
+
 ```bash
 make html
 ```
 
-The compiled docs will be in the `_build` directory and can be viewed by opening `index.html` (which may itself 
-be inside a directory called `html/` depending on what version of Sphinx is installed).
+The compiled pages land in `_build/html/`; open `_build/html/index.html` to view them. `_build/` is ignored by git and should not be committed.
 
-
-A configuration file for [Read The Docs](https://readthedocs.org/) (readthedocs.yaml) is included in the top level of the repository. To use Read the Docs to host your documentation, go to https://readthedocs.org/ and connect this repository. You may need to change your default branch to `main` under Advanced Settings for the project.
-
-If you would like to use Read The Docs with `autodoc` (included automatically) and your package has dependencies, you will need to include those dependencies in your documentation yaml file (`docs/requirements.yaml`).
-
+The hosted documentation at [https://finches.readthedocs.io](https://finches.readthedocs.io) is built by Read the Docs from the `.readthedocs.yml` file in the top level of the repository, which points at `docs/conf.py` and installs the packages listed in `docs/requirements.txt`. Heavy dependencies that are not needed to render the docs (metapredict, matplotlib, scipy, the Cython extension, and so on) are mocked out via `autodoc_mock_imports` in `conf.py`, so if you add a new third-party import to a module that autodoc touches, add it to that list as well or the Read the Docs build will fail to import the module.

@@ -1,18 +1,18 @@
 name: CI
 
 on:
-  # GitHub has started calling new repo's first branch "main" https://github.com/github/renaming
-  # The cookiecutter uses the "--initial-branch" flag when it runs git-init
   push:
     branches:
       - "main"
+      - "develop"
   pull_request:
     branches:
       - "main"
+      - "develop"
   schedule:
     # Weekly tests run on main by default:
     #   Scheduled workflows run on the latest commit on the default or base branch.
-    #   (from https://help.github.com/en/actions/reference/events-that-trigger-workflows#scheduled-events-schedule)
+    #   (from https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#schedule)
     - cron: "0 0 * * 0"
 
 jobs:
@@ -20,45 +20,56 @@ jobs:
     name: Test on ${{ matrix.os }}, Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [macOS-latest, ubuntu-latest, windows-latest]
-        python-version: [3.8, 3.9, "3.10"]
+        # requires-python is >=3.9 (pyproject.toml)
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    # the conda environment is only active in a login shell
+    defaults:
+      run:
+        shell: bash -el {0}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Additional info about the build
-        shell: bash
         run: |
           uname -a
           df -h
           ulimit -a
 
-      # More info on options: https://github.com/marketplace/actions/provision-with-micromamba
-      - uses: mamba-org/provision-with-micromamba@main
+      # More info on options: https://github.com/mamba-org/setup-micromamba
+      - uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: devtools/conda-envs/test_env.yaml
           environment-name: test
-          channels: conda-forge,defaults
-          extra-specs: |
+          create-args: >-
             python=${{ matrix.python-version }}
+          init-shell: bash
+          cache-environment: true
 
       - name: Install package
-        # conda setup requires this special shell
-        shell: bash -l {0}
+        # installs any runtime dependency not already provided by the conda
+        # environment, then builds the Cython extension (matrix_manipulation) in
+        # place. The tests run against the source tree because their reference
+        # data (finches/tests/test_data/*.npz) and example structures
+        # (examples/) are not part of the installed package.
         run: |
-          python -m pip install . --no-deps
+          python -m pip install .
+          python setup.py build_ext --inplace
           micromamba list
 
       - name: Run tests
-        # conda setup requires this special shell
-        shell: bash -l {0}
         run: |
           pytest -v --cov=finches --cov-report=xml --color=yes finches/tests/
 
       - name: CodeCov
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v5
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           flags: unittests
           name: codecov-${{ matrix.os }}-py${{ matrix.python-version }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

@@ -1,98 +1,115 @@
 """
-This Script pulls and builds the pair-wise potentials for the calvados model
-see here:
+The CALVADOS forcefield for FINCHES.
 
-https://github.com/KULL-Centre/CALVADOS
+Implements the CALVADOS coarse-grained forcefield (Tesei et al. 2021; Tesei &
+Lindorff-Larsen 2022): an Ashbaugh-Hatch short-range potential, whose per-residue
+stickiness (lambda) is the thing CALVADOS fits, plus a Debye-Huckel (Yukawa)
+screened Coulomb potential between one-bead-per-residue particles. CALVADOS_model
+reads the residue parameters, evaluates these potentials for any residue pair,
+and turns them into the interaction parameters FINCHES builds its interaction
+matrices from. The stand-alone potentials (ashbaugh_hatch(), yukawa() and
+compute_calvados_energy()) are also exposed at module level.
 
-The Code below is then paired with a jupyter-notebook, and contains code
-directly pulled and adapted from the calvados package.
+The code follows the CALVADOS implementation (https://github.com/KULL-Centre/CALVADOS)
+as closely as possible, including its units: the stand-alone potentials work in
+nanometres, as CALVADOS does, while the CALVADOS_model methods take distances in
+Angstroms like every other part of FINCHES and convert internally. Salt, pH and
+temperature enter through the Yukawa term only: the Debye length depends on salt
+and temperature, the dielectric constant is a fitted function of temperature, and
+the histidine charge is set from the pH. The Ashbaugh-Hatch term does not depend
+on any of them.
 
-Orignally writen by Garrett M. Ginell (2023.03.07)
-Revised by ~ash 2026-01-11
+Sources in the CALVADOS repository that this module follows:
 
-######################################################################
-BUILDING THE MAIN ENERGY POTENTIAL
-#
-# NOTES:
-#  direct_coexistance uses openMM
-#  single_chain uses hoomd
-#
-#  Lennard-Jones potential is a Ashbaugh-Hatch potential
-#  Debye-Hückel potential is a Yukawa potentials
-#
-#
-# FOR:
-#
-#  General SI and explanation:
-#    https://www.pnas.org/doi/suppl/10.1073/pnas.2111696118/suppl_file/pnas.2111696118.sapp.pdf
-#
-#  Prefactors calculation:
-#    (openmm)
-#    https://github.com/KULL-Centre/CALVADOS/blob/main/direct_coexistence/simulate.py
-#     - SEE lines 19-20
-#    https://github.com/KULL-Centre/CALVADOS/blob/main/direct_coexistence/analyse.py
-#     - SEE fxns genParamsLJ & genParamsDH
-#
-#    (hoomd)
-#    https://github.com/KULL-Centre/CALVADOS/blob/main/single_chain/simulate.py
-#     - SEE fxn genParams (line 18) & lines 65-73, 99-108
-#
-#  Potential calculation:
-#    (openmm)
-#    https://github.com/KULL-Centre/CALVADOS/blob/main/direct_coexistence/simulate.py
-#     - SEE lines 92-105
-#
-#    (hoomd)
-#    DH - https://github.com/joaander/hoomd-blue/blob/master/hoomd/md/EvaluatorPairYukawa.h
-#    LJ - https://github.com/mphowardlab/azplugins/blob/af9bc8d63c4b45c3e79c756dc1b47b3a1ac44795/
-                    azplugins/PairEvaluatorAshbaugh.h
-#
-#######################################################################
+* the general SI and explanation:
+  https://www.pnas.org/doi/suppl/10.1073/pnas.2111696118/suppl_file/pnas.2111696118.sapp.pdf
+* parameter generation: single_chain/simulate.py (genParams, line 18, and lines
+  65-73 and 99-108), and direct_coexistence/analyse.py (genParamsLJ, genParamsDH)
+* the potentials: direct_coexistence/simulate.py (lines 92-105), the HOOMD Yukawa
+  evaluator (hoomd/md/EvaluatorPairYukawa.h) and the azplugins Ashbaugh-Hatch
+  evaluator (azplugins/PairEvaluatorAshbaugh.h)
+
+Originally written by Garrett M. Ginell (2023-03-07); revised by Alex S. Holehouse
+(2026-01-11).
 """
 
 import pickle
-import numpy as np
-import finches
 from os.path import exists
-from finches.forcefields.model_base import ForcefieldModel
 
-VALID_AA = [
-    "M",
-    "G",
-    "K",
-    "T",
-    "Y",
-    "A",
-    "D",
-    "E",
-    "V",
-    "L",
-    "Q",
-    "W",
-    "R",
-    "F",
-    "S",
-    "H",
-    "N",
-    "P",
-    "C",
-    "I",
-]
+import numpy as np
 
-CALVADOS_CONFIGS = {}
-CALVADOS_CONFIGS["CALVADOS1"] = {}
-CALVADOS_CONFIGS["CALVADOS2"] = {}
+import finches
+from finches.forcefields.model_base import ForcefieldModel, STANDARD_AMINO_ACIDS
 
-CALVADOS_CONFIGS["CALVADOS1"]["charge_prefactor"] = np.nan  # not computed yet
-CALVADOS_CONFIGS["CALVADOS2"]["charge_prefactor"] = 0.7  # 1.442590
+# CALVADOS covers the 20 amino acids only (no nucleic acids)
+VALID_AA = list(STANDARD_AMINO_ACIDS)
 
-CALVADOS_CONFIGS["CALVADOS1"]["null_interaction_baseline"] = np.nan  # not computed yet
-CALVADOS_CONFIGS["CALVADOS2"][
-    "null_interaction_baseline"
-] = -0.45  # note we bump this slightly from -0.478
+# Calibration constants per version. CALVADOS1 has not been calibrated, so its
+# constants are NaN and an InteractionMatrixConstructor built on it will ask for
+# them explicitly. The CALVADOS2 null interaction baseline was moved slightly from
+# the poly(GS) value of -0.478 (see the FINCHES paper); the unrounded charge
+# prefactor fit is given in the comment.
+CALVADOS_CONFIGS = {
+    "CALVADOS1": {
+        "charge_prefactor": np.nan,
+        "null_interaction_baseline": np.nan,
+    },
+    "CALVADOS2": {
+        "charge_prefactor": 0.7,  # 1.442590
+        "null_interaction_baseline": -0.45,
+    },
+}
 
 
 class CALVADOS_model(ForcefieldModel):
+    """
+    The CALVADOS forcefield as a FINCHES forcefield model.
+
+    Holds the CALVADOS residue parameters for one version and evaluates the
+    Ashbaugh-Hatch and Yukawa pair potentials from them. Pass an instance to
+    InteractionMatrixConstructor (or use
+    finches.frontend.calvados_frontend.CALVADOS_frontend, which does this for you).
+
+    Salt, pH and temperature can be changed after construction by assigning to
+    the salt, pH and temperature attributes: the condition-dependent Yukawa
+    parameters are rebuilt automatically the next time a potential is evaluated.
+    An InteractionMatrixConstructor built on the model has to rebuild its own
+    lookup table afterwards (its _update_lookup_dict() method).
+
+    Attributes
+    ----------
+    SIGMA_ALL : dict of dict
+        Pairwise bead diameter in nm, the mean of the two residues' values,
+        indexed as [residue_1][residue_2].
+
+    LAMBDA_ALL : dict of dict
+        Pairwise stickiness, the mean of the two residues' lambdas for the chosen
+        version.
+
+    YUKAWA_EPS_ALL : dict of dict
+        Pairwise Yukawa prefactor q1 * q2 * lB * RT in kJ/mol nm, for the current
+        conditions.
+
+    yukawa_kappa : float
+        Inverse Debye length in 1/nm for the current salt and temperature.
+
+    dielectric : float
+        Dielectric constant of water at the current temperature, computed from
+        the CALVADOS fit; not an independent parameter.
+
+    lj_eps : float
+        Ashbaugh-Hatch well depth, 0.2 kcal/mol expressed in kJ/mol (0.8368).
+
+    cutoff : float
+        Ashbaugh-Hatch cutoff, 2.0 nm.
+
+    yukawa_r_cut : float
+        Yukawa cutoff, 4.0 nm.
+
+    conditions : list of str
+        ['salt', 'pH', 'temperature'].
+    """
+
     def __init__(
         self,
         version="CALVADOS2",
@@ -102,52 +119,51 @@ class CALVADOS_model(ForcefieldModel):
         input_directory="default",
     ):
         """
-        The CALVADOS_model class defines a CALVADOS_model Object which lets you calculate
-        and return both individual components of the calvados forcefield potential
-        alongside an 'interaction parameter' that reflects pairwise residue interactions.
+        Load the CALVADOS residue parameters and build the pair parameters.
 
         Parameters
-        ---------------
-        version : str
-            Defines the version of the CALVADOS parameters to use for the model.
-            The options here are based off of those defined in the CALVADOS data files.
+        ----------
+        version : str, optional
+            Which stickiness (lambda) parameters to use: 'CALVADOS1' or
+            'CALVADOS2'. Default 'CALVADOS2'. CALVADOS1 has no FINCHES calibration
+            constants, so it can only be used with an explicitly supplied charge
+            prefactor and null interaction baseline.
 
-            Select CALVADOS1 or CALVADOS2 to choose which stickiness parameters to use.
+        salt : float, optional
+            Monovalent salt concentration in molar. Default 0.150 (150 mM).
 
-            Current options are: ['CALVADOS1', 'CALVADOS2']
+        pH : float, optional
+            Solution pH. It sets the histidine charge, 1 / (1 + 10^(pH - 6)); no
+            other residue's charge depends on it. Default 7.4.
 
-        salt : float
-            Defines the general salt concentration to build the reference model.
-            This salt value tunes the electrostatic interactions. Default is 0.15 M.
+        temperature : float, optional
+            Temperature in Kelvin. It sets the dielectric constant of water and
+            the thermal energy in the Bjerrum length, so it changes only the
+            Yukawa term. Default 288.
 
-        pH : float
-            Defines the general pH to build the reference model. Default is 7.4.
+        input_directory : str, optional
+            Directory to read the residue parameters from. Default 'default',
+            which uses the file shipped in finches/data/calvados.
 
-        temperature : float
-            Defines the temperature at which the forcefield model is computed.
-            Functionally this really just modulates the strengths of the Yukawa
-            potentials - the Ashbaugh-Hatch potentials are not temperature dependent.
+            To use your own parameters, point this at a directory holding a
+            calvados_residues_dict.pickle file: a pickled dictionary keyed by
+            one-letter amino acid code, where each value is itself a dictionary
+            with the keys 'three' (three-letter code), 'MW' (molecular weight),
+            'sigmas' (bead diameter in nm), 'q' (charge in units of the elementary
+            charge) and one stickiness (lambda) entry per version name
+            ('CALVADOS1', 'CALVADOS2').
 
-        input_directory : str
-            Defines the directory where the input parameter files are found.
+        Raises
+        ------
+        ValueError
+            If version is not 'CALVADOS1' or 'CALVADOS2'.
 
-            If 'default', the data is pulled from finches.data.calvados.
-
-            The directory should contain a calvados_residues.pickle file with
-            residue parameters. In this way, you could in principle define
-            and save arbitrary parameters and then feed these into the Calvados_model
-            via the input_directory keyword.
-
-        Returns
-        -------------
-        Calvados_model : obj
-            A finches.forcefields.Calvados_model object that can then be passed to
-            the InteractionMatrixConstructor class.
-
+        FileNotFoundError
+            If calvados_residues_dict.pickle is missing from the directory.
         """
 
-        # Call parent constructor - note CALVADOS uses temp-dependent dielectric
-        # so we compute it later, but pass a placeholder here
+        # Call parent constructor. CALVADOS computes its dielectric from the
+        # temperature (in _genParams), so the value passed here is a placeholder
         super().__init__(
             version=version,
             dielectric=80.0,  # placeholder, will be computed from temp
@@ -160,9 +176,11 @@ class CALVADOS_model(ForcefieldModel):
 
         # Validate version before it is used to index the residue parameters below,
         # otherwise an unknown version raises a bare KeyError instead of this message
-        if version not in ["CALVADOS1", "CALVADOS2"]:
-            raise Exception(f"""Passed version of model unknown: {version}
-                                Available versions are: [CALVADOS1, CALVADOS2]""")
+        if version not in CALVADOS_CONFIGS:
+            raise ValueError(
+                f"Unrecognized version [{version}] passed to CALVADOS_model. Must be "
+                f"one of {list(CALVADOS_CONFIGS)}"
+            )
 
         # if 'default' is passed, use the default parameters
         if input_directory == "default":
@@ -172,13 +190,13 @@ class CALVADOS_model(ForcefieldModel):
 
         # check files are present
         if not exists(f"{data_prefix}/calvados_residues_dict.pickle"):
-            raise Exception(
+            raise FileNotFoundError(
                 f"Using [{data_prefix}] as our data directory but no calvados_residues_dict.pickle file found"
             )
 
-        # Load residue parameters from pickle
-        # Dictionary is keyed by one-letter code with values:
-        # 'three', 'one', 'MW', 'sigmas', 'q', 'CALVADOS1', 'CALVADOS2'
+        # Load residue parameters from pickle. The dictionary is keyed by one-letter
+        # code, with values holding 'three', 'MW', 'sigmas', 'q' and a lambda per
+        # version ('CALVADOS1', 'CALVADOS2')
         with open(f"{data_prefix}/calvados_residues_dict.pickle", "rb") as fh:
             residue_dict = pickle.load(fh)
 
@@ -197,8 +215,8 @@ class CALVADOS_model(ForcefieldModel):
         # Set precomputed forcefield config parameters
         self.CONFIGS = CALVADOS_CONFIGS[version]
 
-        # Calculate other parameters based off of defaults in the CALVADOS model
-        # line 65 single_chain/simulate.py & (line 138 of direct_coexistence/analyse.py)
+        # Ashbaugh-Hatch well depth: 0.2 kcal/mol, in kJ/mol
+        # (line 65 single_chain/simulate.py & line 138 of direct_coexistence/analyse.py)
         self.eps_factor = 0.2
 
         # line 65 single_chain/simulate.py
@@ -220,11 +238,22 @@ class CALVADOS_model(ForcefieldModel):
     #
     def _genParams(self):
         """
-        Function to generate the temperature/pH-dependent parameters for the calvados calculations -
-        specifically the kappa and epsilon values for the yukawa potential, and updates the
-        Histidine charge based on the pH of the solution.
+        Build the condition-dependent parameters of the Yukawa potential.
 
-        Function directly pulled from line 18 of calvados/single_chain/simulate.py
+        Sets the histidine charge from the pH, the dielectric constant of water
+        from the temperature (the CALVADOS fit), the Bjerrum length, and from it
+        the inverse Debye length for the current salt. Adapted from genParams in
+        CALVADOS single_chain/simulate.py (line 18).
+
+        The conditions the parameters were built for are recorded in
+        self._condition_state, so that _sync_conditions() can rebuild them if
+        salt, pH or temperature are changed on the object after construction.
+        Call _build_pairwise_maps() afterwards to propagate the new charges and
+        Bjerrum length into YUKAWA_EPS_ALL.
+
+        Returns
+        -------
+        None
         """
         RT = 8.3145 * self.temperature * 1e-3
 
@@ -249,21 +278,73 @@ class CALVADOS_model(ForcefieldModel):
 
         lB = 1.6021766**2 / (4 * np.pi * 8.854188 * epsw) * 6.022 * 1000 / RT
 
+        # Store the Bjerrum length (nm) so kappa can be recomputed for other salts
+        self._lB = lB
+
         # Calculate the inverse of the Debye length
-        self.yukawa_kappa = np.sqrt(8 * np.pi * lB * self.salt * 6.022 / 10)
+        self.yukawa_kappa = self._kappa_for_salt(self.salt)
 
         # Store lB*RT for yukawa_eps calculation
         self._lB_RT = lB * RT
+
+        # Remember which conditions these parameters correspond to
+        self._condition_state = (self.salt, self.pH, self.temperature)
+
+    # .....................................................................................
+    #
+    def _kappa_for_salt(self, salt):
+        """
+        Inverse Debye length (in 1/nm) for a monovalent salt concentration, using the
+        Bjerrum length computed for the current temperature.
+
+        Parameters
+        ----------
+        salt : float
+            Monovalent salt concentration in molar.
+
+        Returns
+        -------
+        float
+            Inverse Debye length in 1/nm.
+
+        """
+        return np.sqrt(8 * np.pi * self._lB * salt * 6.022 / 10)
+
+    # .....................................................................................
+    #
+    def _sync_conditions(self):
+        """
+        Rebuild the condition-dependent parameters if the conditions have changed.
+
+        The condition-scanning code (e.g. build_SALT_dependent_phase_diagrams)
+        changes conditions by assigning to model.salt, model.pH or
+        model.temperature and then rebuilding the interaction lookup, so the
+        Yukawa parameters must follow those attributes rather than being frozen at
+        construction. Every method that evaluates the Yukawa term calls this
+        first.
+
+        Returns
+        -------
+        None
+        """
+        if (self.salt, self.pH, self.temperature) != self._condition_state:
+            self._genParams()
+            self._build_pairwise_maps()
 
     # .....................................................................................
     #
     def _build_pairwise_maps(self):
         """
-        Build 2D dictionaries for sigma, lambda, and yukawa_eps pairwise parameters.
-        These are averages of single-residue parameters following CALVADOS convention
-        (from lines 70-73 of single_chain/simulate.py).
+        Build the pairwise parameter dictionaries from the per-residue parameters.
 
+        Sigma and lambda of a pair are the means of the two residues' values, and
+        the Yukawa prefactor is q1 * q2 * lB * RT, following CALVADOS
+        single_chain/simulate.py (lines 70-73). Populates SIGMA_ALL, LAMBDA_ALL
+        and YUKAWA_EPS_ALL.
 
+        Returns
+        -------
+        None
         """
         self.SIGMA_ALL = {}
         self.LAMBDA_ALL = {}
@@ -298,110 +379,143 @@ class CALVADOS_model(ForcefieldModel):
     #
     def compute_ashbaugh_hatch(self, residue_1, residue_2, r):
         """
-        Function that returns the values in kJ/mol for the Ashbaugh-Hatch (LJ)
-        potential associated with the pairwise interaction of the two
-        passed residues.
-
-        Parameters
-        -------------
-        residue_1 : str
-            Must be one of the 20 valid amino acid one-letter codes
-
-        residue_2 : str
-            Must be one of the 20 valid amino acid one-letter codes
-
-        r : int, float, array-like
-            Actual distance (in Angstroms) between the beads. Can be a single
-            number or a numpy array. Note: internally converted to nm for calculation.
-
-        Returns
-        ------------
-        float or np.array
-            Returns energy in kJ/mol that corresponds to the distance provided.
-
-        """
-        s = self.SIGMA_ALL[residue_1][residue_2]
-        lam = self.LAMBDA_ALL[residue_1][residue_2]
-
-        return ashbaugh_hatch(r * 0.1, s, lam, cutoff=self.cutoff, lj_eps=self.lj_eps)
-
-    # .....................................................................................
-    #
-    def compute_yukawa(self, residue_1, residue_2, r):
-        """
-        Function that returns the values in kJ/mol for the Yukawa (screened Coulomb)
-        potential associated with the pairwise interaction of the two
-        passed residues.
-
-        Parameters
-        -------------
-        residue_1 : str
-            Must be one of the 20 valid amino acid one-letter codes
-
-        residue_2 : str
-            Must be one of the 20 valid amino acid one-letter codes
-
-        r : int, float, array-like
-            Actual distance (in Angstroms) between the beads. Can be a single
-            number or a numpy array. Note: internally converted to nm for calculation.
-
-        Returns
-        ------------
-        float or np.array
-            Returns energy in kJ/mol that corresponds to the distance provided.
-
-        """
-        q = self.YUKAWA_EPS_ALL[residue_1][residue_2]
-
-        return yukawa(r * 0.1, q, self.yukawa_kappa, yukawa_r_cut=self.yukawa_r_cut)
-
-    # .....................................................................................
-    #
-    def compute_full_calvados(self, residue_1, residue_2, r):
-        """
-        Function that returns the values in kJ/mol for the full calvados
-        potential associated with the pairwise interaction of the two
-        passed residues.
-
-        Takes two residues and an input distance, which can be a single
-        value or a np.array.
+        Ashbaugh-Hatch (shifted, truncated Lennard-Jones) potential between two
+        residues.
 
         Parameters
         ----------
         residue_1 : str
-            Must be one of the 20 valid amino acid one-letter codes
+            One-letter code of the first residue.
 
         residue_2 : str
-            Must be one of the 20 valid amino acid one-letter codes
+            One-letter code of the second residue.
 
-        r : int, float, or list/array like
-            Array of distances in Angstroms at which to compute the
-            calvados potential. Can be a single value or an array.
+        r : float or array-like
+            Distance(s) between the beads in Angstroms (converted to nm
+            internally).
 
         Returns
         -------
-        float or np.array
-            Returns energy in kJ/mol that corresponds to the distance provided.
+        float or np.ndarray
+            Energy in kJ/mol at each distance; a float if r is a scalar.
 
+        Raises
+        ------
+        KeyError
+            If either residue is not one of the 20 amino acids.
         """
+        s = self.SIGMA_ALL[residue_1][residue_2]
+        lam = self.LAMBDA_ALL[residue_1][residue_2]
+
+        return ashbaugh_hatch(
+            np.asarray(r, dtype=float) * 0.1,
+            s,
+            lam,
+            cutoff=self.cutoff,
+            lj_eps=self.lj_eps,
+        )
+
+    # .....................................................................................
+    #
+    def compute_yukawa(self, residue_1, residue_2, r, salt=None):
+        """
+        Yukawa (Debye-Huckel screened Coulomb) potential between two residues.
+
+        Parameters
+        ----------
+        residue_1 : str
+            One-letter code of the first residue.
+
+        residue_2 : str
+            One-letter code of the second residue.
+
+        r : float or array-like
+            Distance(s) between the beads in Angstroms (converted to nm
+            internally).
+
+        salt : float, optional
+            Monovalent salt concentration in molar. If None (default), the
+            model's salt concentration is used.
+
+        Returns
+        -------
+        float or np.ndarray
+            Energy in kJ/mol at each distance; a float if r is a scalar.
+
+        Raises
+        ------
+        KeyError
+            If either residue is not one of the 20 amino acids.
+        """
+        self._sync_conditions()
+
+        q = self.YUKAWA_EPS_ALL[residue_1][residue_2]
+        kappa = self.yukawa_kappa if salt is None else self._kappa_for_salt(salt)
+
+        return yukawa(
+            np.asarray(r, dtype=float) * 0.1, q, kappa, yukawa_r_cut=self.yukawa_r_cut
+        )
+
+    # .....................................................................................
+    #
+    def compute_full_potential(
+        self, residue_1, residue_2, r, dielectric=None, salt=None
+    ):
+        """
+        Full CALVADOS pair potential: Ashbaugh-Hatch plus Yukawa.
+
+        Parameters
+        ----------
+        residue_1 : str
+            One-letter code of the first residue.
+
+        residue_2 : str
+            One-letter code of the second residue.
+
+        r : float or array-like
+            Distance(s) between the beads in Angstroms (converted to nm
+            internally).
+
+        dielectric : float, optional
+            Ignored. CALVADOS computes its dielectric constant from the
+            temperature; the argument exists for a uniform interface across
+            forcefield models.
+
+        salt : float, optional
+            Monovalent salt concentration in molar. If None (default), the
+            model's salt concentration is used.
+
+        Returns
+        -------
+        float or np.ndarray
+            Energy in kJ/mol at each distance; a float if r is a scalar.
+
+        Raises
+        ------
+        KeyError
+            If either residue is not one of the 20 amino acids.
+        """
+        # make sure the Yukawa parameters match the current salt/pH/temperature
+        self._sync_conditions()
+
         # Get parameters
         s = self.SIGMA_ALL[residue_1][residue_2]
         lam = self.LAMBDA_ALL[residue_1][residue_2]
         q = self.YUKAWA_EPS_ALL[residue_1][residue_2]
+        kappa = self.yukawa_kappa if salt is None else self._kappa_for_salt(salt)
 
         # Track if input was scalar
-        is_scalar = isinstance(r, (int, float))
+        is_scalar = np.ndim(r) == 0
 
         # Convert to numpy array and Angstroms to nm (CALVADOS uses nm internally)
         r_nm = np.atleast_1d(r) * 0.1
 
-        # Compute energy using vectorized functions
         energies = compute_calvados_energy(
             r_nm,
             s,
             lam,
             q,
-            self.yukawa_kappa,
+            kappa,
             cutoff=self.cutoff,
             lj_eps=self.lj_eps,
             yukawa_r_cut=self.yukawa_r_cut,
@@ -409,8 +523,24 @@ class CALVADOS_model(ForcefieldModel):
 
         # Return scalar if input was scalar
         if is_scalar:
-            return energies[0] if isinstance(energies, np.ndarray) else energies
+            return float(energies[0])
         return energies
+
+    def compute_full_calvados(self, residue_1, residue_2, r, salt=None):
+        """
+        Alias of compute_full_potential(), kept under its original name.
+
+        Parameters
+        ----------
+        residue_1, residue_2, r, salt
+            As for compute_full_potential().
+
+        Returns
+        -------
+        float or np.ndarray
+            Energy in kJ/mol at each distance.
+        """
+        return self.compute_full_potential(residue_1, residue_2, r, salt=salt)
 
     # .....................................................................................
     #
@@ -418,75 +548,70 @@ class CALVADOS_model(ForcefieldModel):
         self, residue_1, residue_2, r=None, dielectric=None, salt=None
     ):
         """
-        NOTE - the name of this function must match name in other forcefield
-        modules.
+        Interaction parameter between two residue types.
 
-        Standalone function that computes pairwise interaction parameter
-        between two residue types based on the finite integral between 1
-        and 3 sigma.
+        The full CALVADOS potential is evaluated on a distance grid and integrated
+        between the grid points closest to one and three sigma (see
+        ForcefieldModel._integrate_sigma_window()). The limits are located on the
+        grid in nm, as CALVADOS sigmas are in nm, and the integral is taken over
+        Angstroms, like every other FINCHES interaction parameter.
 
         Parameters
-        --------------
+        ----------
         residue_1 : str
-            Must be one of the 20 valid amino acid one-letter codes
+            One-letter code of the first residue.
 
         residue_2 : str
-            Must be one of the 20 valid amino acid one-letter codes
+            One-letter code of the second residue.
 
-        r : array-like
-            Actual distance (in Angstroms) between the beads. Can be a single
-            number or a numpy array. If not provided uses 0.1 to 30 in
-            increments of 0.01 Angstroms.
+        r : array-like, optional
+            Distance grid in Angstroms. If None (default), 0.1 to 30 Angstroms in
+            0.01 Angstrom steps (built in nm as 0.01 to 3 nm in 0.001 nm steps).
 
-        dielectric : float
-            Not used for CALVADOS (temperature-dependent). Included for interface
-            compatibility with base class.
+        dielectric : float, optional
+            Ignored. CALVADOS computes its dielectric constant from the
+            temperature; the argument exists for a uniform interface across
+            forcefield models.
 
-        salt : float
-            Not used in this method (salt is set at initialization). Included for
-            interface compatibility with base class.
+        salt : float, optional
+            Monovalent salt concentration in molar. If None (default), the
+            model's salt concentration is used.
 
         Returns
-        -----------
+        -------
         tuple
-            Returns a tuple with several values:
-            [0] - float -  interaction parameter (integral under sigma to 3*sigma)
-            [1] - np.array - full pairwise potential energy vs. distance profile
-            [2] - int - index for one sigma (in Angstroms)
-            [3] - int - index for 3 sigma (in Angstroms)
-            [4] - np.array - distance array (in Angstroms)
+            [0] : float, the interaction parameter (kJ/mol times Angstroms).
+            [1] : np.ndarray, the full potential (kJ/mol) at every distance in [4].
+            [2] : int, index in [4] closest to one sigma.
+            [3] : int, index in [4] closest to three sigma.
+            [4] : np.ndarray, the distance grid in Angstroms.
 
+        Raises
+        ------
+        KeyError
+            If either residue is not one of the 20 amino acids.
         """
+        # make sure the Yukawa parameters match the current salt/pH/temperature
+        self._sync_conditions()
+
         if r is None:
-            # Default range in nm, then convert
-            r_nm = np.arange(0.01, 3, 0.001)
+            # default grid in nm (sigmas are in nm), converted below
+            r_nm = self._get_default_distance_array(0.01, 3, 0.001)
         else:
             # Convert Angstroms to nm
-            r_nm = np.asarray(r) * 0.1
+            r_nm = np.asarray(r, dtype=float) * 0.1
 
-        # Convert to Angstroms for output and compute_full_calvados()
+        # Convert to Angstroms for output and compute_full_potential()
         r_angstroms = r_nm * 10
 
-        # Determine sigma bounds (note sigma is in nm in CALVADOS)
-        sig1 = self.SIGMA_ALL[residue_1][residue_2]
-        sig3 = self.SIGMA_ALL[residue_1][residue_2] * 3
+        combo = self.compute_full_potential(
+            residue_1, residue_2, r_angstroms, salt=salt
+        )
 
-        # Get index in distance-dependent energy that matches 1 sigma
-        # (note both r_nm and sig in nm)
-        s1 = np.argmin(np.abs(sig1 - r_nm))
-
-        # Get index of 3*sigma
-        s3 = np.argmin(np.abs(sig3 - r_nm))
-
-        # Calculate the combined energy vector of the range
-        combo = self.compute_full_calvados(residue_1, residue_2, r_angstroms)
-
-        # Take the numerical finite integral between 1 and 3 sigma to calculate
-        # an interaction parameter
-        try:
-            interaction_param = np.trapezoid(combo[s1:s3], x=r_angstroms[s1:s3])
-        except AttributeError:
-            interaction_param = np.trapz(combo[s1:s3], x=r_angstroms[s1:s3])
+        # limits located in nm, integral taken over Angstroms
+        interaction_param, s1, s3 = self._integrate_sigma_window(
+            combo, r_nm, self.SIGMA_ALL[residue_1][residue_2], x=r_angstroms
+        )
 
         return (interaction_param, combo, s1, s3, r_angstroms)
 
@@ -500,30 +625,35 @@ class CALVADOS_model(ForcefieldModel):
 #
 def ashbaugh_hatch(r, s, lam, cutoff=2.0, lj_eps=4.184 * 0.2):
     """
-    Compute the Ashbaugh-Hatch potential energy at distance r (vectorized).
+    Ashbaugh-Hatch potential (vectorized).
+
+    A Lennard-Jones potential whose attractive part is scaled by the stickiness
+    lambda, shifted so that it is zero at the cutoff and truncated (zero) beyond
+    it, as in the CALVADOS simulations.
 
     Parameters
     ----------
     r : float or array-like
-        Distance in nanometers
+        Distance(s) in nanometers.
 
     s : float
-        Sigma parameter (nm)
+        Sigma (bead diameter) in nanometers.
 
     lam : float
-        Lambda parameter (stickiness)
+        Stickiness lambda, between 0 and 1.
 
-    cutoff : float
-        Cutoff distance in nm used to shift the potential (default 2.0)
+    cutoff : float, optional
+        Cutoff distance in nanometers. Default 2.0.
 
-    lj_eps : float
-        Epsilon parameter for LJ potential (kJ/mol)
+    lj_eps : float, optional
+        Well depth in kJ/mol. Default 0.2 kcal/mol (0.8368 kJ/mol).
 
     Returns
     -------
-    float or array
-        Energy in kJ/mol
+    float or np.ndarray
+        Energy in kJ/mol at each distance; a float if r is a scalar.
     """
+    is_scalar = np.ndim(r) == 0
     r = np.atleast_1d(r)
     rc = cutoff
     eps = lj_eps
@@ -534,55 +664,63 @@ def ashbaugh_hatch(r, s, lam, cutoff=2.0, lj_eps=4.184 * 0.2):
     s_over_r_6 = (s / r) ** 6
     s_over_r_12 = s_over_r_6 * s_over_r_6
 
-    # Vectorized step function: x_out = 1 where r >= 2^(1/6)*s, else 0
-    # This is equivalent to: step(r - 2^(1/6)*s)
+    # the potential uses the attractive branch beyond the LJ minimum at 2^(1/6) s
+    # and the repulsive branch inside it
     threshold = 2 ** (1 / 6) * s
-    mask = r >= threshold  # True where we use y, False where we use z
+    mask = r >= threshold
 
-    # Compute both branches for all r values
     # y = 4*eps*lam*((s/r)^12 - (s/r)^6 - shift)  -- attractive regime
     # z = 4*eps*((s/r)^12 - (s/r)^6 - lam*shift) + eps*(1-lam)  -- repulsive regime
     y = 4 * eps * lam * (s_over_r_12 - s_over_r_6 - shift)
     z = 4 * eps * (s_over_r_12 - s_over_r_6 - lam * shift) + eps * (1 - lam)
 
-    # Select y where mask is True, z where mask is False
     result = np.where(mask, y, z)
 
-    return result[0] if len(result) == 1 else result
+    # The shift makes the potential zero at the cutoff, but past it the closed
+    # form turns slightly positive again; CALVADOS truncates it there
+    result = np.where(r <= rc, result, 0.0)
+
+    return float(result[0]) if is_scalar else result
 
 
 # .....................................................................................
 #
 def yukawa(r, q, yukawa_kappa, yukawa_r_cut=4.0):
     """
-    Compute the Yukawa (screened Coulomb) potential energy at distance r (vectorized).
+    Yukawa (Debye-Huckel screened Coulomb) potential (vectorized).
+
+    Shifted so that it is zero at the cutoff and truncated (zero) beyond it, as
+    in the CALVADOS simulations.
 
     Parameters
     ----------
     r : float or array-like
-        Distance in nanometers
+        Distance(s) in nanometers.
 
     q : float
-        Charge product prefactor (q1*q2*lB*RT)
+        Pair prefactor q1 * q2 * lB * RT in kJ/mol nm.
 
     yukawa_kappa : float
-        Inverse Debye length
+        Inverse Debye length in 1/nm.
 
-    yukawa_r_cut : float
-        Cutoff distance (nm)
+    yukawa_r_cut : float, optional
+        Cutoff distance in nanometers. Default 4.0.
 
     Returns
     -------
-    float or array
-        Energy in kJ/mol
+    float or np.ndarray
+        Energy in kJ/mol at each distance; a float if r is a scalar.
     """
+    is_scalar = np.ndim(r) == 0
     r = np.atleast_1d(r)
 
-    # Already vectorized - just compute shift once and apply to all r
     shift = np.exp(-yukawa_kappa * yukawa_r_cut) / yukawa_r_cut
     result = q * (np.exp(-yukawa_kappa * r) / r - shift)
 
-    return result[0] if len(result) == 1 else result
+    # zero at the cutoff by construction; truncated beyond it
+    result = np.where(r <= yukawa_r_cut, result, 0.0)
+
+    return float(result[0]) if is_scalar else result
 
 
 # .....................................................................................
@@ -591,49 +729,42 @@ def compute_calvados_energy(
     r, s, lam, q, yukawa_kappa, cutoff=2.0, lj_eps=4.184 * 0.2, yukawa_r_cut=4.0
 ):
     """
-    Compute the full calvados potential energy between two residues (vectorized).
+    Full CALVADOS pair potential: Ashbaugh-Hatch plus Yukawa (vectorized).
 
-    NOTE - to ensure we can use the native CALVADOS parameters and implementation,
-    distance here (r) must be in nanometers as opposed to Angstroms. We use Angstroms
-    for consistency with finches everywhere else, but the forcefield code that in
-    principle is "internal" operates in whatever units the native forcefield uses.
-
-    Note this combines an Ashbaugh-Hatch potential with a Yukawa potential. The
-    Ashbaugh-Hatch potential is a Lennard-Jones potential with a shifted cutoff,
-    and the Yukawa potential is a screened Coulombic potential.
+    Like the two potentials it combines, this works in nanometres, the units the
+    native CALVADOS parameters are in. The CALVADOS_model methods take Angstroms,
+    like the rest of FINCHES, and convert before calling it.
 
     Parameters
-    --------------
+    ----------
     r : float or array-like
-        Distance in nanometers between two residues. Can be scalar or array.
+        Distance(s) in nanometers.
 
     s : float
-        Sigma parameter for the LJ potential
+        Sigma (bead diameter) in nanometers.
 
     lam : float
-        Lambda parameter for the LJ potential
+        Stickiness lambda.
 
     q : float
-        Charge parameter for the Yukawa potential
+        Yukawa pair prefactor q1 * q2 * lB * RT in kJ/mol nm.
 
     yukawa_kappa : float
-        Kappa parameter for the Yukawa potential
+        Inverse Debye length in 1/nm.
 
-    cutoff : float
-        Cutoff distance for the LJ potential
+    cutoff : float, optional
+        Ashbaugh-Hatch cutoff in nanometers. Default 2.0.
 
-    lj_eps : float
-        Epsilon parameter for the LJ potential
+    lj_eps : float, optional
+        Ashbaugh-Hatch well depth in kJ/mol. Default 0.8368 (0.2 kcal/mol).
 
-    yukawa_r_cut : float
-        Cutoff distance for the Yukawa potential
+    yukawa_r_cut : float, optional
+        Yukawa cutoff in nanometers. Default 4.0.
 
     Returns
-    -----------
-    float or array
-        The total potential energy between the two residues at
-        the given distance(s).
-
+    -------
+    float or np.ndarray
+        Energy in kJ/mol at each distance; a float if r is a scalar.
     """
     ah = ashbaugh_hatch(r, s, lam, cutoff=cutoff, lj_eps=lj_eps)
     yu = yukawa(r, q, yukawa_kappa, yukawa_r_cut=yukawa_r_cut)
@@ -641,5 +772,5 @@ def compute_calvados_energy(
     return yu + ah
 
 
-# Backwards compatibility alias
+# Backwards compatibility alias: the class was originally called calvados_model
 calvados_model = CALVADOS_model

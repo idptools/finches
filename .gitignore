@@ -68,8 +68,6 @@ instance/
 # Scrapy stuff:
 .scrapy
 
-.DS_Store
-
 # Sphinx documentation
 docs/_build/
 
@@ -115,4 +113,3 @@ ENV/
 
 # In-tree generated files
 */_version.py
-epsilon_calculation_old.py

@@ -2,7 +2,7 @@ FINCHES
 ==============================
 ![Finches Logo](finches_logo_v1.png)
 
-### Current version: 0.1.4 (beta public)
+### Current version: 0.1.5 (beta public)
 
 ## About
 FINCHES (**F**irst-principle **I**nteractions via **CHE**mical **S**pecificity) is a software package for computing IDR-associated chemical specificity. The FINCHES paper was published in May 2025 [and is available here](https://www.science.org/stoken/author-tokens/ST-2641/full).
@@ -75,7 +75,7 @@ FINCHES relies on forcefield parameters developed by Joseph et al. & Lotthammer 
 ## Installation
 The installation below has been tested in a clean conda environment using Python 3.9+; YMMV in other systems. 
 
-This does not use anything different from our usual stack (`soursop`, `mdtraj`, `numpy`, `scipy` `cython` etc.) so *should* probably install easily into your "default" environment. As of May 2025 we generally recommend Python 3.11 or 3.12 for performance reasons.
+This does not use anything different from our usual stack (`numpy`, `scipy`, `cython`, `matplotlib`, `metapredict`, `mdtraj`, `networkx` etc.) so *should* probably install easily into your "default" environment. As of May 2025 we generally recommend Python 3.11 or 3.12 for performance reasons.
 
 ### Dependency notes
 * **Numpy:** FINCHES will shortly require numpy 2 or higher to run, and we encourage folks to update to a version of numpy above 2.
@@ -98,9 +98,10 @@ First, install `cython`, `numpy`, and `pytorch` using CONDA.
 Specifically, we recommend the following install instructions (this again can be run anywhere):
 
 	# ensure dependencies are from the same ecosystem (conda)
-	conda install numpy pytorch scipy cython matplotlib jupyter  -c pytorch
+	conda install numpy pytorch scipy cython matplotlib jupyter networkx -c pytorch
 	
-	# we do this separately and last
+	# we do this separately and last; mdtraj and networkx are needed for the
+	# folded-domain surface analysis (finches.utils.structure_surface)
 	conda install mdtraj
 	
 	# required for integrated disorder prediction; note metapredict is
@@ -158,10 +159,10 @@ Note this may take a second to run the first time you launch it...
 If this print's "success" then you're good to go! If not something is up...
 
 ### FINCHES in uv
-As of July 2025 we (the Holehouse lab) are experimenting with moving from conda to [uv](https://docs.astral.sh/uv/), a new high-performance environment and package manager. We will provide explicit instructions 	for how to set FINCHES up with uv in the 0.1.4 update which may become our recommended installation pipeline going forward.
+As of July 2025 we (the Holehouse lab) are experimenting with moving from conda to [uv](https://docs.astral.sh/uv/), a new high-performance environment and package manager. Explicit instructions for setting FINCHES up with uv will follow in a future release; uv may become our recommended installation route going forward.
 
 ### Demo
-Head on over to `demo/` directory for some Jupyter notebooks showing the types of things you can do with FINCHES. The [documentation](https://finches.readthedocs.io/en/stable/index.html)
+Head on over to the `examples/` directory for Jupyter notebooks showing the types of things you can do with FINCHES; the [documentation](https://finches.readthedocs.io/en/stable/index.html) walks through the same functionality in more detail.
 
 ### Changelog
 Please see [changelog.md](changelog.md) to track version changes.

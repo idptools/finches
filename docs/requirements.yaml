@@ -1,12 +1,12 @@
+# Conda environment for building the documentation locally. Read the Docs
+# does not use this file; it installs docs/requirements.txt (see .readthedocs.yml).
 name: docs
 channels:
+  - conda-forge
 dependencies:
-    # Base depends
   - python
   - pip
-
-
-
-    # Pip-only installs
-  #- pip:
-
+  - sphinx
+  - sphinx_rtd_theme
+  - numpy
+  - versioningit

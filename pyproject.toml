@@ -1,10 +1,11 @@
 [build-system]
-requires = ["setuptools>=61.0",
-	   "wheel",
-	   "versioningit~=2.0",
-	   "cython",
-	   "numpy"]
-	 
+requires = [
+    "setuptools>=61.0",
+    "wheel",
+    "versioningit~=2.0",
+    "cython",
+    "numpy",
+]
 build-backend = "setuptools.build_meta"
 
 # Self-descriptive entries which should always be present
@@ -16,7 +17,7 @@ dynamic = ["version"]
 readme = "README.md"
 authors = [
     { name = "Garrett M. Ginell", email = "g.ginell@wustl.edu" },
-	{ name = "Alex S. Holehouse", email = "alex.holehouse@wustl.edu" },
+    { name = "Alex S. Holehouse", email = "alex.holehouse@wustl.edu" },
 ]
 license = { text = "CC BY-NC 4.0" }
 
@@ -24,26 +25,33 @@ license = { text = "CC BY-NC 4.0" }
 classifiers = [
     "Programming Language :: Python :: 3",
 ]
-requires-python = ">=3.7"
+requires-python = ">=3.9"
 # Declare any run-time dependencies that should be installed with the package.
 dependencies = [
-    "numpy", "afrc>=0.3.4", "scipy", "soursop>=0.2.4", "pandas", "metapredict", "ipython"
+    "numpy",
+    "scipy",
+    "metapredict",
+    "ipython",
+    "matplotlib",
+    "tqdm",
+    "mdtraj",
+    "networkx",
 ]
 
-# Update the urls once the hosting is set up.
-#[project.urls]
-#"Source" = "https://github.com/<username>/finches/"
-#"Documentation" = "https://finches.readthedocs.io/"
+[project.urls]
+"Source" = "https://github.com/idptools/finches"
+"Documentation" = "https://finches.readthedocs.io"
+"Webserver" = "https://www.finches-online.com"
 
 [project.optional-dependencies]
 test = [
-  "pytest>=6.1.2",
-  "pytest-runner"
+    "pytest>=6.1.2",
+    "pytest-cov",
 ]
 
 [tool.setuptools]
 zip-safe = false
-include-package-data = true 
+include-package-data = true
 
 [tool.setuptools.packages.find]
 namespaces = false
@@ -74,3 +82,10 @@ default-tag = "1.0.0"
 
 [tool.versioningit.write]
 file = "finches/_version.py"
+
+[tool.ruff]
+# the line length ruff format already produces (its default), made explicit;
+# the target version follows requires-python. Notebooks are exploratory and
+# carry executed outputs, so they are neither linted nor reformatted.
+line-length = 88
+extend-exclude = ["*.ipynb"]

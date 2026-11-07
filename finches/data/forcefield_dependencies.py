@@ -1,68 +1,81 @@
 """
-Module to support forcefields passed to the InteractionMatrixConstructor
+Calibration of forcefield-dependent constants for the InteractionMatrixConstructor.
 
-By : Garrett M. Ginell & Alex S. Holehouse 
-2023-08-06
+The null interaction baseline can be recomputed here from any forcefield. The
+charge prefactor cannot be derived automatically - it involves judgement about
+how strong local charge effects should be - and is calibrated in
+finches/forcefields/calibration/prefactor_calibration.ipynb.
+
+By: Garrett M. Ginell & Alex S. Holehouse
 """
 
 from scipy.optimize import root_scalar
 
 from finches import epsilon_stateless
 
+
 ## ------------------------------------------------------------------------------
 ##
-def get_null_interaction_baseline(X_model, lower_end=-10.0, upper_end=10.0, alternative_sequence=None):
+def get_null_interaction_baseline(
+    X_model, lower_end=-10.0, upper_end=10.0, alternative_sequence=None
+):
     """
-    A function that calibrates a null interaction baseline against a GS repeat,
-    which we assume to be correctly described as having an epsilon of 0.
+    Calibrate the null interaction baseline so that poly(GS) has an epsilon of zero.
 
-    NOTE: this may not good be a good assumption to make, and for CALVADOS (for example)
-    we do have a minor empyrical correction to make from the GS value.
+    We assume a GS repeat is the right reference for "no net interaction" and
+    solve for the baseline b at which its epsilon against itself (with no charge
+    or aliphatic weighting) is zero. Because epsilon is linear in b the root is
+    unique. The GS assumption is itself an approximation, and the shipped
+    CALVADOS2 baseline includes a small empirical correction to the value this
+    returns.
 
     Parameters
-    ---------------
-    X_model : obj
-        An instantiation of the InteractionMatrixConstructor class
+    ----------
+    X_model : finches.epsilon_calculation.InteractionMatrixConstructor
+        Constructor for the forcefield to calibrate.
 
-    lower_end : float
-        The lower end of the bracket to search for the null_interaction_baseline
+    lower_end : float, optional
+        Lower end of the bracket searched for the baseline. Default -10.0.
 
-    upper_end : float
-        The upper end of the bracket to search for the null_interaction_baseline
+    upper_end : float, optional
+        Upper end of the bracket searched for the baseline. Default 10.0.
 
-    alternative_sequence : str
-        An alternative sequence to use for the calibration. If None, the default
-        400-residue GS sequence is used.
+    alternative_sequence : str, optional
+        Sequence to calibrate against instead of the default 400-residue GS
+        repeat. Default None.
 
     Returns
-    ---------------
+    -------
+    float
+        The baseline b at which the reference sequence has zero epsilon.
 
-    null_interaction_baseline : float 
-        The model-specific baseline used to split the matrix into attractive 
-        and repulsive interactions.
+    Raises
+    ------
+    ValueError
+        If the root is not bracketed by [lower_end, upper_end], or the solver
+        does not converge.
 
     """
 
     if alternative_sequence is not None:
         seq = alternative_sequence
     else:
-        seq='GS'*200
+        seq = "GS" * 200
 
-    def f(null_interaction_baseline):        
-        return epsilon_stateless.get_sequence_epsilon_value(seq,
-                                                            seq,
-                                                            null_interaction_baseline=null_interaction_baseline,
-                                                            charge_prefactor=None,
-                                                            X=X_model,
-                                                            use_charge_weighting=False,
-                                                            use_aliphatic_weighting=False)
+    def f(null_interaction_baseline):
+        return epsilon_stateless.get_sequence_epsilon_value(
+            seq,
+            seq,
+            X_model,
+            null_interaction_baseline=null_interaction_baseline,
+            use_charge_weighting=False,
+            use_aliphatic_weighting=False,
+        )
 
-                                                            
-    
-    # expect null to be between -10 and +10 but this could be adjusted if needed; solve for null_interaction_baseline
     result = root_scalar(f, bracket=[lower_end, upper_end])
+    if not result.converged:
+        raise ValueError(
+            f"Null interaction baseline calibration did not converge: {result.flag}"
+        )
 
     return result.root
-
-
-# to compute charge prefactor see the prefactor_calibration.ipynb notebook associated with finches
